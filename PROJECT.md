@@ -11,9 +11,13 @@ HitchStream is a WordPress-based platform for live-streaming wedding events (and
 - **Parent theme** (`celebration/`) — A full WordPress theme with custom post types, template pages, shortcodes, and WooCommerce support.
 - **Child theme** (`celebration-child/`) — Contains all HitchStream-specific logic: the custom video player, page templates, cloudflare integration, and webhook infrastructure.
 - **Cloudflare Stream** — Used for live ingest, transcoding, and HLS delivery. All API calls go through WordPress (server-side proxy) or webhook events — never directly from the browser.
-- **HSPlayer** (`<hs-video>`) — A custom web component (HTML5 Shadow DOM) that plays live HLS streams with a prebuffer gate, status overlay, and debug panel.
+- **HSPlayer** (`<hs-video>`) — A custom web component (HTML5 Shadow DOM) that plays **live HLS streams** (with prebuffer gate, status overlay, debug panel) and **pre-recorded VOD videos** (loaded directly without polling).
 
-The core workflow: a streamer pushes video to a Cloudflare live input → Cloudflare sends webhooks to WordPress → WordPress caches state in transients → the player polls a WordPress endpoint every 10 seconds → the player loads the HLS manifest once the stream is confirmed live.
+Two player modes:
+- **Live mode** — Polls WordPress every 10s for stream status, loads HLS manifest only after user gesture and live detection.
+- **VOD mode** — Loads a pre-recorded Cloudflare Stream video directly via its video UID, no polling or state machine.
+
+The live stream workflow: a streamer pushes video to a Cloudflare live input → Cloudflare sends webhooks to WordPress → WordPress caches state in transients → the player polls a WordPress endpoint every 10 seconds → the player loads the HLS manifest once the stream is confirmed live.
 
 ---
 
@@ -21,23 +25,28 @@ The core workflow: a streamer pushes video to a Cloudflare live input → Cloudf
 
 ```
 Streamer ──RTMP/SRT──> Cloudflare Live Input
-                              │
-                   ┌──────────┴──────────┐
-                   │                     │
-            Webhooks (POST)        HLS Manifest
-                   │                     │
-       WordPress Webhook            Player
-         Receiver                  Polls WP
-                   │                     │
-          set_transient()      Gets HLS URL
-               │                     │
-               └─────────┐            │
-                         │            │
-                   WP live-state     Load
-                   Endpoint (GET)    Source
-                         │
-                   Player State Machine
-                   (IDLE → PREPARING → PLAYING)
+                       │
+            ┌──────────┴──────────┐
+            │                     │
+         Webhooks (POST)        HLS Manifest
+            │                     │
+  WordPress Webhook            Player
+    Receiver                  Polls WP
+            │                     │
+       set_transient()      Gets HLS URL
+            │                     │
+            └─────────┐            │
+                      │            │
+           WP live-state     Load
+           Endpoint (GET)    Source
+                      │
+           Player State Machine
+           (IDLE → PREPARING → PLAYING)
+
+
+VOD Mode (separate path):
+  inputId (video UID) -> loadVideoDirectly() -> Hls.js loadSource() -> playback
+  (No polling, no state machine, no prebuffer gate)
 ```
 
 ---
@@ -94,24 +103,97 @@ CloudFlare Docs/                # Cloudflare Stream API reference docs
 
 ### 1. HSPlayer (`celebration-child/js/HSPlayerElement.js`)
 
-A custom HTML web component (`<hs-video>`) that wraps Hls.js with wedding-specific UX:
+A custom HTML web component (`<hs-video>`) that wraps Hls.js to play **both live HLS streams and pre-recorded (VOD) Cloudflare Stream videos** with wedding-specific UX. The player has two completely separate modes determined by the `live` parameter passed via `setApiInfo()`:
 
-**State Machine:**
-- `IDLE` — No stream active, shows poster image
-- `PREPARING` — HLS manifest loaded, prebuffer gate counting up
-- `PLAYING` — Video is playing
-- `FATAL` — Unrecoverable error (viewer must refresh)
+#### Live Stream Mode (`live=true`)
 
-**Key Features:**
-- **Dynamic prebuffer gate** — Measures network throughput and buffer headroom before starting playback. Conservative networks (headroom < 1.0x) wait up to 28s; healthy networks (headroom >= 2.0x) start after 10s. This prevents playback from starting on slow connections before enough buffer is ready, then gives up after 60s.
-- **Prebuffer gate timeout** — Even on slow networks, playback starts after 60s regardless of buffer amount.
-- **Audio sync monitoring** — Tracks audio/video PTS from HLS fragment parsing. Shows an "Audio sync issue" message when drift exceeds 4 frames.
-- **Status overlay** — Top-left animated messages: "Waiting for stream...", "Preparing to stream...", "Reconnecting", "Live", "Paused/Ended", "Error".
-- **Debug panel** — Top-right overlay showing state, buffer level, latency, videoUID, poll count, error_code, and source.
-- **User gesture unlock** — Player waits for the first click anywhere on the page before loading the HLS stream (browser autoplay policy). After the first unlock, clicking the play button begins loading the stream.
-- **Fatal recovery** — Media errors get 3 automatic recovery attempts. Network errors go straight to fatal state.
-- **HLS config** — `lowLatencyMode: false`, `maxBufferLength: 90s`, `backBufferLength: 120s`, `maxAudioFramesDrift: 30`, `startLevel: 0` (lowest quality first).
-- **Poster images** — Three poster images configurable via attributes (`poster-initial`, `poster-idle`, `poster-fatal`).
+The player polls WordPress every 10 seconds for live stream status. When a stream is confirmed live, it defers loading the HLS manifest until the viewer clicks (user gesture unlock).
+
+#### VOD / Pre-recorded Video Mode (`live=false`)
+
+When `live=false`, the player skips all polling and state machine logic. The `inputId` parameter is interpreted as a **Cloudflare Stream video UID** (not a live input ID). The player constructs the HLS URL `https://customer-{CF_CUSTOMER_ID}/{inputId}/manifest/video.m3u8` and loads it directly via `loadVideoDirectly()`. VOD playback has no prebuffer gate, no fatal timer, and no polling — just straight Hls.js loading with autoplay support.
+
+#### State Machine
+
+- `IDLE` — No stream active, shows poster image. For live: polling continues. For VOD: video is paused, controls hidden.
+- `PREPARING` — HLS manifest loaded via `_probeManifestAndStart()`, prebuffer gate counting up. Only used in live mode.
+- `PLAYING` — Video is playing.
+- `FATAL` — Unrecoverable error (viewer must refresh).
+
+#### Player Lifecycle
+
+1. **Constructor** — Initializes all internal state (hls instance, timers, counters, PTS trackers, status overlay refs).
+2. **`setApiInfo({inputId, isLive, autoplay})`** — Called by the page template. Sets `this.inputId`, `this.isLive`, `this.autoplay`. If the component is already connected, dispatches to either `startPolling()` (live) or `loadVideoDirectly()` (VOD).
+3. **`connectedCallback()`** — Builds the Shadow DOM UI (video element, overlay with poster img, play button, debug panel, status message overlay). Wires up `playing` and `click` event listeners. Dispatches to live or VOD path.
+4. **`disconnectedCallback()`** — Cleans up all timers, removes event listeners, destroys Hls.js instance.
+
+#### Key Methods
+
+- **`loadVideoDirectly()` (VOD path)** — Constructs HLS URL from `inputId` as a video UID. Loads via Hls.js or native HLS. On manifest parse, attempts autoplay (or muted retry). No prebuffer gate, no polling, no state machine transitions.
+- **`startPolling()` (live path)** — Polls `live-state.php` every 10s. On live detection: saves HLS URL, starts status countdown. On idle: destroys HLS, pauses video, shows idle poster. On error: maps Cloudflare error codes to viewer messages. On reconnecting: shows status overlay without stopping playback.
+- **`_probeManifestAndStart()`** — Probes the HLS manifest URL via CORS fetch before loading with Hls.js. Probes every 1500ms with a 5s initial delay. On success, gives a 2s grace period then calls `hls.loadSource()` and `hls.startLoad()`.
+- **`loadStream(streamUrl)`** — Creates a new Hls.js instance with wedding-optimized config. Wires up `FRAG_PARSING_DATA` (audio/video PTS tracking for sync monitoring), `FRAG_LOADED` (throughput sampling for prebuffer gate), `MANIFEST_PARSED` (starts prebuffer gate + fatal timer), and `ERROR` (media error recovery).
+- **`managePlayerState(newState, streamUrl)`** — Bridges between state changes. For PLAYING: loads stream. For IDLE: destroys HLS, pauses video, shows poster, restarts polling.
+- **`prepareToPlay(streamUrl)`** — Loads stream without transitioning to PLAYING state. Used after user gesture but before playback actually starts.
+- **`tryStartPlayback()`** — Runs the prebuffer gate. Measures buffer ahead, segment duration, throughput (20th percentile), and current bitrate. Maps headroom to threshold: headroom >= 2.0x → 10s, >= 1.5x → 12s, >= 1.2x → 15s, >= 1.0x → 20s, < 1.0x → 28s. Also enforces minimum 3 segments. Gives up after 60s. Also caps quality to `currentLevel - 1` when headroom < 1.2x.
+- **`startFatalTimer(initialBufferAhead)`** — Starts a 45s countdown. Resets if buffer grows by 2s+ during countdown. Enters FATAL if playback hasn't started.
+- **`enterFatalState()`** — Cancels timers, stops polling, destroys HLS, pauses video, shows fatal poster, hides UI.
+- **`_attemptAutoplay(video)`** — Attempts `video.play()`. On failure, retries with `video.muted = true`.
+- **`setPoster(url, type)`** — Sets poster on both the video element and the overlay img. Types: `initial`, `idle`, `fatal` (defaults: `POSTER_INITIAL_URL`, `POSTER_IDLE_URL`, `POSTER_FATAL_URL`).
+
+#### Status Overlay
+
+Top-left animated messages (shown only after user gesture):
+- `"Waiting for stream..."` (animated ellipsis) — No stream detected yet
+- `"Preparing to stream..."` (animated ellipsis) — Manifest loaded, prebuffering
+- `"Reconnecting"` (animated ellipsis) — Streamer reconnecting mid-broadcast
+- `"Live"` (static, fades after 3s) — Stream confirmed live
+- `"Paused/Ended"` (static, fades after 3s) — Stream ended after playing
+- `"Error"` (static, fades after 3s) — Error or fatal state
+- `"Audio sync issue"` (animated ellipsis) — Audio/video drift detected (debug only)
+
+#### Debug Panel
+
+Top-right overlay (enabled via `?debug=1` or `debug` attribute):
+- `state` — Current player state
+- `prebuffer` — Buffer ahead in seconds
+- `In Progress` — Whether video has rendered a frame
+- `clicked` — Whether user has unlocked gesture
+- `latency` — HLS latency (debug only)
+- `live` — Whether stream is live
+- `videoUID` — Current video UID
+- `polls` — Number of polls performed
+- `error_code` — Cloudflare error code (if any)
+- `source` — Data source: `webhook`, `cf_probe`, or `no_data`
+
+#### Key Constants
+
+| Constant | Value | Purpose |
+|----------|-------|--------|
+| `MIN_PREBUFFER_SECONDS` | 10 | Minimum buffer before start |
+| `MIN_PREBUFFER_SEGMENTS` | 3 | Minimum segments before start |
+| `MIN_THROUGHPUT_SAMPLES` | 3 | Samples needed to trust throughput |
+| `PREBUFFER_TIMEOUT_MS` | 60000 | Start anyway after this wait |
+| `MAX_THROUGHPUT_SAMPLES` | 10 | Cap for stored throughput |
+| `POLL_INITIAL_DELAY_MS` | 3000 | Delay before first poll |
+| `POLL_INTERVAL_MS` | 10000 | Polling interval |
+| `FATAL_TIMEOUT_MS` | 45000 | Fatal countdown duration |
+| `MAX_MEDIA_ERROR_RECOVERY_ATTEMPTS` | 3 | Media error recovery retries |
+| `AUDIO_DRIFT_FRAMES_THRESHOLD` | 4 | Audio/video sync threshold |
+| `CLOUDFLARE_CUSTOMER_ID` | `juu1r5es4cbffqjf` | Cloudflare customer ID |
+
+**Hls.js Configuration:**
+- `lowLatencyMode: false` — Prefer smoothness over low-latency
+- `liveSyncMode: 'buffered'` — Buffer-based sync
+- `liveSyncDuration: 20` — Target live sync duration
+- `liveMaxLatencyDuration: 60` — Maximum allowed latency
+- `maxBufferLength: 90` / `maxMaxBufferLength: 300` — Forward buffer limits
+- `maxBufferSize: 100MB` / `maxBufferHole: 1` — Buffer size/hole tolerance
+- `backBufferLength: 120` — Back buffer
+- `maxAudioFramesDrift: 30` — Audio sync drift tolerance
+- `startLevel: 0` — Start at lowest quality
+- `capLevelToPlayerSize: true` — Auto-adjust resolution
+- `startFragPrefetch: true` — Pre-fetch first fragment
 
 ### 2. Cloudflare Live Webhooks (`celebration-child/endpoints/cf-live-webhook.php`)
 
@@ -228,15 +310,16 @@ https://hitchstream.com/wp-content/themes/celebration-child/endpoints/cf-live-we
 
 | Parameter | Description |
 |-----------|-------------|
-| `inputId` | Cloudflare live input ID (required) |
+| `inputId` | **Dual semantics:** When `live=true`, this is a **Cloudflare live input ID** (for polling stream status). When `live=false`, it's a **Cloudflare Stream video UID** for a pre-recorded VOD (loaded directly via `loadVideoDirectly()`, no polling). (required) |
 | `live` | Whether to start polling (true/false) |
 | `autoplay` | Whether to auto-load after user gesture (true/false, default true) |
 | `initialposterURL` | URL for initial poster image |
 | `idleposterURL` | URL for idle/ended poster image |
+| `poster-fatal` | URL for fatal state poster image (via attribute, not URL param) |
 
 ### Debug Mode
 
-Add `?debug=1` to the player URL to enable the debug panel and verbose console logging.
+Add `?debug=1` or the `debug` HTML attribute to enable the debug panel and verbose console logging.
 
 ---
 
