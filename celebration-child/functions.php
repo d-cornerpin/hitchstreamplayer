@@ -710,10 +710,13 @@ function hs_compute_server_live_state($input_id) {
 }
 
 /**
- * Register webhooks with Cloudflare for a given live input.
+ * Register webhooks with Cloudflare (account-level).
  * Call during setup or from an admin UI.
+ *
+ * Cloudflare docs: PUT /accounts/{account_id}/stream/webhook
+ * Returns a 'secret' in the response that must be stored for signature verification.
  */
-function hs_register_cf_webhook($input_id, $callback_url, $secret) {
+function hs_register_cf_webhook($callback_url, $secret) {
     $email    = get_option('HSCF_cloudflare_email', '');
     $api_key  = get_option('HSCF_cloudflare_api_key', '');
     $account  = get_option('HSCF_cloudflare_account_id', '');
@@ -722,8 +725,8 @@ function hs_register_cf_webhook($input_id, $callback_url, $secret) {
         return ['error' => 'Cloudflare credentials not configured'];
     }
 
-    $ch = curl_init("https://api.cloudflare.com/client/v4/accounts/{$account}/stream/live_inputs/{$input_id}/webhooks");
-    curl_setopt($ch, CURLOPT_POST, true);
+    $ch = curl_init("https://api.cloudflare.com/client/v4/accounts/{$account}/stream/webhook");
+    curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'PUT');
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_TIMEOUT, 10);
     curl_setopt($ch, CURLOPT_HTTPHEADER, [
@@ -732,22 +735,84 @@ function hs_register_cf_webhook($input_id, $callback_url, $secret) {
         "Content-Type: application/json",
     ]);
     curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
-        'callback_uri' => $callback_url,
-        'callback_auth' => [
+        'notification_url' => $callback_url,
+        'notificationUrl'  => $callback_url,
+        'notification_auth' => [
             'strategy' => 'secret_header',
             'secret'   => $secret,
         ],
-        'events' => ['live_input.connected', 'live_input.disconnected', 'live_input.errored'],
     ]));
     $resp = curl_exec($ch);
     $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
 
     if ($http_code < 200 || $http_code >= 300) {
-        return ['error' => 'Cloudflare API error', 'status' => $http_code];
+        return ['error' => 'Cloudflare API error', 'status' => $http_code, 'response' => $resp];
     }
 
     return json_decode($resp, true);
+}
+
+/**
+ * List currently registered Cloudflare Stream webhooks (account-level).
+ * Cloudflare docs: GET /accounts/{account_id}/stream/webhook
+ */
+function hs_list_cf_webhooks() {
+    $email    = get_option('HSCF_cloudflare_email', '');
+    $api_key  = get_option('HSCF_cloudflare_api_key', '');
+    $account  = get_option('HSCF_cloudflare_account_id', '');
+
+    if (!$email || !$api_key || !$account) {
+        return ['error' => 'Cloudflare credentials not configured'];
+    }
+
+    $ch = curl_init("https://api.cloudflare.com/client/v4/accounts/{$account}/stream/webhook");
+    curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'GET');
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, [
+        "X-Auth-Email: {$email}",
+        "X-Auth-Key: {$api_key}",
+        "Content-Type: application/json",
+    ]);
+    $resp = curl_exec($ch);
+    $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($http_code < 200 || $http_code >= 300) {
+        return ['error' => 'Cloudflare API error', 'status' => $http_code, 'response' => $resp];
+    }
+
+    return json_decode($resp, true);
+}
+
+/**
+ * Delete a Cloudflare Stream webhook (account-level).
+ * Cloudflare docs: DELETE /accounts/{account_id}/stream/webhook
+ */
+function hs_delete_cf_webhook() {
+    $email    = get_option('HSCF_cloudflare_email', '');
+    $api_key  = get_option('HSCF_cloudflare_api_key', '');
+    $account  = get_option('HSCF_cloudflare_account_id', '');
+
+    if (!$email || !$api_key || !$account) {
+        return ['error' => 'Cloudflare credentials not configured'];
+    }
+
+    $ch = curl_init("https://api.cloudflare.com/client/v4/accounts/{$account}/stream/webhook");
+    curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'DELETE');
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, [
+        "X-Auth-Email: {$email}",
+        "X-Auth-Key: {$api_key}",
+        "Content-Type: application/json",
+    ]);
+    $resp = curl_exec($ch);
+    $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    return ['status' => $http_code, 'body' => json_decode($resp, true)];
 }
 
 /**

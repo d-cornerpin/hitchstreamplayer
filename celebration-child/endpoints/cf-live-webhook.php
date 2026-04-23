@@ -129,14 +129,15 @@ if (isset($parsed['live_input_errored']['error']['code'])) {
     $error_code = $parsed['live_input_errored']['error']['code'];
 }
 
-// Extract state from nested data if present.
-$state = $parsed['data']['state'] ?? null;
-if (isset($parsed['live_input_errored']['state'])) {
-    $state = $parsed['live_input_errored']['state'];
-}
+// Extract state from nested data (only present in live_input_errored events).
+$state = $parsed['live_input_errored']['state'] ?? null;
 
-// Validate signature.
-$signature = $_SERVER['HTTP_CF_WEBHOOK_SIGNATURE'] ?? '';
+// Validate signature. Cloudflare docs don't specify the exact header name;
+// try all common variants.
+$signature = $_SERVER['HTTP_CF_WEBHOOK_SIGNATURE']
+    ?? $_SERVER['HTTP_CF_WEBHOOK_SIG']
+    ?? $_SERVER['HTTP_X_CF_WEBHOOK_SIGNATURE']
+    ?? '';
 if (!hs_verify_webhook($body, $signature)) {
     http_response_code(403);
     echo json_encode(['error' => 'Invalid webhook signature']);
@@ -164,8 +165,9 @@ if (!$normalized) {
     exit;
 }
 
-// Get videoUID if present.
-$video_uid = $parsed['data']['video_uid'] ?? $parsed['data']['videoUID'] ?? '';
+// Cloudflare webhook payload does not include videoUID — the live-state probe
+// will fetch it on demand. Leave empty here.
+$video_uid = '';
 
 // Store in transient.
 $ttl = hs_state_ttl($normalized);

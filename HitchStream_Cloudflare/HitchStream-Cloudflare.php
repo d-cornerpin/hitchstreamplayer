@@ -171,6 +171,92 @@ function HSCF_register_settings()
     add_settings_field("HSCF_cloudflare_account_id_field", "CloudFlare Account ID", "HSCF_cloudflare_account_id_field_callback", "HitchStream_Cloudflare", "HSCF_cloudflare_settings_section");
 }
 
+// --- Webhook Settings ---
+
+function HSCF_register_webhook_settings()
+{
+    register_setting("HSCF_webhook_settings", "HSCF_webhook_url");
+    register_setting("HSCF_webhook_settings", "HSCF_webhook_secret");
+
+    add_settings_section("HSCF_webhook_settings_section", "Webhook Settings", "HSCF_webhook_settings_section_callback", "HitchStream_Cloudflare");
+    add_settings_field("HSCF_webhook_url_field", "Webhook Callback URL", "HSCF_webhook_url_field_callback", "HitchStream_Cloudflare", "HSCF_webhook_settings_section");
+    add_settings_field("HSCF_webhook_secret_field", "Webhook Secret (for Cloudflare)", "HSCF_webhook_secret_field_callback", "HitchStream_Cloudflare", "HSCF_webhook_settings_section");
+}
+
+function HSCF_webhook_settings_section_callback()
+{
+    echo '<p>Configure webhook notifications from Cloudflare Stream. After registering, the secret returned by Cloudflare will be stored in the Secret field above for signature verification.</p>';
+}
+
+function HSCF_webhook_url_field_callback()
+{
+    $setting = get_option('HSCF_webhook_url', '');
+    if (!$setting) {
+        $theme_dir = get_stylesheet_directory_uri();
+        $setting = rtrim(home_url('/'), '/') . '/wp-content/themes/celebration-child/endpoints/cf-live-webhook.php';
+    }
+    echo '<input type="url" name="HSCF_webhook_url" value="' . esc_attr($setting) . '" style="width:100%;max-width:600px;" />';
+}
+
+function HSCF_webhook_secret_field_callback()
+{
+    $setting = get_option('HSCF_webhook_secret', '');
+    echo '<input type="text" name="HSCF_webhook_secret" value="' . esc_attr($setting) . '" style="width:100%;max-width:600px;" placeholder="Enter a secret or leave blank to auto-generate" />';
+    echo '<p class="description">This secret is used to verify incoming webhook signatures (stored as HSCF_webhook_secret).</p>';
+}
+
+// AJAX: Register webhook with Cloudflare
+add_action('wp_ajax_hscf_register_webhook', 'hscf_register_webhook_admin');
+function hscf_register_webhook_admin() {
+    $callback_url = get_option('HSCF_webhook_url', '');
+    $secret = sanitize_text_field(get_option('HSCF_webhook_secret', ''));
+
+    if (empty($secret)) {
+        // Auto-generate a secret if none provided
+        $secret = bin2hex(random_bytes(32));
+    }
+
+    $result = hs_register_cf_webhook($callback_url, $secret);
+
+    if (isset($result['error'])) {
+        wp_send_json_error($result['error']);
+        return;
+    }
+
+    if (isset($result['result']['secret'])) {
+        // Store the secret from Cloudflare (overrides any user-provided one)
+        update_option('HSCF_webhook_secret', $result['result']['secret']);
+        update_option('HSCF_webhook_url', $callback_url);
+        wp_send_json_success([
+            'message' => 'Webhook registered successfully.',
+            'secret' => $result['result']['secret'],
+        ]);
+    }
+
+    wp_send_json_error('Webhook registration returned no secret. Response: ' . json_encode($result));
+}
+
+// AJAX: Delete webhook from Cloudflare
+add_action('wp_ajax_hscf_delete_webhook', 'hscf_delete_webhook_admin');
+function hscf_delete_webhook_admin() {
+    $result = hs_delete_cf_webhook();
+    wp_send_json_success([
+        'status' => $result['status'],
+        'body' => $result['body'],
+    ]);
+}
+
+// AJAX: Fetch current webhook status
+add_action('wp_ajax_hscf_fetch_webhooks', 'hscf_fetch_webhooks_admin');
+function hscf_fetch_webhooks_admin() {
+    $result = hs_list_cf_webhooks();
+    if (isset($result['error'])) {
+        wp_send_json_error($result['error']);
+        return;
+    }
+    wp_send_json_success($result);
+}
+
 function HSCF_settings_section_callback()
 {
 }
@@ -837,6 +923,23 @@ function HSCF_Admin()
                 ?>
             </form>
         </div>
+    </div>
+
+    <!-- Webhook Settings -->
+    <h2>Webhook Settings</h2>
+    <div class="webhook-form-container" style="margin-bottom:30px;">
+        <form method="post" action="options.php" id="webhook-settings-form">
+            <?php
+            settings_fields("HSCF_webhook_settings");
+            do_settings_sections("HitchStream_Cloudflare");
+            ?>
+            <div style="margin-top:15px;">
+                <input type="button" id="btn-register-webhook" value="Register Webhook with Cloudflare" class="copy-btn" style="background:#06b6d4;border-color:#06b6d4;margin-right:10px;">
+                <input type="button" id="btn-delete-webhook" value="Delete Webhook" class="copy-btn" style="background:#ef4444;border-color:#ef4444;">
+                <input type="button" id="btn-fetch-webhook-status" value="Fetch Status" class="copy-btn" style="background:#6b7280;border-color:#6b7280;">
+            </div>
+        </form>
+        <div id="webhook-status" style="margin-top:15px;padding:10px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:4px;display:none;"></div>
     </div>
 
     <h2>Current Streams</h2>
