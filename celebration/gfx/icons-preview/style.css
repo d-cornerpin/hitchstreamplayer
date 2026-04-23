@@ -1,0 +1,192 @@
+@font-face {
+    font-family: 'wedding';
+    src:    url('fonts/wedding.eot?rcz1av');
+    src:    url('fonts/wedding.eot?rcz1av#iefix') format('embedded-opentype'),
+        url('fonts/wedding.ttf?rcz1av') format('truetype'),
+        url('fonts/wedding.woff?rcz1av') format('woff'),
+        url('fonts/wedding.svg?rcz1av#wedding') format('svg');
+    font-weight: normal;
+    font-style: normal;
+}
+
+[class^="icon-"], [class*=" icon-"] {
+    /* use !important to prevent issues with browser extensions that change fonts */
+    font-family: 'wedding' !important;
+    speak: none;
+    font-style: normal;
+    font-weight: normal;
+    font-variant: normal;
+    text-transform: none;
+    line-height: 1;
+
+    /* Better Font Rendering =========== */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+.icon-accessory9:before {
+    content: "\e000";
+}
+.icon-accessory10:before {
+    content: "\e001";
+}
+.icon-alcohol51:before {
+    content: "\e002";
+}
+.icon-baker19:before {
+    content: "\e003";
+}
+.icon-baker20:before {
+    content: "\e004";
+}
+.icon-baker21:before {
+    content: "\e005";
+}
+.icon-butterflies5:before {
+    content: "\e006";
+}
+.icon-calendar39:before {
+    content: "\e007";
+}
+.icon-celebration20:before {
+    content: "\e008";
+}
+.icon-christian8:before {
+    content: "\e909";
+}
+.icon-clothing119:before {
+    content: "\e90a";
+}
+.icon-clothing120:before {
+    content: "\e90b";
+}
+.icon-drinks44:before {
+    content: "\e90c";
+}
+.icon-flower210:before {
+    content: "\e90d";
+}
+.icon-flower211:before {
+    content: "\e90e";
+}
+.icon-frok:before {
+    content: "\e90f";
+}
+.icon-gifts7:before {
+    content: "\e910";
+}
+.icon-heart53:before {
+    content: "\e911";
+}
+.icon-heart56:before {
+    content: "\e912";
+}
+.icon-hearts53:before {
+    content: "\e913";
+}
+.icon-hearts54:before {
+    content: "\e914";
+}
+.icon-hearts55:before {
+    content: "\e915";
+}
+.icon-hotel80:before {
+    content: "\e916";
+}
+.icon-house247:before {
+    content: "\e917";
+}
+.icon-jewelry14:before {
+    content: "\e918";
+}
+.icon-light139:before {
+    content: "\e919";
+}
+.icon-list23:before {
+    content: "\e91a";
+}
+.icon-love6:before {
+    content: "\e91b";
+}
+.icon-love7:before {
+    content: "\e91c";
+}
+.icon-lover16:before {
+    content: "\e91d";
+}
+.icon-lover17:before {
+    content: "\e91e";
+}
+.icon-lover18:before {
+    content: "\e91f";
+}
+.icon-loving21:before {
+    content: "\e920";
+}
+.icon-loving22:before {
+    content: "\e921";
+}
+.icon-masculine15:before {
+    content: "\e922";
+}
+.icon-movie75:before {
+    content: "\e923";
+}
+.icon-ornament1:before {
+    content: "\e924";
+}
+.icon-placeholder47:before {
+    content: "\e925";
+}
+.icon-quaver34:before {
+    content: "\e926";
+}
+.icon-religion45:before {
+    content: "\e927";
+}
+.icon-restaurant57:before {
+    content: "\e928";
+}
+.icon-shoes33:before {
+    content: "\e929";
+}
+.icon-speech-bubble74:before {
+    content: "\e92a";
+}
+.icon-transport350:before {
+    content: "\e92b";
+}
+.icon-valentines:before {
+    content: "\e92c";
+}
+.icon-wedding20:before {
+    content: "\e92d";
+}
+.icon-wedding21:before {
+    content: "\e92e";
+}
+.icon-wedding22:before {
+    content: "\e92f";
+}
+.icon-wedding23:before {
+    content: "\e930";
+}
+.icon-wedding24:before {
+    content: "\e931";
+}
+.icon-quote7:before {
+    content: "\e900";
+}
+.icon-vignette_2:before {
+    content: "\e901";
+}
+.icon-dove:before {
+    content: "\e902";
+}
+.icon-vignette:before {
+    content: "\e903";
+}
+.icon-add210:before {
+    content: "\e904";
+}
+

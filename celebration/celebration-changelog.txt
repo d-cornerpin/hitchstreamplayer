@@ -1,0 +1,82 @@
+Version 1.3.9 - 4 September 22
+    - Import plugin update
+Version 1.3.8 - 4 June 21
+    - Minor bug fixes
+Version 1.3.7 - 26 May 21
+    - Minor bug fixes
+Version 1.3.6 - 24 May 21
+    - Minor bug fixes
+Version 1.3.5 - 19 May 21
+    - Fixed color picker opacity
+Version 1.3.4 - 10 May 21
+    - Fixed Counter content element
+Version 1.3.3 - 28 April 21
+    - Improved WooCommerce compatibility
+Version 1.3.2 - 4 April 21
+    - Added support for Lightweight Sidebar Manager plugin
+Version 1.3.1 - 16 December 20
+    - Fixed Countdown
+Version 1.3.0 - 3 December 20
+    - Minor bug fixes
+Version 1.2.9 - 11 July 20
+    - Improved WooCommerce compatibility
+Version 1.2.8 - 6 May 20
+    - Improved WooCommerce compatibility
+Version 1.2.7 - 24 April 20
+    - Rapid Composer update
+Version 1.2.6 - 16 April 20
+    - Fixed Portfolio custom fields
+Version 1.2.5 - 14 April 20
+    - Improved WooCommerce compatibility
+Version 1.2.4 - 10 April 20
+    - Improved WooCommerce compatibility
+Version 1.2.3 - 25 January 20
+    - Improved WooCommerce compatibility
+Version 1.2.2 - 18 December 19
+    - Rapid Composer update
+Version 1.2.1 - 26 September 19
+    - Rapid Composer update
+Version 1.2.0 - 26 July 19
+    - Minor bug fixes
+Version 1.1.9 - 15 July 19
+    - Minor bug fixes
+Version 1.1.8 - 1 July 19
+    - Minor bug fixes
+Version 1.1.7 - 29 May 19
+    - Minor bug fixes
+Version 1.1.6 - 27 May 19
+    - Minor bug fixes
+Version 1.1.5 - 1 April 19
+    - Fixed missing CSS
+Version 1.1.4 - 19 March 19
+    - Minor bug fixes
+Version 1.1.3 - 5 January 19
+    - Fixed Instagram widget CSS
+Version 1.1.2 - 3 January 19
+    - Improved compatibility with Yoast SEO plugin
+Version 1.1.1 - 24 December 18
+    - Instagram widget update
+Version 1.1.0 - 8 November 18
+    - Disabled WordPress 5.x block editor
+Version 1.0.9 - 5 March 18
+    - Demo content updated
+    - Improved WooCommerce support
+Version 1.0.8 - 7 November 17
+    - Improved WooCommerce support
+Version 1.0.7 - 5 May 17
+    - WooCommerce 3.0.x support
+Version 1.0.6 - 17 January 17
+    - Rapid Composer update
+Version 1.0.5 - 22 December 16
+    - Rapid Composer update
+    - Added menu close button on small screens 
+Version 1.0.4 - 7 November 16
+    - Added icon picker in Rapid Composer
+Version 1.0.3 - 1 August 16
+    - Added API key option for Google Maps content element
+Version 1.0.2 - 17 May 16
+    - Fixed recent posts vertical layout
+Version 1.0.1 - 16 March 16
+    - Demo content updated
+Version 1.0.0 - 10 March 16
+    - Initial release
