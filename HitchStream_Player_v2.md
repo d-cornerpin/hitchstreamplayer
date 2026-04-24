@@ -174,11 +174,22 @@ Successful response body (HTTP 200):
   "state": "live" | "reconnecting" | "idle" | "error",
   "videoUID": "string" | null,
   "hlsUrl": "https://customer-<code>.cloudflarestream.com/<uid>/manifest/video.m3u8" | null,
-  "errorCode": "ERR_GOP_OUT_OF_RANGE" | "ERR_UNSUPPORTED_VIDEO_CODEC" | "ERR_UNSUPPORTED_AUDIO_CODEC" | "ERR_STORAGE_QUOTA_EXHAUSTED" | "ERR_MISSING_SUBSCRIPTION" | null,
+  "errorCode": "string" | null,
   "source": "webhook" | "probe" | "coalesced",
   "ts": 1714000000
 }
 ```
+
+`errorCode` is a **server pass-through**: the server stores and returns whatever Cloudflare sent, without filtering. New/unknown codes remain visible in the activity log for forensics. The player displays viewer-facing text ONLY for codes present in `window.HSPlayerConfig.errorMessages`; unknown codes are treated as equivalent to `idle` for UI purposes (no alarming message, no fatal) and logged via the `error_code` debug panel field.
+
+**State → field-population table:**
+
+| state | videoUID | hlsUrl | errorCode |
+|---|---|---|---|
+| `live` | populated (string) | populated (string) | null |
+| `reconnecting` | populated (string) — same as preceding `live` | populated (string) — same as preceding `live` | null |
+| `idle` | null | null | null or a Cloudflare error code (if the stream went idle due to an error) |
+| `error` | null | null | populated (string) — Cloudflare error code |
 
 Error response body (HTTP 4xx/5xx):
 
@@ -191,7 +202,23 @@ Response headers:
 - `Content-Type: application/json; charset=utf-8`
 - `Cache-Control: no-store`
 - `ETag: "<opaque>"` — changes on any change to state/videoUID/hlsUrl/errorCode. Stable across polls that return identical data.
-- `X-HS-Correlation-Id: <uuid>` — set server-side; echoed to logs. Agent A should include in its own log entries if present.
+- `X-HS-Correlation-Id: <uuid>` — per-request value set server-side. The player reads it and logs it in the debug panel; it is **not** echoed back on subsequent polls. Each poll is an independent request. The value is forensic: when a viewer reports a problem and you see "last correlation ID was abc123" in their debug panel, you can grep server logs for that ID.
+
+**304 handling:** On receiving `304 Not Modified` (when the client sends `If-None-Match` matching the current ETag), the player:
+- Does NOT advance the state machine (no state-change event)
+- Does NOT parse a body (there is none)
+- Increments the poll counter and updates "last poll timestamp" in the debug panel
+- Stores the ETag it sent in `If-None-Match` as "last confirmed" in the debug panel
+- Otherwise behaves as if nothing happened
+
+In other words: 304 = "state is unchanged from my last good response." The player already holds the right state; it just confirms freshness and moves on.
+
+`source` describes **HOW** the server determined the current state, not **WHAT** the state is:
+- `webhook` — the current state was last written by a webhook event (most common during a healthy event)
+- `probe` — the transient/cache was empty or expired, and the server called `/lifecycle` to determine state
+- `coalesced` — this request was served the result of another in-flight probe via the single-flight lock
+
+There is no fourth value for "no information." If the server genuinely cannot determine state (credentials missing, Cloudflare unreachable and no cache), that is an error response per §4.1, not a success with a missing source.
 
 ### 4.2 State semantics
 
@@ -199,8 +226,8 @@ Response headers:
 |---|---|---|
 | `live` | Cloudflare reports the streamer is actively broadcasting and an HLS manifest is available for `videoUID`. | If not already PLAYING, prepare (load HLS, run prebuffer gate) and play. If PLAYING and `videoUID` is unchanged, do nothing. If PLAYING and `videoUID` changed, handover to the new HLS (§5.5). |
 | `reconnecting` | Streamer disconnected briefly and Cloudflare is still holding the session open waiting for them. | Do not tear anything down. Keep playing buffered video. Do not show new visible messaging (vague idle poster logic only triggers when we actually transition to idle). Restart the fatal timer if buffer depth drops below 2 s (§5.6). |
-| `idle` | No active broadcast. Either hasn't started yet, or streamer has cut (for any reason). | If playing and buffer has content, keep playing until buffer exhausts, then transition to IDLE. If already idle, stay. Do not make claims about cause. |
-| `error` | Cloudflare reported a hard error. `errorCode` indicates type. | Log to debug panel. Viewer-facing: only `ERR_STORAGE_QUOTA_EXHAUSTED` and `ERR_MISSING_SUBSCRIPTION` surface a visible "Service unavailable" status. Others behave as idle. |
+| `idle` | No active broadcast. Either hasn't started yet, or streamer has cut (for any reason). | If playing and buffer has content, keep playing until buffer exhausts, then transition to IDLE. If already idle, stay. Do not make claims about cause. **`videoUID` and `hlsUrl` are always `null` when state is `idle`.** On transition into idle, clear `latestLiveHlsUrl` and any cached `videoUID`. On the next `live` poll, read fresh values from the response. Never carry a URL across an idle transition. |
+| `error` | Cloudflare reported a hard error. `errorCode` indicates type. | Log to debug panel. Viewer-facing: only error codes present in `window.HSPlayerConfig.errorMessages` surface visible text. Unknown codes fall through to idle UX. |
 
 ### 4.3 `hlsUrl` origin allowlist
 
@@ -243,6 +270,8 @@ window.HSPlayerConfig = {
   }
 };
 ```
+
+`errorMessages` is the **only** set of error codes that produces viewer-facing text. Any `errorCode` from the server that is NOT a key in `errorMessages` falls through to idle UX (no alarming message, no fatal). This means new Cloudflare error codes are safe to receive without a code change — they log to the debug panel and the player behaves as idle.
 
 Missing or invalid `window.HSPlayerConfig` → player shows fatal poster and logs a distinctive error. No silent 404s.
 
