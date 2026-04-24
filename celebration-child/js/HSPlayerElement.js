@@ -154,7 +154,8 @@ class HSVideoElement extends HTMLElement {
         // callback and reflects the current Cloudflare state.
         this.playerMode = null;
         this.streamCurrentlyLive = false;
-        this.gestureController = null;
+        this._listenerController = null; // A1.6 — all listeners use its signal
+        this._destroyed = false;
 
         // Track the most recent audio and video Presentation Time Stamps (PTS)
         // observed during fragment parsing.  These values are updated when
@@ -201,6 +202,7 @@ class HSVideoElement extends HTMLElement {
         customerID,
         posterFatalURL
     }) {
+        if (this._destroyed) return;
         this.debugLog('API Information set:', { inputId, isLive, autoplay });
         this.inputId = inputId;
         this.playerMode = isLive ? 'live' : 'vod';
@@ -219,6 +221,7 @@ class HSVideoElement extends HTMLElement {
 
     // Load and play a VOD stream directly
     loadVideoDirectly() {
+        if (this._destroyed) return;
         this.debugLog('VOD Detected...');
         const video = this.videoEl || this.shadowRoot.querySelector('video');
         const playButton = this.playButtonEl || this.shadowRoot.querySelector('.play-button');
@@ -255,6 +258,7 @@ class HSVideoElement extends HTMLElement {
 
     // Poll the server for live stream status
     startPolling() {
+        if (this._destroyed) return;
         // Poll Cloudflare's lifecycle endpoint directly from the client.
         if (!this.inputId) {
             this.debugLog('Missing inputId; polling not started.');
@@ -452,6 +456,7 @@ class HSVideoElement extends HTMLElement {
 
     // Switch UI and playback between IDLE and PLAYING
     managePlayerState(newState, streamUrl = '') {
+        if (this._destroyed) return;
         this.debugLog(`Changing player state from ${this.playerState} to ${newState}`);
         const video = this.videoEl || this.shadowRoot.querySelector('video');
 
@@ -505,6 +510,7 @@ class HSVideoElement extends HTMLElement {
 
     // Begin preparing to play without flipping state to PLAYING yet
     prepareToPlay(streamUrl) {
+        if (this._destroyed) return;
         const video = this.videoEl || this.shadowRoot.querySelector('video');
         this.debugLog('Attaching media and preparing to buffer');
         // Do not show controls yet; only when playback actually starts
@@ -519,6 +525,7 @@ class HSVideoElement extends HTMLElement {
 
     // Configure Hls.js and start live playback
     loadStream(streamUrl) {
+        if (this._destroyed) return;
         const video = this.videoEl || this.shadowRoot.querySelector('video');
         if (this.hls) this.hls.destroy();
 
@@ -883,7 +890,7 @@ class HSVideoElement extends HTMLElement {
                 // Audio drift detection is handled via fragment PTS; no explicit setup needed.
             };
             try {
-                if (videoEl) videoEl.addEventListener('timeupdate', handleTimeUpdate, { once: true });
+                if (videoEl) videoEl.addEventListener('timeupdate', handleTimeUpdate, { once: true, signal: this._listenerController.signal });
             } catch (_) {
                 // Fallback: if adding the listener fails, hide the UI immediately
                 handleTimeUpdate();
@@ -905,7 +912,7 @@ class HSVideoElement extends HTMLElement {
                 this.userGestureUnlocked = true;
                 // Cancel remaining document-level listeners so this handler
                 // fires exactly once across all three event types.
-                if (this.gestureController) this.gestureController.abort();
+                if (this._listenerController) this._listenerController.abort();
                 if (this.playerMode === 'live') {
                     // For live streams, begin loading the discovered live URL only when
                     // the viewer clicks the play button.  If a live URL was already
@@ -932,14 +939,15 @@ class HSVideoElement extends HTMLElement {
 
         this._onPlaying = onPlaying;
         this._onClickPlayButton = onClickPlayButton;
-        video.addEventListener('playing', this._onPlaying);
-        if (playButton) playButton.addEventListener('click', this._onClickPlayButton);
+        // A1.6 — create listener controller for all addEventListener calls.
+        this._listenerController = new AbortController();
+        video.addEventListener('playing', this._onPlaying, { signal: this._listenerController.signal });
+        if (playButton) playButton.addEventListener('click', this._onClickPlayButton, { signal: this._listenerController.signal });
 
         if (this.autoplay) {
-            this.gestureController = new AbortController();
-            document.addEventListener('click', this._onClickPlayButton, { signal: this.gestureController.signal });
-            document.addEventListener('touchstart', this._onClickPlayButton, { signal: this.gestureController.signal });
-            document.addEventListener('keydown', this._onClickPlayButton, { signal: this.gestureController.signal });
+            document.addEventListener('click', this._onClickPlayButton, { signal: this._listenerController.signal });
+            document.addEventListener('touchstart', this._onClickPlayButton, { signal: this._listenerController.signal });
+            document.addEventListener('keydown', this._onClickPlayButton, { signal: this._listenerController.signal });
         }
 
         
@@ -965,11 +973,13 @@ class HSVideoElement extends HTMLElement {
 
     // Clean up timers and Hls.js when element is removed
     disconnectedCallback() {
-        // Abort gesture controller — cancels all document-level gesture listeners.
-        if (this.gestureController) {
-            try { this.gestureController.abort(); } catch (_) {}
-            this.gestureController = null;
+        // Abort ALL listeners first — cancels every addEventListener wired
+        // with this._listenerController.signal (including document-level).
+        if (this._listenerController) {
+            try { this._listenerController.abort(); } catch (_) {}
+            this._listenerController = null;
         }
+        this._destroyed = true;
         if (this.pollingInterval) {
             clearInterval(this.pollingInterval);
             this.pollingInterval = null;
@@ -994,10 +1004,17 @@ class HSVideoElement extends HTMLElement {
         if (this.hls) {
             this.hls.destroy();
         }
+        // Null element references to break any lingering closures.
+        this.videoEl = null;
+        this.playButtonEl = null;
+        this.overlayEl = null;
+        this.statusMessageEl = null;
+        this.overlayPosterEl = null;
     }
 
     // If user clicked and we have enough buffered media, start playback
     tryStartPlayback() {
+        if (this._destroyed) return;
         try {
             if (!this.pendingPlayRequest) return;
             const video = this.videoEl || this.shadowRoot.querySelector('video');
@@ -1220,6 +1237,7 @@ class HSVideoElement extends HTMLElement {
      *        (in seconds) at the moment the fatal timer is started.
      */
     startFatalTimer(initialBufferAhead = null) {
+        if (this._destroyed) return;
         try {
             // Do not start a timer if already in the FATAL state
             if (this.playerState === STATE.FATAL) return;
@@ -1274,6 +1292,7 @@ class HSVideoElement extends HTMLElement {
      * automatically recover; the viewer must refresh the page.
      */
     enterFatalState() {
+        if (this._destroyed) return;
         try {
             if (this.playerState === STATE.FATAL) return;
             this.debugLog('Fatal error encountered; entering fatal state');
@@ -1456,6 +1475,7 @@ class HSVideoElement extends HTMLElement {
      * @param {string} type The status type to display.
      */
     updateStatus(type) {
+        if (this._destroyed) return;
         try {
                 if (!type) type = 'none';
                 const previousType = this.currentStatusType;
