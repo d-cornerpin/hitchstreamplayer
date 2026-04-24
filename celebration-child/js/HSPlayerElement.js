@@ -92,6 +92,10 @@ class HSVideoElement extends HTMLElement {
         this.throughputSamples = [];      // recent throughput samples (bps)
         this.probeAttempts = 0; // manifest probe attempt counter
         this.manifestProbeInterval = null; // timer id for manifest probe
+        // Polling state (A1.5 — B6 fix)
+        this._inFlight = false;
+        this._consecutivePollErrors = 0;
+        this._nextPollDelayMs = POLL_INTERVAL_MS;
         this.healthPollInterval = null;   // timer id for health polling during playback
         this.currentStreamUrl = null;      // URL currently loaded into Hls.js
         this.ingestFalseCount = 0;         // consecutive polls reporting ingest not live
@@ -259,11 +263,39 @@ class HSVideoElement extends HTMLElement {
         const pollLifecycle = () => {
             this.debugLog('Polling Cloudflare lifecycle endpoint...');
             try { this.pollCount++; } catch (_) {}
+            // Concurrency guard: skip if a previous poll is still in-flight.
+            if (this._inFlight) {
+                this.debugLog('Poll skipped — previous request still in-flight.');
+                return;
+            }
+            this._inFlight = true;
+            // AbortController + 8 s timeout per poll (fix B6).
+            const controller = new AbortController();
+            clearTimeout(this._pollTimeoutId);
+            this._pollTimeoutId = setTimeout(() => controller.abort(), 8000);
             // Poll the WordPress endpoint that serves webhook-updated state (with Cloudflare probe fallback).
         const lifecycleUrl = `${window.liveStateEndpoint}?inputId=${encodeURIComponent(this.inputId)}`;
-            fetch(lifecycleUrl, { method: 'GET', mode: 'cors', credentials: 'omit' })
-                .then(res => res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`)))
+            fetch(lifecycleUrl, { method: 'GET', mode: 'cors', credentials: 'omit', signal: controller.signal })
+                .then(res => {
+                    // Handle 304 Not Modified per contract §4.1.
+                    if (res.status === 304) {
+                        clearTimeout(this._pollTimeoutId);
+                        this._inFlight = false;
+                        this._consecutivePollErrors = 0;
+                        this._nextPollDelayMs = POLL_INTERVAL_MS;
+                        this._updateDebugPanel({ liveStatus: null, videoUID: null, pollCount: this.pollCount, source: '304' });
+                        return null; // sentinel — no state change
+                    }
+                    return res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`));
+                })
                 .then(data => {
+                    // 304 sentinel — no state change needed.
+                    if (data === null) return;
+
+                    this._inFlight = false;
+                    this._consecutivePollErrors = 0;
+                    this._nextPollDelayMs = POLL_INTERVAL_MS; // reset backoff on success
+
                     const isLive   = data && typeof data.live === 'boolean' ? data.live : false;
                     const vid      = data && typeof data.videoUID === 'string' ? data.videoUID : null;
                     const rawState = data && data.state ? data.state : null;
@@ -377,7 +409,16 @@ class HSVideoElement extends HTMLElement {
                     }
                 })
                 .catch(err => {
+                    this._inFlight = false;
                     this.debugError('Error fetching lifecycle status:', err);
+                    // Exponential backoff: after 3 consecutive errors, double interval (cap 60s).
+                    this._consecutivePollErrors++;
+                    if (this._consecutivePollErrors >= 3) {
+                        this._nextPollDelayMs = Math.min(POLL_INTERVAL_MS * Math.pow(2, this._consecutivePollErrors - 2), 60000);
+                    }
+                })
+                .finally(() => {
+                    clearTimeout(this._pollTimeoutId);
                 });
         };
         // clear any existing polling and schedule new polling
@@ -387,10 +428,13 @@ class HSVideoElement extends HTMLElement {
         try {
             if (!this.hasPlayedOnce) this.updateStatus('waiting');
         } catch (e) { console.error('[hs-video] fatal error:', e); }
+        // Add ±1500 ms jitter to the initial poll delay (fix B6).
+        const jitter = (Math.random() - 0.5) * 2 * 1500;
+        const jitteredDelay = POLL_INITIAL_DELAY_MS + jitter;
         setTimeout(() => {
-            this.pollingInterval = setInterval(pollLifecycle, POLL_INTERVAL_MS);
+            this.pollingInterval = setInterval(pollLifecycle, this._nextPollDelayMs);
             pollLifecycle();
-        }, POLL_INITIAL_DELAY_MS);
+        }, jitteredDelay);
     }
 
     // Stop polling for live status
@@ -398,6 +442,11 @@ class HSVideoElement extends HTMLElement {
         this.debugLog('Stopping CloudFlare API polling.');
         clearInterval(this.pollingInterval);
         this.pollingInterval = null;
+        // Abort any in-flight request and reset backoff state.
+        if (this._pollTimeoutId) { clearTimeout(this._pollTimeoutId); this._pollTimeoutId = null; }
+        this._inFlight = false;
+        this._consecutivePollErrors = 0;
+        this._nextPollDelayMs = POLL_INTERVAL_MS;
     }
 
 
