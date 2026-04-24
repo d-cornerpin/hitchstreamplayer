@@ -645,9 +645,11 @@ function fetch_current_video_uid($live_input_id) {
 
 // Expose UID fetching through AJAX for dynamic JavaScript access
 add_action('wp_ajax_fetch_video_uid', 'ajax_fetch_current_video_uid');
-add_action('wp_ajax_nopriv_fetch_video_uid', 'ajax_fetch_current_video_uid');
 
 function ajax_fetch_current_video_uid() {
+    if (!current_user_can('manage_options')) {
+        wp_die('forbidden', 403);
+    }
     $live_input_id = isset($_POST['live_input_id']) ? sanitize_text_field($_POST['live_input_id']) : '';
     echo fetch_current_video_uid($live_input_id);
     wp_die(); // Properly end the execution of AJAX
@@ -659,12 +661,14 @@ function ajax_fetch_current_video_uid() {
 
 /**
  * Verify HMAC-SHA256 signature on incoming Cloudflare webhooks.
- * Returns true if valid, or if no secret is configured (grace period).
+ * Returns true if valid; rejects (returns false) if the secret is not configured
+ * or the signature does not match.
  */
 function hs_verify_webhook_signature($body, $signature) {
     $secret = get_option('HSCF_webhook_secret', '');
     if (!$secret) {
-        return true; // Grace period — no secret configured yet.
+        error_log('[HitchStream] CRITICAL: Webhook secret not configured. Rejecting webhook to prevent unauthorized state manipulation.');
+        return false;
     }
     if (!$signature) {
         return false;
@@ -849,15 +853,6 @@ function hs_unregister_cf_webhook($input_id, $webhook_uid) {
 }
 
 
-//Disable WordPress Deprecated Warnings
-add_filter('deprecated_function_trigger_error', 'disable_all_deprecated_warnings');
-add_filter('deprecated_argument_trigger_error', 'disable_all_deprecated_warnings');
-add_filter('deprecated_file_trigger_error',     'disable_all_deprecated_warnings');
-//Not to trigger any errors when a deprecated function or method is called.
-add_filter( 'deprecated_hook_trigger_error',    'disable_all_deprecated_warnings');
-function disable_all_deprecated_warnings($bolean) {
-    return false;
-}
 
 
 

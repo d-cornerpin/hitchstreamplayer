@@ -27,15 +27,16 @@ function hs_webhook_secret() {
 
 /**
  * Verify HMAC-SHA256 signature from Cloudflare.
- * Returns true if valid or if secret is not yet configured (with a warning).
+ * Returns true if valid; rejects (returns false) if the secret is not configured
+ * or the signature does not match.
  */
 function hs_verify_webhook($body, $signature) {
     $secret = hs_webhook_secret();
 
-    // Allow a grace period: if no secret is configured, accept but log a warning.
+    // No secret configured — reject and alert loudly.
     if (!$secret) {
-        error_log('[HitchStream] Webhook signature validation skipped — HSCF_webhook_secret not configured.');
-        return true;
+        error_log('[HitchStream] CRITICAL: Webhook secret not configured. Rejecting webhook to prevent unauthorized state manipulation.');
+        return false;
     }
 
     if (!$signature) {

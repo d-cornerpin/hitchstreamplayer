@@ -25,6 +25,13 @@ if (!$nonce || !wp_verify_nonce($nonce, 'hs_player_action')) {
     exit;
 }
 
+// Validate capability
+if (!current_user_can('manage_options')) {
+    http_response_code(403);
+    echo json_encode(['error' => 'insufficient permissions']);
+    exit;
+}
+
 // Validate input ID
 if (!$inputId || !preg_match('/^[A-Za-z0-9_-]+$/', $inputId)) {
     http_response_code(400);
@@ -124,20 +131,9 @@ if ($action === 'live_state') {
     exit;
 }
 
-// Default: pass-through list of videos
-[$response, $httpCode, $curlErr] = $call_cf($url);
-if ($response === false) {
-    http_response_code(502);
-    echo json_encode(['error' => 'Upstream request failed', 'details' => $curlErr]);
-    exit;
-}
-if ($httpCode >= 200 && $httpCode < 300) {
-    echo $response;
-    exit;
-}
-http_response_code(502);
-$body = json_decode($response, true);
-echo json_encode(['error' => 'Cloudflare API error', 'status' => $httpCode, 'body' => $body]);
+// Reject unhandled actions — the dangerous default pass-through has been removed.
+http_response_code(400);
+echo json_encode(['error' => 'Unknown or unsupported action']);
 exit;
 
 ?>

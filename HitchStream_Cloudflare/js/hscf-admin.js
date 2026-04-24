@@ -5,10 +5,11 @@ jQuery(document).ready(function ($) {
 
     function updateLiveInputStatus() {
         $.ajax({
-            url: ajax_object.ajax_url,
+            url: hscf_ajax.ajax_url,
             type: 'POST',
             data: {
-                action: 'hscf_check_live_input_status'
+                action: 'hscf_check_live_input_status',
+                _wpnonce: hscf_ajax.nonce
             },
             success: function (response) {
                 if (response.success) {
@@ -41,6 +42,7 @@ jQuery(document).ready(function ($) {
 
             var formData = new FormData(this);
             formData.append('action', 'hscf_upload_video');
+            formData.append('_wpnonce', hscf_ajax.nonce);
 
             // Initial message with progress bar HTML and a placeholder for percentage
             sendToModal('<div id="progress-container" style="display: block; width: 100%; background: #eee;">' +
@@ -49,7 +51,7 @@ jQuery(document).ready(function ($) {
 
             // Create an XMLHttpRequest to send data
             var xhr = new XMLHttpRequest();
-            xhr.open('POST', ajax_object.ajax_url, true);
+            xhr.open('POST', hscf_ajax.ajax_url, true);
 
             xhr.upload.onprogress = function (event) {
                 if (event.lengthComputable) {
@@ -189,12 +191,13 @@ jQuery(document).ready(function ($) {
             var inputId = $(this).data('input-id');
 
             $.ajax({
-                url: ajax_object.ajax_url,
+                url: hscf_ajax.ajax_url,
                 type: 'POST',
                 data: {
                     'action': 'hscf_delete_output',
                     'output_id': outputId,
-                    'input_id': inputId
+                    'input_id': inputId,
+                    '_wpnonce': hscf_ajax.nonce
                 },
                 success: function (response) {
                     if (response.success) {
@@ -223,13 +226,14 @@ jQuery(document).ready(function ($) {
         }
 
         $.ajax({
-            url: ajax_object.ajax_url,
+            url: hscf_ajax.ajax_url,
             type: 'POST',
             data: {
                 'action': 'hscf_create_output',
                 'input_id': inputId,
                 'stream_key': streamKey,
-                'stream_url': streamUrl
+                'stream_url': streamUrl,
+                '_wpnonce': hscf_ajax.nonce
             },
             success: function (response) {
                 if (response.success) {
@@ -251,13 +255,14 @@ jQuery(document).ready(function ($) {
         var isEnabled = $(this).is(':checked');
 
         $.ajax({
-            url: ajax_object.ajax_url,
+            url: hscf_ajax.ajax_url,
             type: 'POST',
             data: {
                 'action': 'hscf_toggle_output',
                 'output_id': outputId,
                 'input_id': inputId,
-                'enabled': isEnabled
+                'enabled': isEnabled,
+                '_wpnonce': hscf_ajax.nonce
             },
             success: function (response) {
                 if (response.success) {
@@ -294,11 +299,12 @@ jQuery(document).ready(function ($) {
         e.preventDefault(); // Prevent default action since we're handling the click event
 
         $.ajax({
-            url: ajax_object.ajax_url,
+            url: hscf_ajax.ajax_url,
             type: 'POST',
             data: {
                 'action': 'hscf_create_download',
-                'video_id': videoId
+                'video_id': videoId,
+                '_wpnonce': hscf_ajax.nonce
             },
             beforeSend: function () {
                 $icon.attr('src', 'https://hitchstream.com/wp-content/uploads/2024/01/loading_icon2.gif')
@@ -331,11 +337,12 @@ jQuery(document).ready(function ($) {
     function checkDownloadStatus(videoId, intervalId, iconElement) {
         console.log("Checking download status for video ID:", videoId);
         $.ajax({
-            url: ajax_object.ajax_url,
+            url: hscf_ajax.ajax_url,
             type: 'POST',
             data: {
                 'action': 'hscf_check_download_status',
-                'video_id': videoId
+                'video_id': videoId,
+                '_wpnonce': hscf_ajax.nonce
             },
             success: function (response) {
                 console.log("Received response:", response);
@@ -366,11 +373,12 @@ jQuery(document).ready(function ($) {
 
         if (confirm('Are you sure you want to delete this video?')) {
             $.ajax({
-                url: ajax_object.ajax_url,
+                url: hscf_ajax.ajax_url,
                 type: 'POST',
                 data: {
                     action: 'hscf_delete_recording',
-                    video_id: videoId
+                    video_id: videoId,
+                    '_wpnonce': hscf_ajax.nonce
                 },
                 success: function (response) {
                     if (response.success) {
@@ -436,8 +444,6 @@ jQuery(document).ready(function ($) {
         var videoFile;
         var data;
         var rtmpsKey = $(this).data('rtmp-key'); // Get the RTMP key from the data attribute
-        console.log('RTMP Key being sent:', rtmpsKey);
-
 
         // Check if we are starting or stopping the stream
         if (isChecked) {
@@ -447,12 +453,14 @@ jQuery(document).ready(function ($) {
                 action: 'start_placeholderstream',
                 videoFile: videoFile,
                 rtmpsUrl: 'rtmps://live.hitchstream.com:443/live/', // Hardcoded as it doesn't change
-                rtmpsKey: rtmpsKey // Use the RTMP key from the data attribute
+                rtmpsKey: rtmpsKey, // Use the RTMP key from the data attribute
+                _wpnonce: hscf_ajax.nonce
             };
         } else {
             // Prepare data for stopping the stream
             data = {
-                action: 'stop_placeholderstream'
+                action: 'stop_placeholderstream',
+                _wpnonce: hscf_ajax.nonce
             };
         }
 
@@ -464,7 +472,8 @@ jQuery(document).ready(function ($) {
                 console.log('Server response:', response.message);
                 // New: Check actual stream state after server response
                 var streamStateData = {
-                    action: 'check_stream_state'
+                    action: 'check_stream_state',
+                    _wpnonce: hscf_ajax.nonce
                 };
                 jQuery.post(ajaxurl, streamStateData, function (streamStateResponse) {
                     streamStateResponse = JSON.parse(streamStateResponse);
@@ -502,8 +511,9 @@ jQuery(document).ready(function ($) {
     });
 
     function checkAndSetStreamState() {
-        $.post(ajax_object.ajax_url, {
+        $.post(hscf_ajax.ajax_url, {
             'action': 'check_stream_state',
+            '_wpnonce': hscf_ajax.nonce,
         }, function (response) {
             response = JSON.parse(response);
             if (response && response.hasOwnProperty('isStreaming')) {
@@ -517,8 +527,9 @@ jQuery(document).ready(function ($) {
     }
 
     function getVideoFiles() {
-        $.post(ajax_object.ajax_url, {
+        $.post(hscf_ajax.ajax_url, {
             'action': 'get_video_files',
+            '_wpnonce': hscf_ajax.nonce,
         }, function (response) {
             if (typeof response === 'string') {
                 try {
@@ -595,9 +606,9 @@ jQuery(document).ready(function ($) {
 
 function HSCF_cf_api_call(action, callback) {
     $.ajax({
-        url: ajax_object.ajax_url,
+        url: hscf_ajax.ajax_url,
         type: 'POST',
-        data: { action: action },
+        data: { action: action, _wpnonce: hscf_ajax.nonce },
         success: function(response) {
             if (response.success) {
                 callback(null, response.data);
