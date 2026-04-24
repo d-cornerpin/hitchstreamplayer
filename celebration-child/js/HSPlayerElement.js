@@ -186,10 +186,12 @@ class HSVideoElement extends HTMLElement {
     debugError(...errors) { if (this.debugMode) console.error(...errors); }
 
     // Watch for poster attribute changes
-    static get observedAttributes() { return ['poster-initial', 'poster-idle']; }
+    static get observedAttributes() { return ['poster-initial', 'poster-idle', 'poster-fatal']; }
     attributeChangedCallback(name, oldValue, newValue) {
         this.debugLog(`Attribute ${name} changed from ${oldValue} to ${newValue}`);
-        if (name === 'poster-initial' && this.playerState === 'IDLE') this.setPoster(newValue);
+        const typeMap = { 'poster-initial': 'initial', 'poster-idle': 'idle', 'poster-fatal': 'fatal' };
+        const type = typeMap[name];
+        if (type && newValue) this.setPoster(newValue, type);
     }
 
     // Receive config from the page and start live or VOD
