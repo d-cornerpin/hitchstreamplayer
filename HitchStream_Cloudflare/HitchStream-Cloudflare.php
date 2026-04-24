@@ -113,6 +113,12 @@ add_action('init', 'my_plugin_register_template');
 add_action("admin_menu", "HitchStream_CloudFlare_setup_menu");
 
 function HSCF_upload_video() {
+    if (!wp_verify_nonce(sanitize_text_field($_POST['_wpnonce'] ?? ''), 'hscf_admin')) {
+        wp_send_json_error('nonce verification failed', 403);
+    }
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('forbidden', 403);
+    }
     if (!empty($_FILES['video_file']) && $_FILES['video_file']['error'] == UPLOAD_ERR_OK) {
         $api_key = get_option("HSCF_cloudflare_api_key");
         $account_id = get_option("HSCF_cloudflare_account_id");
@@ -152,6 +158,7 @@ function HitchStream_CloudFlare_setup_menu()
     add_action("admin_init", "HSCF_register_settings");
     add_action("admin_init", "HSCF_register_webhook_settings");
     add_action("admin_init", "HSCF_register_player_settings");
+    add_action("admin_init", "HSCF_register_streamer_settings");
 }
 
 function HSCF_register_settings()
@@ -210,6 +217,12 @@ function HSCF_webhook_secret_field_callback()
 // AJAX: Register webhook with Cloudflare
 add_action('wp_ajax_hscf_register_webhook', 'hscf_register_webhook_admin');
 function hscf_register_webhook_admin() {
+    if (!wp_verify_nonce(sanitize_text_field($_POST['_wpnonce'] ?? ''), 'hscf_admin')) {
+        wp_send_json_error('nonce verification failed', 403);
+    }
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('forbidden', 403);
+    }
     $callback_url = get_option('HSCF_webhook_url', '');
     $secret = sanitize_text_field(get_option('HSCF_webhook_secret', ''));
 
@@ -241,6 +254,12 @@ function hscf_register_webhook_admin() {
 // AJAX: Delete webhook from Cloudflare
 add_action('wp_ajax_hscf_delete_webhook', 'hscf_delete_webhook_admin');
 function hscf_delete_webhook_admin() {
+    if (!wp_verify_nonce(sanitize_text_field($_POST['_wpnonce'] ?? ''), 'hscf_admin')) {
+        wp_send_json_error('nonce verification failed', 403);
+    }
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('forbidden', 403);
+    }
     $result = hs_delete_cf_webhook();
     // Clear local secret so it doesn't persist after the webhook is gone.
     delete_option('HSCF_webhook_secret');
@@ -253,6 +272,12 @@ function hscf_delete_webhook_admin() {
 // AJAX: Fetch current webhook status
 add_action('wp_ajax_hscf_fetch_webhooks', 'hscf_fetch_webhooks_admin');
 function hscf_fetch_webhooks_admin() {
+    if (!wp_verify_nonce(sanitize_text_field($_POST['_wpnonce'] ?? ''), 'hscf_admin')) {
+        wp_send_json_error('nonce verification failed', 403);
+    }
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('forbidden', 403);
+    }
     $result = hs_list_cf_webhooks();
     if (isset($result['error'])) {
         wp_send_json_error($result['error']);
@@ -304,6 +329,39 @@ function HSCF_poster_fatal_field_callback()
 {
     $setting = get_option('HSCF_poster_fatal', 'https://hitchstream.com/wp-content/uploads/2025/09/Poster_fatal_2.png');
     echo '<input type="url" name="HSCF_poster_fatal" value="' . esc_attr($setting) . '" style="width:100%;max-width:600px;" placeholder="https://..." />';
+}
+
+// --- Streamer Service Settings ---
+
+function HSCF_register_streamer_settings()
+{
+    register_setting("HSCF_streamer_settings", "HSCF_streamer_api_url");
+    register_setting("HSCF_streamer_settings", "HSCF_streamer_api_key");
+
+    add_settings_section("HSCF_streamer_settings_section", "Streamer Service", "HSCF_streamer_settings_section_callback", "HitchStream_Cloudflare");
+    add_settings_field("HSCF_streamer_api_url_field", "Streamer API URL", "HSCF_streamer_api_url_field_callback", "HitchStream_Cloudflare", "HSCF_streamer_settings_section");
+    add_settings_field("HSCF_streamer_api_key_field", "Streamer API Key", "HSCF_streamer_api_key_field_callback", "HitchStream_Cloudflare", "HSCF_streamer_settings_section");
+}
+
+function HSCF_streamer_settings_section_callback()
+{
+    echo '<p>Configuration for the internal placeholder-stream service. The API key is required for all placeholder-stream operations.</p>';
+}
+
+function HSCF_streamer_api_url_field_callback()
+{
+    $setting = get_option('HSCF_streamer_api_url', 'https://streamer1.hitchstream.com');
+    echo '<input type="url" name="HSCF_streamer_api_url" value="' . esc_attr($setting) . '" style="width:100%;max-width:600px;" placeholder="https://..." />';
+}
+
+function HSCF_streamer_api_key_field_callback()
+{
+    $setting = get_option('HSCF_streamer_api_key', '');
+    $masked = $setting ? str_repeat('*', 10) . substr($setting, -4) : '';
+    echo '<input type="password" name="HSCF_streamer_api_key" value="' . esc_attr($masked) . '" style="width:100%;max-width:600px;" placeholder="Leave blank to keep current key" data-original-value="' . esc_attr($setting) . '" />';
+    if ($setting) {
+        echo ' <em>(set — leave blank to keep unchanged)</em>';
+    }
 }
 
 // Admin notice: warn when webhook secret is not configured
@@ -408,6 +466,14 @@ function HSCF_ajax_get_live_inputs() {
 }
 
 add_action('wp_ajax_get_live_inputs', 'HSCF_ajax_get_live_inputs');
+function HSCF_ajax_get_live_inputs() {
+    if (!wp_verify_nonce(sanitize_text_field($_POST['_wpnonce'] ?? ''), 'hscf_admin')) {
+        wp_send_json_error('nonce verification failed', 403);
+    }
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('forbidden', 403);
+    }
+    $live_inputs = HSCF_get_live_inputs();
 
 function HSCF_delete_live_input($input_id)
 {
@@ -472,14 +538,20 @@ function HSCF_create_live_input($stream_name)
 }
 
 function HSCF_enqueue_scripts_admin() {
-wp_enqueue_script("hscf-admin-script", plugin_dir_url(__FILE__) . "js/hscf-admin.js", ["jquery"], null, true);
-wp_localize_script("hscf-admin-script", "ajax_object", ["ajax_url" => admin_url("admin-ajax.php")]);
+    wp_enqueue_script("hscf-admin-script", plugin_dir_url(__FILE__) . "js/hscf-admin.js", ["jquery"], null, true);
+    wp_localize_script("hscf-admin-script", "hscf_ajax", array(
+        'ajax_url' => admin_url('admin-ajax.php'),
+        'nonce'    => wp_create_nonce('hscf_admin'),
+    ));
 }
 
 function HSCF_enqueue_scripts_frontend() {
     if (current_user_can('manage_options')) { // Checks if the user is an admin
         wp_enqueue_script("hscf-admin-script-frontend", plugin_dir_url(__FILE__) . "js/hscf-admin.js", ["jquery"], null, true);
-        wp_localize_script("hscf-admin-script-frontend", "ajax_object", ["ajax_url" => admin_url("admin-ajax.php")]);
+        wp_localize_script("hscf-admin-script-frontend", "hscf_ajax", array(
+            'ajax_url' => admin_url('admin-ajax.php'),
+            'nonce'    => wp_create_nonce('hscf_admin'),
+        ));
     }
 }
 
@@ -494,6 +566,12 @@ add_action("wp_enqueue_scripts", "HSCF_enqueue_scripts_frontend");
 
 function hscf_check_live_input_status()
 {
+    if (!wp_verify_nonce(sanitize_text_field($_POST['_wpnonce'] ?? ''), 'hscf_admin')) {
+        wp_send_json_error('nonce verification failed', 403);
+    }
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('forbidden', 403);
+    }
     $live_inputs = HSCF_get_live_inputs();
 
     if (is_string($live_inputs)) {
@@ -544,6 +622,12 @@ add_action("wp_ajax_hscf_delete_output", "hscf_delete_output");
 
 function hscf_delete_output()
 {
+    if (!wp_verify_nonce(sanitize_text_field($_POST['_wpnonce'] ?? ''), 'hscf_admin')) {
+        wp_send_json_error('nonce verification failed', 403);
+    }
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('forbidden', 403);
+    }
     $output_id = sanitize_text_field($_POST["output_id"]);
     $input_id = sanitize_text_field($_POST["input_id"]);
     $api_key = get_option("HSCF_cloudflare_api_key");
@@ -566,6 +650,12 @@ add_action("wp_ajax_hscf_create_output", "hscf_create_output");
 
 function hscf_create_output()
 {
+    if (!wp_verify_nonce(sanitize_text_field($_POST['_wpnonce'] ?? ''), 'hscf_admin')) {
+        wp_send_json_error('nonce verification failed', 403);
+    }
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('forbidden', 403);
+    }
     $streamKey = sanitize_text_field($_POST["stream_key"]);
     $url = sanitize_text_field($_POST["stream_url"]); // Corrected from 'url' to 'stream_url'
     $input_id = sanitize_text_field($_POST["input_id"]);
@@ -601,6 +691,12 @@ add_action("wp_ajax_hscf_toggle_output", "hscf_toggle_output");
 
 function hscf_toggle_output()
 {
+    if (!wp_verify_nonce(sanitize_text_field($_POST['_wpnonce'] ?? ''), 'hscf_admin')) {
+        wp_send_json_error('nonce verification failed', 403);
+    }
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('forbidden', 403);
+    }
     $output_id = sanitize_text_field($_POST["output_id"]);
     $input_id = sanitize_text_field($_POST["input_id"]);
     $enabled = filter_var($_POST["enabled"], FILTER_VALIDATE_BOOLEAN);
@@ -695,6 +791,12 @@ add_action("wp_ajax_hscf_create_download", "HSCF_create_download");
 
 function HSCF_create_download()
 {
+    if (!wp_verify_nonce(sanitize_text_field($_POST['_wpnonce'] ?? ''), 'hscf_admin')) {
+        wp_send_json_error('nonce verification failed', 403);
+    }
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('forbidden', 403);
+    }
     $video_id = sanitize_text_field($_POST["video_id"]);
     $api_key = get_option("HSCF_cloudflare_api_key");
     $account_id = get_option("HSCF_cloudflare_account_id");
@@ -721,6 +823,12 @@ add_action("wp_ajax_hscf_check_download_status", "hscf_check_download_status");
 
 function hscf_check_download_status()
 {
+    if (!wp_verify_nonce(sanitize_text_field($_POST['_wpnonce'] ?? ''), 'hscf_admin')) {
+        wp_send_json_error('nonce verification failed', 403);
+    }
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('forbidden', 403);
+    }
     $video_id = sanitize_text_field($_POST["video_id"]);
     $api_key = get_option("HSCF_cloudflare_api_key");
     $account_id = get_option("HSCF_cloudflare_account_id");
@@ -753,6 +861,12 @@ function hscf_check_download_status()
 
 function hscf_delete_recording()
 {
+    if (!wp_verify_nonce(sanitize_text_field($_POST['_wpnonce'] ?? ''), 'hscf_admin')) {
+        wp_send_json_error('nonce verification failed', 403);
+    }
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('forbidden', 403);
+    }
     $video_id = sanitize_text_field($_POST["video_id"]);
     $api_key = get_option("HSCF_cloudflare_api_key");
     $account_id = get_option("HSCF_cloudflare_account_id");
@@ -782,8 +896,17 @@ function hscf_delete_recording()
 add_action('wp_ajax_hscf_delete_recording', 'hscf_delete_recording');
 
 function get_video_files() {
-    $apiUrl = 'https://streamer1.hitchstream.com/api/list-videos';
-    $apiKey = '72c020a8d042a1f549b548311d1e4577';
+    if (!wp_verify_nonce(sanitize_text_field($_POST['_wpnonce'] ?? ''), 'hscf_admin')) {
+        wp_send_json_error('nonce verification failed', 403);
+    }
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('forbidden', 403);
+    }
+    $apiUrl = get_option('HSCF_streamer_api_url', 'https://streamer1.hitchstream.com') . '/api/list-videos';
+    $apiKey = get_option('HSCF_streamer_api_key', '');
+    if (!$apiKey) {
+        wp_send_json_error('Streamer API key not configured', 400);
+    }
 
     // Set headers
     $headers = [
@@ -809,14 +932,23 @@ add_action('wp_ajax_get_video_files', 'get_video_files');
 
 function start_placeholderstream()
 {
-    $videoFile = $_POST['videoFile'];
-    $rtmpsUrl = $_POST['rtmpsUrl'];
-    $rtmpsKey = $_POST['rtmpsKey'];
+    if (!wp_verify_nonce(sanitize_text_field($_POST['_wpnonce'] ?? ''), 'hscf_admin')) {
+        wp_send_json_error('nonce verification failed', 403);
+    }
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('forbidden', 403);
+    }
+    $videoFile = sanitize_text_field($_POST['videoFile']);
+    $rtmpsUrl = sanitize_url($_POST['rtmpsUrl']);
+    $rtmpsKey = sanitize_text_field($_POST['rtmpsKey']);
     // API URL of your Node.js app
-    $apiUrl = 'https://streamer1.hitchstream.com/api/start-streaming';
+    $apiUrl = get_option('HSCF_streamer_api_url', 'https://streamer1.hitchstream.com') . '/api/start-streaming';
 
     // API Key
-    $apiKey = '72c020a8d042a1f549b548311d1e4577';
+    $apiKey = get_option('HSCF_streamer_api_key', '');
+    if (!$apiKey) {
+        wp_send_json_error('Streamer API key not configured', 400);
+    }
 
     // Set headers
     $headers = [
@@ -850,11 +982,20 @@ add_action('wp_ajax_start_placeholderstream', 'start_placeholderstream');
 
 function stop_placeholderstream()
 {
+    if (!wp_verify_nonce(sanitize_text_field($_POST['_wpnonce'] ?? ''), 'hscf_admin')) {
+        wp_send_json_error('nonce verification failed', 403);
+    }
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('forbidden', 403);
+    }
     // API URL of your Node.js app
-    $apiUrl = 'https://streamer1.hitchstream.com/api/stop-streaming';
+    $apiUrl = get_option('HSCF_streamer_api_url', 'https://streamer1.hitchstream.com') . '/api/stop-streaming';
 
     // API Key
-    $apiKey = '72c020a8d042a1f549b548311d1e4577';
+    $apiKey = get_option('HSCF_streamer_api_key', '');
+    if (!$apiKey) {
+        wp_send_json_error('Streamer API key not configured', 400);
+    }
 
     // Set headers
     $headers = [
@@ -880,11 +1021,20 @@ add_action('wp_ajax_stop_placeholderstream', 'stop_placeholderstream');
 
 function check_stream_state()
 {
+    if (!wp_verify_nonce(sanitize_text_field($_POST['_wpnonce'] ?? ''), 'hscf_admin')) {
+        wp_send_json_error('nonce verification failed', 403);
+    }
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('forbidden', 403);
+    }
     // API URL of your Node.js app
-    $apiUrl = 'https://streamer1.hitchstream.com/api/stream-state';
+    $apiUrl = get_option('HSCF_streamer_api_url', 'https://streamer1.hitchstream.com') . '/api/stream-state';
 
     // API Key
-    $apiKey = '72c020a8d042a1f549b548311d1e4577';
+    $apiKey = get_option('HSCF_streamer_api_key', '');
+    if (!$apiKey) {
+        wp_send_json_error('Streamer API key not configured', 400);
+    }
 
     // Set headers
     $headers = [
@@ -1007,6 +1157,18 @@ function HSCF_Admin()
         <form method="post" action="options.php">
             <?php
             settings_fields("HSCF_player_settings");
+            do_settings_sections("HitchStream_Cloudflare");
+            submit_button();
+            ?>
+        </form>
+    </div>
+
+    <!-- Streamer Service Settings -->
+    <h2>Streamer Service Settings</h2>
+    <div style="margin-bottom:30px;">
+        <form method="post" action="options.php">
+            <?php
+            settings_fields("HSCF_streamer_settings");
             do_settings_sections("HitchStream_Cloudflare");
             submit_button();
             ?>
