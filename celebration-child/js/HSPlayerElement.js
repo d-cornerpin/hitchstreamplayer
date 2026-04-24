@@ -159,6 +159,7 @@ class HSVideoElement extends HTMLElement {
         this.playerMode = null;
         this.streamCurrentlyLive = false;
         this._listenerController = null; // A1.6 — all listeners use its signal
+        this._drainingToIdle = false; // A1.12 — keep playing while buffer drains on idle transition
         this._destroyed = false;
 
         // Track the most recent audio and video Presentation Time Stamps (PTS)
@@ -475,46 +476,68 @@ class HSVideoElement extends HTMLElement {
             this.debugLog('Attaching media and preparing to buffer');
             this.loadStream(streamUrl);
         } else if (newState === STATE.IDLE && this.playerState !== STATE.IDLE) {
-            this.debugLog('Stream is not live. Poster displayed.');
-            video.controls = false;
-            this.currentStreamUrl = null;
-            this.latestLiveHlsUrl = null;
-            if (this.hls) { this.hls.destroy(); this.hls = null; }
-            video.pause();
-            // No separate audio drift detection teardown needed when leaving the playing state
-            // Reset audio/video PTS trackers on return to idle
-            this.lastAudioPts = null;
-            this.lastVideoPts = null;
-            this.audioSyncIssueActive = false;
-            // Use initial poster until the first successful playback; then use idle poster
-            const posterUrl = this.hasPlayedOnce ? this.getAttribute('poster-idle') : this.getAttribute('poster-initial');
-            this.setPoster(posterUrl, this.hasPlayedOnce ? 'idle' : 'initial');
-                    // Show overlay again when returning to idle so the poster remains
-                    // visible. Only show the play button on the very first page load
-                    // before the user has clicked. After userGestureUnlocked becomes
-                    // true, the play button stays hidden when returning to idle.
-                    try {
-                        if (this.overlayEl) this.overlayEl.style.display = 'block';
-                        if (this.playButtonEl && !this.userGestureUnlocked) {
-                            this.playButtonEl.style.display = 'block';
+            // A1.12 — drain buffer before tearing down if playing with buffered content.
+            if (this.playerState === STATE.PLAYING) {
+                try {
+                    const hasBufferedContent = (() => {
+                        const buf = video.buffered;
+                        for (let i = 0; i < buf.length; i++) {
+                            if (buf.end(i) > video.currentTime + 0.5) return true;
                         }
-                    } catch (e) { console.error('[hs-video] fatal error:', e); }
-            this.startPolling();
-            // reset gating state when returning to IDLE
-            this.pendingPlayRequest = false;
-            if (this.bufferGateInterval) { try { clearInterval(this.bufferGateInterval); } catch (_) {} this.bufferGateInterval = null; }
-
-            // Update the status message based on whether we've played before
-            try {
-                if (this.hasPlayedOnce) {
-                    this.updateStatus('paused');
-                } else {
-                    this.updateStatus('waiting');
-                }
-            } catch (e) { console.error('[hs-video] fatal error:', e); }
+                        return false;
+                    })();
+                    if (hasBufferedContent) {
+                        this._drainingToIdle = true;
+                        this.debugLog('Idle while playing — draining buffer instead of tearing down.');
+                        this.updateStatus('paused');
+                        // Listen for video end to complete the idle teardown.
+                        video.addEventListener('ended', () => {
+                            if (!this._drainingToIdle) return;
+                            this._drainingToIdle = false;
+                            this._executeIdleTeardown();
+                        }, { once: true });
+                        this.playerState = newState;
+                        this._updateDebugPanel({});
+                        return;
+                    }
+                } catch (_) {}
+            }
+            this.debugLog('Stream is not live. Poster displayed.');
+            this._executeIdleTeardown();
         }
         this.playerState = newState;
         this._updateDebugPanel({});
+    }
+
+    // Internal: execute idle teardown (extracted for drain support).
+    _executeIdleTeardown() {
+        const video = this.videoEl || this.shadowRoot.querySelector('video');
+        video.controls = false;
+        this.currentStreamUrl = null;
+        this.latestLiveHlsUrl = null;
+        if (this.hls) { this.hls.destroy(); this.hls = null; }
+        video.pause();
+        this.lastAudioPts = null;
+        this.lastVideoPts = null;
+        this.audioSyncIssueActive = false;
+        const posterUrl = this.hasPlayedOnce ? this.getAttribute('poster-idle') : this.getAttribute('poster-initial');
+        this.setPoster(posterUrl, this.hasPlayedOnce ? 'idle' : 'initial');
+        try {
+            if (this.overlayEl) this.overlayEl.style.display = 'block';
+            if (this.playButtonEl && !this.userGestureUnlocked) {
+                this.playButtonEl.style.display = 'block';
+            }
+        } catch (e) { console.error('[hs-video] fatal error:', e); }
+        this.startPolling();
+        this.pendingPlayRequest = false;
+        if (this.bufferGateInterval) { try { clearInterval(this.bufferGateInterval); } catch (_) {} this.bufferGateInterval = null; }
+        try {
+            if (this.hasPlayedOnce) {
+                this.updateStatus('paused');
+            } else {
+                this.updateStatus('waiting');
+            }
+        } catch (e) { console.error('[hs-video] fatal error:', e); }
     }
 
     // Begin preparing to play without flipping state to PLAYING yet
