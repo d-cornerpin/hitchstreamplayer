@@ -18,6 +18,87 @@ header('Content-Type: application/json; charset=utf-8');
 // --- Helpers ---
 
 /**
+ * Install the webhook log table if it doesn't exist.
+ * Call from plugin activation / settings page.
+ */
+function hs_install_webhook_log_table() {
+    global $wpdb;
+    $table = $wpdb->prefix . 'hs_webhook_log';
+    $charset = $wpdb->get_charset_collate();
+    $sql = "CREATE TABLE {$table} (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        received_at DATETIME NOT NULL,
+        input_id VARCHAR(64) NOT NULL,
+        event_type VARCHAR(64) NOT NULL,
+        raw_body_hash CHAR(64) NOT NULL,
+        normalized_state VARCHAR(32) DEFAULT NULL,
+        error_code VARCHAR(64) DEFAULT NULL,
+        signature_ok TINYINT(1) NOT NULL DEFAULT 0,
+        processed TINYINT(1) NOT NULL DEFAULT 0,
+        correlation_id VARCHAR(36) DEFAULT '',
+        PRIMARY KEY (id),
+        KEY idx_received_at (received_at),
+        KEY idx_input_id (input_id),
+        KEY idx_signature_ok (signature_ok)
+    ) {$charset};";
+    require_once ABSPATH . 'wp-admin/upgrade-functions.php';
+    dbDelta($sql);
+}
+
+/**
+ * Insert a row into the webhook log table.
+ */
+function hs_webhook_log_insert($row) {
+    global $wpdb;
+    $wpdb->insert($wpdb->prefix . 'hs_webhook_log', $row, [
+        '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%s',
+    ]);
+}
+
+/**
+ * Trim webhook log rows older than 30 days.
+ * Called via wp-cron weekly.
+ */
+function hs_trim_webhook_log() {
+    global $wpdb;
+    $cutoff = date('Y-m-d H:i:s', strtotime('-30 days'));
+    $wpdb->delete($wpdb->prefix . 'hs_webhook_log', [
+        'received_at <=' => $cutoff,
+    ], ['%s']);
+}
+
+/**
+ * Schedule/unschedule the weekly trim job.
+ */
+function hs_schedule_webhook_log_trim() {
+    if (!wp_next_scheduled('hs_webhook_log_trim')) {
+        wp_schedule_event(time(), 'weekly', 'hs_webhook_log_trim');
+    }
+}
+
+function hs_unschedule_webhook_log_trim() {
+    $timestamp = wp_next_scheduled('hs_webhook_log_trim');
+    if ($timestamp) {
+        wp_unschedule_event($timestamp, 'hs_webhook_log_trim');
+    }
+}
+
+/**
+ * Atomically write a flat-state file for the live-state endpoint.
+ * B2.2a: write to .tmp then rename (POSIX atomic on same filesystem).
+ */
+function hs_write_flat_state_file($input_id, $data) {
+    $dir = WP_CONTENT_DIR . '/hs-state';
+    if (!is_dir($dir)) {
+        wp_mkdir_p($dir);
+    }
+    $tmp = "{$dir}/{$input_id}.json.tmp";
+    $final = "{$dir}/{$input_id}.json";
+    file_put_contents($tmp, json_encode($data, JSON_UNESCAPED_SLASHES));
+    rename($tmp, $final); // atomic
+}
+
+/**
  * Get the webhook shared secret from WP options.
  * Returns empty string if not configured.
  */
@@ -140,6 +221,19 @@ $signature = $_SERVER['HTTP_CF_WEBHOOK_SIGNATURE']
     ?? $_SERVER['HTTP_X_CF_WEBHOOK_SIGNATURE']
     ?? '';
 if (!hs_verify_webhook($body, $signature)) {
+    // Log failed signature to webhook log table
+    $log_data = [
+        'received_at'   => current_time('mysql'),
+        'input_id'      => $input_id,
+        'event_type'    => $event_type,
+        'raw_body_hash' => hash('sha256', $body),
+        'normalized_state' => null,
+        'error_code'    => $error_code,
+        'signature_ok'  => 0,
+        'processed'     => 0,
+        'correlation_id'=> '',
+    ];
+    hs_webhook_log_insert($log_data);
     http_response_code(403);
     echo json_encode(['error' => 'Invalid webhook signature']);
     exit;
@@ -152,10 +246,30 @@ if (!$event_type || !$input_id) {
     exit;
 }
 
-// Debounce.
-if (!hs_should_process($input_id)) {
-    echo json_encode(['status' => 'debounced']);
-    exit;
+// Coalesced debounce (B1.4): drop duplicates within 60s, coalesce within 3s window.
+function hs_should_process_coalesced($input_id, $body) {
+    global $parsed;
+    $idempotency_key = "hs_webhook_idem_{$input_id}";
+    $last = get_transient($idempotency_key);
+    if ($last) {
+        $last_ts = $last['ts'] ?? 0;
+        $last_event = $last['event'] ?? '';
+        $last_body = $last['body'] ?? '';
+        // Drop exact duplicates within 60s
+        if ((time() - $last_ts) < 60 && $last_event === ($parsed['data']['event_type'] ?? '') && $last_body === $body) {
+            return ['allow' => false];
+        }
+    }
+    // Coalesce: accept if >3s since last event of any type
+    $coalesce_key = "hs_webhook_coalesce_{$input_id}";
+    $last_coalesce = get_transient($coalesce_key);
+    if ($last_coalesce && (time() - ($last_coalesce['ts'] ?? 0)) < 3) {
+        // Return coalesced; read path should use the existing state
+        return ['allow' => false, 'coalesced' => true, 'ts' => $last_coalesce['ts']];
+    }
+    set_transient($idempotency_key, ['ts' => time(), 'event' => ($parsed['data']['event_type'] ?? ''), 'body' => $body], 60);
+    set_transient($coalesce_key, ['ts' => time()], 5);
+    return ['allow' => true];
 }
 
 // Normalize.
@@ -166,25 +280,95 @@ if (!$normalized) {
     exit;
 }
 
-// Cloudflare webhook payload does not include videoUID — the live-state probe
-// will fetch it on demand. Leave empty here.
+// Cloudflare webhook payload does not include videoUID. Fetch it from /lifecycle.
 $video_uid = '';
+$hls_url = null;
+$lifecycle_failed = false;
+
+if ($normalized === 'live') {
+    // B1.3: fetch videoUID from lifecycle endpoint
+    $customer_code = get_option('HSCF_customer_id', '');
+    if ($customer_code) {
+        $lifecycle_url = "https://customer-{$customer_code}.cloudflarestream.com/{$input_id}/lifecycle";
+        $ch = curl_init($lifecycle_url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
+        $resp = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlErr = curl_error($ch);
+        curl_close($ch);
+
+        if ($resp !== false && $httpCode >= 200 && $httpCode < 300) {
+            $lifecycle_data = json_decode($resp, true);
+            if (is_array($lifecycle_data) && isset($lifecycle_data['videoUID'])) {
+                $video_uid = $lifecycle_data['videoUID'] ?: '';
+                $hls_url = "https://customer-{$customer_code}.cloudflarestream.com/{$lifecycle_data['videoUID']}/manifest/video.m3u8";
+            }
+            // B1.3a: on /lifecycle failure, do NOT update the transient.
+            // Prior value is preserved (stale but valid). The next webhook or
+            // next viewer cache miss on the read path will re-attempt.
+        } else {
+            $lifecycle_failed = true;
+            error_log("[HitchStream] /lifecycle failed: input={$input_id} http={$httpCode} err=" . ($curlErr ?: 'none') . " — NOT updating transient per B1.3a");
+        }
+    }
+}
+
+// On disconnect: explicitly null videoUID so stale "connected" state doesn't leak.
+if ($normalized === 'idle' && ($event_type === 'live_input.disconnected' || in_array($state, ['client_disconnect', 'ttl_exceeded'], true))) {
+    $video_uid = null;
+    $hls_url = null;
+}
 
 // Store in transient.
 $ttl = hs_state_ttl($normalized);
+$correlation_id = wp_generate_uuid4();
+$now_ts = time();
 $data = [
     'state'      => $normalized,
     'videoUID'   => $video_uid,
+    'hlsUrl'     => $hls_url,
     'error_code' => $error_code,
     'event_type' => $event_type,
-    'ts'         => time(),
+    'ts'         => $now_ts,
+    'source'     => 'webhook',
 ];
 
 set_transient("hs_live_state_{$input_id}", $data, $ttl);
-set_transient("hs_webhook_update_ts_{$input_id}", time(), 5);
+set_transient("hs_webhook_update_ts_{$input_id}", $now_ts, 5);
+
+// B1.3a on lifecycle failure: if we failed to get videoUID for a live event,
+// keep the transient value from the last successful write — but don't overwrite
+// with a broken state. We handle this above by only setting video_uid if lifecycle
+// succeeded.
+
+// B1.5: Write log row
+$log_data = [
+    'received_at'   => current_time('mysql'),
+    'input_id'      => $input_id,
+    'event_type'    => $event_type,
+    'raw_body_hash' => hash('sha256', $body),
+    'normalized_state' => $normalized,
+    'error_code'    => $error_code,
+    'signature_ok'  => 1,
+    'processed'     => 1,
+    'correlation_id'=> $correlation_id,
+];
+hs_webhook_log_insert($log_data);
+
+// B2.2: Write flat file for lightweight endpoint
+hs_write_flat_state_file($input_id, [
+    'state' => $normalized,
+    'videoUID' => $video_uid,
+    'hlsUrl' => $hls_url,
+    'errorCode' => $error_code ?: null,
+    'source' => 'webhook',
+    'ts' => $now_ts,
+]);
 
 // Log for debugging.
-error_log("[HitchStream] Webhook: input={$input_id} event={$event_type} state={$normalized} videoUID={$video_uid}");
+error_log("[HitchStream] Webhook: input={$input_id} event={$event_type} state={$normalized} videoUID={$video_uid} corr={$correlation_id}");
 
 echo json_encode(['status' => 'ok', 'normalized_state' => $normalized]);
 exit;
