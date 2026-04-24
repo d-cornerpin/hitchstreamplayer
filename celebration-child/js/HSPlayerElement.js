@@ -149,6 +149,7 @@ class HSVideoElement extends HTMLElement {
         // callback and reflects the current Cloudflare state.
         this.playerMode = null;
         this.streamCurrentlyLive = false;
+        this.gestureController = null;
 
         // Track the most recent audio and video Presentation Time Stamps (PTS)
         // observed during fragment parsing.  These values are updated when
@@ -840,6 +841,11 @@ class HSVideoElement extends HTMLElement {
         };
 
             const onClickPlayButton = () => {
+                // Single-fire guard: once the gesture is unlocked, reject further
+                // calls (prevents double-dispatch when document and button handlers
+                // overlap).
+                if (this.userGestureUnlocked) return;
+
                 // Register user gesture (do NOT mark PLAYING yet).  We only hide the
                 // play button here and leave the overlay in place until the
                 // video actually begins playing.  This prevents the poster from
@@ -847,6 +853,9 @@ class HSVideoElement extends HTMLElement {
                 // buffering.
                 try { if (this.playButtonEl) this.playButtonEl.style.display = 'none'; } catch(_) {}
                 this.userGestureUnlocked = true;
+                // Cancel remaining document-level listeners so this handler
+                // fires exactly once across all three event types.
+                if (this.gestureController) this.gestureController.abort();
                 if (this.playerMode === 'live') {
                     // For live streams, begin loading the discovered live URL only when
                     // the viewer clicks the play button.  If a live URL was already
@@ -877,9 +886,10 @@ class HSVideoElement extends HTMLElement {
         if (playButton) playButton.addEventListener('click', this._onClickPlayButton);
 
         if (this.autoplay) {
-            document.addEventListener('click', this._onClickPlayButton, { once: true });
-            document.addEventListener('touchstart', this._onClickPlayButton, { once: true });
-            document.addEventListener('keydown', this._onClickPlayButton, { once: true });
+            this.gestureController = new AbortController();
+            document.addEventListener('click', this._onClickPlayButton, { signal: this.gestureController.signal });
+            document.addEventListener('touchstart', this._onClickPlayButton, { signal: this.gestureController.signal });
+            document.addEventListener('keydown', this._onClickPlayButton, { signal: this.gestureController.signal });
         }
 
         
@@ -905,6 +915,11 @@ class HSVideoElement extends HTMLElement {
 
     // Clean up timers and Hls.js when element is removed
     disconnectedCallback() {
+        // Abort gesture controller — cancels all document-level gesture listeners.
+        if (this.gestureController) {
+            try { this.gestureController.abort(); } catch (_) {}
+            this.gestureController = null;
+        }
         if (this.pollingInterval) {
             clearInterval(this.pollingInterval);
             this.pollingInterval = null;
