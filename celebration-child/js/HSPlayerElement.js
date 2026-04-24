@@ -433,6 +433,7 @@ class HSVideoElement extends HTMLElement {
                     clearTimeout(this._pollTimeoutId);
                 });
         };
+        this._pollFn = pollLifecycle;
         // clear any existing polling and schedule new polling
         if (this.pollingInterval) clearInterval(this.pollingInterval);
         // Immediately show a waiting status if we haven't yet played; this
@@ -985,6 +986,28 @@ class HSVideoElement extends HTMLElement {
             document.addEventListener('touchstart', this._onClickPlayButton, { signal: this._listenerController.signal });
             document.addEventListener('keydown', this._onClickPlayButton, { signal: this._listenerController.signal });
         }
+
+        // A1.13 — Page visibility handling.
+        this._visibilityHandler = () => {
+            if (document.visibilityState === 'hidden') {
+                this._lastHiddenAt = Date.now();
+                if (this.pollingInterval) clearInterval(this.pollingInterval);
+            } else {
+                this._lastHiddenAt = null;
+                if (this.playerMode === 'live') {
+                    // Poll immediately on return.
+                    pollLifecycle();
+                    // Re-sync to live edge if hidden > 30 s while playing.
+                    if (this.playerState === STATE.PLAYING && this.hls) {
+                        const hiddenMs = Date.now() - (this._lastHiddenAt || 0);
+                        if (hiddenMs > 30000) {
+                            try { this.hls.startLoad(-1); } catch(_) {}
+                        }
+                    }
+                }
+            }
+        };
+        document.addEventListener('visibilitychange', this._visibilityHandler, { signal: this._listenerController.signal });
 
         
 
