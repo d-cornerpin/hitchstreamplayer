@@ -736,7 +736,6 @@ function hs_register_cf_webhook($callback_url, $secret) {
     ]);
     curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
         'notification_url' => $callback_url,
-        'notificationUrl'  => $callback_url,
         'notification_auth' => [
             'strategy' => 'secret_header',
             'secret'   => $secret,
@@ -817,6 +816,12 @@ function hs_delete_cf_webhook() {
 
 /**
  * Remove a webhook from Cloudflare for a given live input.
+ *
+ * DEPRECATED: Cloudflare has migrated to account-level webhooks (PUT /accounts/{id}/stream/webhook).
+ * This function targets the old per-input endpoint which may no longer work.
+ * Use hs_delete_cf_webhook() from the admin plugin instead.
+ *
+ * @deprecated Use hs_delete_cf_webhook() instead.
  */
 function hs_unregister_cf_webhook($input_id, $webhook_uid) {
     $email    = get_option('HSCF_cloudflare_email', '');

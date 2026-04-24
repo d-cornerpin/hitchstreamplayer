@@ -203,8 +203,8 @@ function HSCF_webhook_url_field_callback()
 function HSCF_webhook_secret_field_callback()
 {
     $setting = get_option('HSCF_webhook_secret', '');
-    echo '<input type="text" name="HSCF_webhook_secret" value="' . esc_attr($setting) . '" style="width:100%;max-width:600px;" placeholder="Enter a secret or leave blank to auto-generate" />';
-    echo '<p class="description">This secret is used to verify incoming webhook signatures (stored as HSCF_webhook_secret).</p>';
+    echo '<input type="text" name="HSCF_webhook_secret" value="' . esc_attr($setting) . '" style="width:100%;max-width:600px;" placeholder="Leave blank — Cloudflare generates its own secret" disabled />';
+    echo '<p class="description">Cloudflare generates its own secret when you click "Register Webhook". The stored secret is overwritten by Cloudflare\'s value. Leave this field blank.</p>';
 }
 
 // AJAX: Register webhook with Cloudflare
@@ -242,6 +242,8 @@ function hscf_register_webhook_admin() {
 add_action('wp_ajax_hscf_delete_webhook', 'hscf_delete_webhook_admin');
 function hscf_delete_webhook_admin() {
     $result = hs_delete_cf_webhook();
+    // Clear local secret so it doesn't persist after the webhook is gone.
+    delete_option('HSCF_webhook_secret');
     wp_send_json_success([
         'status' => $result['status'],
         'body' => $result['body'],
