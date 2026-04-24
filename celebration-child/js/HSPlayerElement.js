@@ -1,10 +1,20 @@
 // Custom video player web component using Hls.js (live and VOD)
-// Poster image URLs (edit these to change defaults)
-const POSTER_INITIAL_URL = 'https://hitchstream.com/wp-content/uploads/2024/04/Poster_Initial_Default.png';
-const POSTER_IDLE_URL = 'https://hitchstream.com/wp-content/uploads/2024/04/Poster_Idle_Default.png';
-const POSTER_FATAL_URL = 'https://hitchstream.com/wp-content/uploads/2025/09/Poster_fatal_2.png';
-// Cloudflare customer identifier for VOD host
-const CLOUDFLARE_CUSTOMER_ID = 'juu1r5es4cbffqjf';
+
+// Safe-op helper: run fn, catch errors silently, log once if debug mode is on.
+// Replace the oldest pattern of try { ... } catch (_) {} that hides real bugs.
+if (typeof window.__hsVideoDebug__ !== 'undefined' && window.__hsVideoDebug__) {
+    // When debug is enabled, log the error.
+    window._safe = fn => { try { return fn(); } catch (e) { console.warn('[hs-video] safe op failed:', e); } };
+} else {
+    window._safe = fn => { try { return fn(); } catch (_) {} };
+}
+
+// Poster image URLs — overridden by URL params or page-level playerDefaults
+let POSTER_INITIAL_URL = 'https://hitchstream.com/wp-content/uploads/2024/04/Poster_Initial_Default.png';
+let POSTER_IDLE_URL = 'https://hitchstream.com/wp-content/uploads/2024/04/Poster_Idle_Default.png';
+let POSTER_FATAL_URL = 'https://hitchstream.com/wp-content/uploads/2025/09/Poster_fatal_2.png';
+// Cloudflare customer identifier for VOD host — overridden by URL param customerID or page-level playerDefaults
+let CLOUDFLARE_CUSTOMER_ID = 'juu1r5es4cbffqjf';
 // Dynamic prebuffer controls
 const MIN_PREBUFFER_SECONDS = 10;           // minimum seconds before considering start
 const MIN_PREBUFFER_SEGMENTS = 3;           // minimum segments before considering start
@@ -82,8 +92,6 @@ class HSVideoElement extends HTMLElement {
         this.throughputSamples = [];      // recent throughput samples (bps)
         this.manifestProbeInterval = null; // timer id for manifest probe
         this.healthPollInterval = null;   // timer id for health polling during playback
-        this.currentStreamUrl = null;      // URL currently loaded in Hls.js
-        this.ingestFalseCount = 0;         // consecutive polls reporting not live
         this.currentStreamUrl = null;      // URL currently loaded into Hls.js
         this.ingestFalseCount = 0;         // consecutive polls reporting ingest not live
         this.hasPlayedOnce = false;        // flips true after the first real playback
@@ -173,12 +181,21 @@ class HSVideoElement extends HTMLElement {
     setApiInfo({
         inputId,
         isLive,
-        autoplay = true
+        autoplay = true,
+        posterInitialURL,
+        posterIdleURL,
+        customerID,
+        posterFatalURL
     }) {
         this.debugLog('API Information set:', { inputId, isLive, autoplay });
         this.inputId = inputId;
         this.isLive = isLive;
         this.autoplay = autoplay;
+        // Override hardcoded defaults with provided values
+        if (posterInitialURL) POSTER_INITIAL_URL = posterInitialURL;
+        if (posterIdleURL) POSTER_IDLE_URL = posterIdleURL;
+        if (customerID) CLOUDFLARE_CUSTOMER_ID = customerID;
+        if (posterFatalURL) POSTER_FATAL_URL = posterFatalURL;
 
         if (this.isConnected) {
             if (this.isLive) this.startPolling(); else this.loadVideoDirectly();
@@ -308,7 +325,7 @@ class HSVideoElement extends HTMLElement {
                         }
                         if (this.ingestFalseCount >= 2) {
                             // Clear any fatal countdown if stream goes idle
-                            try { this.clearFatalTimer(); } catch (_) {}
+                            try { this.clearFatalTimer(); } catch (e) { console.error('[hs-video] clearFatalTimer failed:', e); }
                             if (this.hls) { try { this.hls.destroy(); } catch (_) {} this.hls = null; }
                             const v = (this.videoEl || this.shadowRoot.querySelector('video'));
                             try { v.pause(); } catch (_) {}
@@ -325,7 +342,7 @@ class HSVideoElement extends HTMLElement {
                             try {
                                 const posterUrl = this.hasPlayedOnce ? this.getAttribute('poster-idle') : this.getAttribute('poster-initial');
                                 this.setPoster(posterUrl, this.hasPlayedOnce ? 'idle' : 'initial');
-                            } catch (_) {}
+                            } catch (e) { console.error('[hs-video] fatal error:', e); }
                             // Show overlay again so the poster is visible. Only show
                             // the play button if the user has not yet interacted
                             // with the player. Once userGestureUnlocked becomes true
@@ -336,8 +353,8 @@ class HSVideoElement extends HTMLElement {
                                 if (this.playButtonEl && !this.userGestureUnlocked) {
                                     this.playButtonEl.style.display = 'block';
                                 }
-                            } catch (_) {}
-                            try { this.playerState = STATE.IDLE; this._updateDebugPanel({}); } catch (_) {}
+                            } catch (e) { console.error('[hs-video] fatal error:', e); }
+                            window._safe(() => { this.playerState = STATE.IDLE; this._updateDebugPanel({}); });
                             // Show paused/ended or waiting message after returning to idle
                             if (this.hasPlayedOnce) {
                                 this.updateStatus('paused');
@@ -357,7 +374,7 @@ class HSVideoElement extends HTMLElement {
         // provides instant feedback before the first network poll.
         try {
             if (!this.hasPlayedOnce) this.updateStatus('waiting');
-        } catch (_) {}
+        } catch (e) { console.error('[hs-video] fatal error:', e); }
         setTimeout(() => {
             this.pollingInterval = setInterval(pollLifecycle, POLL_INTERVAL_MS);
             pollLifecycle();
@@ -406,7 +423,7 @@ class HSVideoElement extends HTMLElement {
                         if (this.playButtonEl && !this.userGestureUnlocked) {
                             this.playButtonEl.style.display = 'block';
                         }
-                    } catch (_) {}
+                    } catch (e) { console.error('[hs-video] fatal error:', e); }
             this.startPolling();
             // reset gating state when returning to IDLE
             this.pendingPlayRequest = false;
@@ -419,7 +436,7 @@ class HSVideoElement extends HTMLElement {
                 } else {
                     this.updateStatus('waiting');
                 }
-            } catch (_) {}
+            } catch (e) { console.error('[hs-video] fatal error:', e); }
         }
         this.playerState = newState;
         this._updateDebugPanel({});
@@ -482,7 +499,6 @@ class HSVideoElement extends HTMLElement {
             startOnSegmentBoundary: true,
             startFragPrefetch: true,
             autoStartLoad: false,
-            manifestLoadingMaxRetry: 5,
             manifestLoadingRetryDelay: 1500,
             manifestLoadingMaxRetryTimeout: 60000,
             levelLoadingMaxRetry: 5,
@@ -535,7 +551,7 @@ class HSVideoElement extends HTMLElement {
                         const details = level?.details;
                         const fr = details?.framerate;
                         if (typeof fr === 'number' && fr > 0) fps = fr;
-                    } catch (_) {}
+                    } catch (e) { console.error('[hs-video] fatal error:', e); }
                     const thresholdSeconds = (this.audioDriftFrameThreshold / fps);
                     const shouldShowSyncIssue = !!(this.enableDebug || this.debugMode);
                     if (drift > thresholdSeconds) {
@@ -553,7 +569,7 @@ class HSVideoElement extends HTMLElement {
                         this.updateStatus('none');
                     }
                 }
-            } catch (_) {}
+            } catch (e) { console.error('[hs-video] fatal error:', e); }
         });
 
         // reset throughput samples for a fresh session
@@ -580,7 +596,7 @@ class HSVideoElement extends HTMLElement {
                     this.throughputSamples.push(bps);
                     if (this.throughputSamples.length > MAX_THROUGHPUT_SAMPLES) this.throughputSamples.shift();
                 }
-            } catch (_) {}
+            } catch (e) { console.error('[hs-video] fatal error:', e); }
         });
 
         this.hls.on(Hls.Events.MANIFEST_PARSED, () => {
@@ -590,11 +606,11 @@ class HSVideoElement extends HTMLElement {
             this.playerState = STATE.PREPARING;
             this._updateDebugPanel({});
             // Show preparing status indicator
-            try { this.updateStatus('preparing'); } catch (_) {}
+            try { this.updateStatus('preparing'); } catch (e) { console.error('[hs-video] updateStatus failed:', e); }
             // If the viewer has already interacted (userGestureUnlocked), start the fatal timer
             try {
                 if (this.userGestureUnlocked && !this.fatalTimer) this.startFatalTimer();
-            } catch (_) {}
+            } catch (e) { console.error('[hs-video] fatal error:', e); }
             this.tryStartPlayback();
 
             // Optional debug-only latency visibility
@@ -605,9 +621,9 @@ class HSVideoElement extends HTMLElement {
                         try {
                             const latencyVal = typeof this.hls?.latency === 'number' ? this.hls.latency : NaN;
                             this._updateDebugPanel({ latency: latencyVal });
-                        } catch (_) {}
+                        } catch (e) { console.error('[hs-video] fatal error:', e); }
                     }, LATENCY_LOG_INTERVAL_MS);
-                } catch (_) {}
+                } catch (e) { console.error('[hs-video] fatal error:', e); }
             }
         });
 
@@ -622,7 +638,7 @@ class HSVideoElement extends HTMLElement {
                     if (errType === Hls.ErrorTypes.MEDIA_ERROR) {
                         this.debugError('Fatal media error encountered. Attempting recovery...');
                         if (this.mediaErrorRecoveryAttempts < MAX_MEDIA_ERROR_RECOVERY_ATTEMPTS) {
-                            try { this.hls.recoverMediaError(); } catch (_) {}
+                            try { this.hls.recoverMediaError(); } catch (e) { console.error('[hs-video] recoverMediaError failed:', e); }
                             this.mediaErrorRecoveryAttempts++;
                         } else {
                             this.debugError('Max media error recovery attempts reached. Entering fatal state.');
@@ -634,7 +650,7 @@ class HSVideoElement extends HTMLElement {
                         this.debugError('Unrecoverable error encountered. Entering fatal state.');
                         this.enterFatalState();
                     }
-                } catch (_) {}
+                } catch (e) { console.error('[hs-video] fatal error:', e); }
             });
 
         // Probe manifest CORS/readiness before starting Hls.js loading
@@ -665,7 +681,7 @@ class HSVideoElement extends HTMLElement {
             // overlayPosterEl yet (e.g. before connected), so guard.
             try {
                 if (this.overlayPosterEl) this.overlayPosterEl.src = finalUrl;
-            } catch (_) {}
+            } catch (e) { console.error('[hs-video] fatal error:', e); }
         }
 
     // Render the player UI, wire events, and initialize playback
@@ -749,7 +765,7 @@ class HSVideoElement extends HTMLElement {
 
         const onPlaying = () => {
             // Playback has started; cancel any pending fatal timeout
-            try { this.clearFatalTimer(); } catch (_) {}
+            try { this.clearFatalTimer(); } catch (e) { console.error('[hs-video] clearFatalTimer failed:', e); }
             // When the 'playing' event fires, the video has just rendered the
             // first frame. To avoid exposing a frozen first frame while the
             // buffer is still filling, wait for the next 'timeupdate' event
@@ -760,7 +776,7 @@ class HSVideoElement extends HTMLElement {
             const handleTimeUpdate = () => {
                 try {
                     if (videoEl) videoEl.removeEventListener('timeupdate', handleTimeUpdate);
-                } catch (_) {}
+                } catch (e) { console.error('[hs-video] fatal error:', e); }
                 // Hide the overlay and show controls now that playback has
                 // progressed beyond the first frame
                 this._hideUi();
@@ -768,7 +784,7 @@ class HSVideoElement extends HTMLElement {
                 try { this.hasPlayedOnce = true; } catch(_) {}
                 try { this.playerState = STATE.PLAYING; this._updateDebugPanel({}); } catch(_) {}
                 // Indicate that the stream is now live for a brief moment
-                try { this.updateStatus('live'); } catch (_) {}
+                try { this.updateStatus('live'); } catch (e) { console.error('[hs-video] updateStatus failed:', e); }
                 // Audio drift detection is handled via fragment PTS; no explicit setup needed.
             };
             try {
@@ -797,7 +813,7 @@ class HSVideoElement extends HTMLElement {
                         if (hlsUrl && (!this.hls || this.currentStreamUrl !== hlsUrl)) {
                             this.prepareToPlay(hlsUrl);
                         }
-                    } catch (_) {}
+                    } catch (e) { console.error('[hs-video] fatal error:', e); }
                     // Defer hiding the overlay until playback starts (handled in onPlaying)
                     this.pendingPlayRequest = true;
                     if (!this.prebufferStartTs) this.prebufferStartTs = Date.now();
@@ -864,7 +880,7 @@ class HSVideoElement extends HTMLElement {
         try {
             if (this.videoEl && this._onPlaying) this.videoEl.removeEventListener('playing', this._onPlaying);
             if (this.playButtonEl && this._onClickPlayButton) this.playButtonEl.removeEventListener('click', this._onClickPlayButton);
-        } catch (_) {}
+        } catch (e) { console.error('[hs-video] fatal error:', e); }
         this.debugPanelEl = null;
         if (this.hls) {
             this.hls.destroy();
@@ -953,7 +969,7 @@ class HSVideoElement extends HTMLElement {
                             const cap = Math.max(0, typeof cur === 'number' && cur >= 0 ? cur - 1 : 0);
                             this.hls.autoLevelCapping = cap;
                         }
-                    } catch (_) {}
+                    } catch (e) { console.error('[hs-video] fatal error:', e); }
 
                     if (this.enableDebug) {
                         try { this.debugLog(`[hs-video] gate: headroom=${headroom.toFixed(2)} thr=${threshold.toFixed(1)}s seg=${segDur}s buf=${bufferAhead.toFixed(1)}s segs=${bufferedSegments.toFixed(1)}`); } catch (_) {}
@@ -979,7 +995,7 @@ class HSVideoElement extends HTMLElement {
                             this.startFatalTimer(bufferAhead);
                         }
                     }
-                } catch (_) {}
+                } catch (e) { console.error('[hs-video] fatal error:', e); }
                 if (hasUserGesture && ready && (enoughBuffer || timeoutReached)) {
                         clearInterval(this.bufferGateInterval);
                         this.bufferGateInterval = null;
@@ -998,7 +1014,7 @@ class HSVideoElement extends HTMLElement {
                 this.bufferGateInterval = setInterval(attemptStart, GATE_CHECK_INTERVAL_MS);
                 attemptStart();
             }
-        } catch (_) {}
+        } catch (e) { console.error('[hs-video] fatal error:', e); }
     }
 
     // Probe the manifest URL via fetch (CORS) and start Hls.js once reachable
@@ -1060,7 +1076,7 @@ class HSVideoElement extends HTMLElement {
             const errCode = this.debugOverlayData.error_code || '—';
             const src = this.debugOverlayData.source || '—';
             this.debugPanelEl.textContent = `state: ${state}\nprebuffer: ${buf}s\nIn Progress: ${prog}\nclicked: ${ck}\nlatency: ${lat}s\nlive: ${live}\nvideoUID: ${vid}\npolls: ${polls}\nerror_code: ${errCode}\nsource: ${src}`;
-        } catch (_) {}
+        } catch (e) { console.error('[hs-video] fatal error:', e); }
     }
 
     /**
@@ -1106,9 +1122,9 @@ class HSVideoElement extends HTMLElement {
                     if (this.playerState !== STATE.PLAYING && this.playerState !== STATE.IDLE && this.playerState !== STATE.FATAL) {
                         this.enterFatalState();
                     }
-                } catch (_) {}
+                } catch (e) { console.error('[hs-video] fatal error:', e); }
             }, FATAL_TIMEOUT_MS);
-        } catch (_) {}
+        } catch (e) { console.error('[hs-video] fatal error:', e); }
     }
 
     /**
@@ -1125,7 +1141,7 @@ class HSVideoElement extends HTMLElement {
             // Reset buffer-level tracking when clearing the fatal timer
             this.fatalBufferLevel = null;
             this.fatalTimerStart = null;
-        } catch (_) {}
+        } catch (e) { console.error('[hs-video] fatal error:', e); }
     }
 
     /**
@@ -1172,12 +1188,12 @@ class HSVideoElement extends HTMLElement {
                 try {
                     const posterUrl = this.getAttribute('poster-fatal');
                     this.setPoster(posterUrl, 'fatal');
-                } catch (_) {}
+                } catch (e) { console.error('[hs-video] fatal error:', e); }
                 // Hide overlay and play button so the fatal poster is visible
                 try {
                     if (this.overlayEl) this.overlayEl.style.display = 'none';
                     if (this.playButtonEl) this.playButtonEl.style.display = 'none';
-                } catch (_) {}
+                } catch (e) { console.error('[hs-video] fatal error:', e); }
             // Reset prebuffer and recovery state
             this.pendingPlayRequest = false;
             this.prebufferStartTs = 0;
@@ -1190,7 +1206,7 @@ class HSVideoElement extends HTMLElement {
             this._updateDebugPanel({});
             // Show an error status to the viewer
             try { this.updateStatus('error'); } catch (_) {}
-        } catch (_) {}
+        } catch (e) { console.error('[hs-video] fatal error:', e); }
     }
 
     // UI helpers
@@ -1369,7 +1385,7 @@ class HSVideoElement extends HTMLElement {
                     this.hideStatusMessage();
                     break;
             }
-        } catch (_) {}
+        } catch (e) { console.error('[hs-video] fatal error:', e); }
     }
 }
 

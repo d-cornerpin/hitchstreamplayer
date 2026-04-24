@@ -96,7 +96,8 @@ if ($cached && is_array($cached)) {
     $live = in_array($state, ['live', 'reconnected', 'new_configuration_accepted']);
     $hls_url = '';
     if ($video_uid) {
-        $hls_url = "https://customer-juu1r5es4cbffqjf.cloudflarestream.com/{$video_uid}/manifest/video.m3u8";
+        $customer_id = get_option('HSCF_customer_id', 'juu1r5es4cbffqjf');
+        $hls_url = "https://customer-{$customer_id}.cloudflarestream.com/{$video_uid}/manifest/video.m3u8";
     }
 
     echo json_encode([
@@ -126,7 +127,8 @@ if ($probe) {
 
     $hls_url = $probe['hls'] ?? '';
     if ($probe['videoUID'] && !$hls_url) {
-        $hls_url = "https://customer-juu1r5es4cbffqjf.cloudflarestream.com/{$probe['videoUID']}/manifest/video.m3u8";
+        $customer_id = get_option('HSCF_customer_id', 'juu1r5es4cbffqjf');
+        $hls_url = "https://customer-{$customer_id}.cloudflarestream.com/{$probe['videoUID']}/manifest/video.m3u8";
     }
 
     echo json_encode([

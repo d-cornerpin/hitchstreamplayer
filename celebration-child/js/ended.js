@@ -1,13 +1,23 @@
 document.addEventListener('DOMContentLoaded', function () {
     var eventStatus = document.getElementById('EventStatus');
-    
+
     const updateEndedMessage = () => {
-        document.getElementById('hs_player').style.display = 'none';
-//        console.log('Changing to ended message');
-        document.getElementById('hs_aftertext').textContent = endedMessage;
+        var hsPlayer = document.getElementById('hs_player');
+        if (hsPlayer) hsPlayer.style.display = 'none';
+
+        if (typeof endedMessage === 'undefined') {
+            console.error('endedMessage is not defined.');
+            return;
+        }
+        var hsAfterText = document.getElementById('hs_aftertext');
+        if (hsAfterText) hsAfterText.textContent = endedMessage;
 
         // Fetch and apply the correct textScale settings from textScalingConfig
-        const afterTextConfig = textScalingConfig.find(config => config.childClass === '.hs_aftertext');
+        if (typeof textScalingConfig === 'undefined') {
+            console.error('textScalingConfig is not defined.');
+            return;
+        }
+        var afterTextConfig = textScalingConfig.find(config => config.childClass === '.hs_aftertext');
         if (afterTextConfig) {
 //            console.log('Scaling ended text');
             textScale(afterTextConfig.parentClass, afterTextConfig.childClass, afterTextConfig.maxFontSize);

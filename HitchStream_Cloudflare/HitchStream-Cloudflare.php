@@ -150,6 +150,8 @@ function HitchStream_CloudFlare_setup_menu()
 {
     add_menu_page("CloudFlare Setup for HitchStream", "HS CloudFlare", "manage_options", "HitchStream_Cloudflare", "HSCF_Admin");
     add_action("admin_init", "HSCF_register_settings");
+    add_action("admin_init", "HSCF_register_webhook_settings");
+    add_action("admin_init", "HSCF_register_player_settings");
 }
 
 function HSCF_register_settings()
@@ -255,6 +257,61 @@ function hscf_fetch_webhooks_admin() {
         return;
     }
     wp_send_json_success($result);
+}
+
+// --- Player Settings ---
+
+function HSCF_register_player_settings()
+{
+    register_setting("HSCF_player_settings", "HSCF_customer_id");
+    register_setting("HSCF_player_settings", "HSCF_poster_initial");
+    register_setting("HSCF_player_settings", "HSCF_poster_idle");
+    register_setting("HSCF_player_settings", "HSCF_poster_fatal");
+
+    add_settings_section("HSCF_player_settings_section", "Player Settings", "HSCF_player_settings_section_callback", "HitchStream_Cloudflare");
+    add_settings_field("HSCF_customer_id_field", "Cloudflare Customer ID", "HSCF_customer_id_field_callback", "HitchStream_Cloudflare", "HSCF_player_settings_section");
+    add_settings_field("HSCF_poster_initial_field", "Poster Initial URL", "HSCF_poster_initial_field_callback", "HitchStream_Cloudflare", "HSCF_player_settings_section");
+    add_settings_field("HSCF_poster_idle_field", "Poster Idle URL", "HSCF_poster_idle_field_callback", "HitchStream_Cloudflare", "HSCF_player_settings_section");
+    add_settings_field("HSCF_poster_fatal_field", "Poster Fatal URL", "HSCF_poster_fatal_field_callback", "HitchStream_Cloudflare", "HSCF_player_settings_section");
+}
+
+function HSCF_player_settings_section_callback()
+{
+    echo '<p>Configurable defaults for the HSPlayer video player. URL params on the player page override these values.</p>';
+}
+
+function HSCF_customer_id_field_callback()
+{
+    $setting = get_option('HSCF_customer_id', 'juu1r5es4cbffqjf');
+    echo '<input type="text" name="HSCF_customer_id" value="' . esc_attr($setting) . '" style="width:100%;max-width:600px;" />';
+}
+
+function HSCF_poster_initial_field_callback()
+{
+    $setting = get_option('HSCF_poster_initial', 'https://hitchstream.com/wp-content/uploads/2024/04/Poster_Initial_Default.png');
+    echo '<input type="url" name="HSCF_poster_initial" value="' . esc_attr($setting) . '" style="width:100%;max-width:600px;" placeholder="https://..." />';
+}
+
+function HSCF_poster_idle_field_callback()
+{
+    $setting = get_option('HSCF_poster_idle', 'https://hitchstream.com/wp-content/uploads/2024/04/Poster_Idle_Default.png');
+    echo '<input type="url" name="HSCF_poster_idle" value="' . esc_attr($setting) . '" style="width:100%;max-width:600px;" placeholder="https://..." />';
+}
+
+function HSCF_poster_fatal_field_callback()
+{
+    $setting = get_option('HSCF_poster_fatal', 'https://hitchstream.com/wp-content/uploads/2025/09/Poster_fatal_2.png');
+    echo '<input type="url" name="HSCF_poster_fatal" value="' . esc_attr($setting) . '" style="width:100%;max-width:600px;" placeholder="https://..." />';
+}
+
+// Admin notice: warn when webhook secret is not configured
+add_action('admin_notices', 'HSCF_webhook_secret_notice');
+function HSCF_webhook_secret_notice() {
+    if (!current_user_can('manage_options')) return;
+    $secret = get_option('HSCF_webhook_secret', '');
+    if (empty($secret)) {
+        echo '<div class="notice notice-warning is-dismissible"><p><strong>HitchStream:</strong> Webhook secret is not configured. Incoming webhooks will be accepted without signature verification. <a href="' . admin_url('admin.php?page=HitchStream_Cloudflare') . '">Configure it here</a>.</p></div>';
+    }
 }
 
 function HSCF_settings_section_callback()
@@ -940,6 +997,18 @@ function HSCF_Admin()
             </div>
         </form>
         <div id="webhook-status" style="margin-top:15px;padding:10px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:4px;display:none;"></div>
+    </div>
+
+    <!-- Player Settings -->
+    <h2>Player Settings</h2>
+    <div style="margin-bottom:30px;">
+        <form method="post" action="options.php">
+            <?php
+            settings_fields("HSCF_player_settings");
+            do_settings_sections("HitchStream_Cloudflare");
+            submit_button();
+            ?>
+        </form>
     </div>
 
     <h2>Current Streams</h2>
