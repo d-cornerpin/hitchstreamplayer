@@ -292,6 +292,7 @@ Receives Cloudflare Notifications. Response does not matter to the player. Noted
 | `HSCF_streamer_api_key` | Placeholder-stream service `X-API-KEY` | B |
 | `HSCF_poster_initial`, `HSCF_poster_idle`, `HSCF_poster_fatal` | Default poster URLs (overridden by URL params per player) | Both (A reads from `HSPlayerConfig`) |
 | `HSCF_alert_email` | Where critical error alerts go | B |
+| `HSCF_alert_codes` | Comma-separated Cloudflare error codes that trigger an email alert. Default `"ERR_STORAGE_QUOTA_EXHAUSTED,ERR_MISSING_SUBSCRIPTION"`. | B |
 
 ---
 
@@ -574,11 +575,13 @@ Goal: make the webhook path actually deliver playable state. Fixes **B1** and th
 - [ ] **B1.3** Populate `videoUID` at webhook-receive time (fixes **B1** — the single biggest server-side bug)
   - In the webhook handler, on `live_input.connected` or `live_input.reconnected` events, immediately call `GET https://customer-<customerCode>.cloudflarestream.com/<input_id>/lifecycle`. This endpoint is unauth'd (documented in `CloudFlare Docs/Watch a Live Stream.md`). Response: `{isInput, videoUID, live}`.
   - Store both `state` and `videoUID` in the transient atomically.
-  - If the `/lifecycle` call fails (network, 5xx), fall back to the existing behavior: store `state` with empty `videoUID`. This at least doesn't regress.
-  - Unit test: given a mocked `/lifecycle` response, the handler writes the right transient.
+  - **B1.3a — On `/lifecycle` failure (network error, 5xx, malformed response): do NOT update the transient.** Log the failure with the input ID and event type, return 200 to Cloudflare so it doesn't retry pointlessly. Writing `state="live"` with `videoUID=""` violates §4.1 (live state requires populated videoUID) and is worse than serving stale-but-valid prior state. The next webhook will repair, or the next viewer cache miss on the read path will re-attempt `/lifecycle`.
+  - On `live_input.disconnected`: explicitly write the transient with `state="idle"`, `videoUID=null`, `hlsUrl=null`. The previous "connected" transient still holds the old UID — if you don't null it explicitly, the read path serves stale data.
+  - Unit tests: (a) given a mocked `/lifecycle` 200 response, handler writes a contract-valid transient; (b) given a mocked `/lifecycle` 500, handler does NOT write the transient and prior value is preserved; (c) given a `disconnected` event, handler writes `videoUID=null`.
 - [ ] **B1.4** Idempotency and coalesced debounce
   - Record the last-seen `data.updated_at + event_type` per input in a 60 s transient. Drop duplicates.
   - Replace the current drop-on-second-event debounce with coalesce: the newest event within a 3 s window wins (not the first).
+  - **B1.4a — `ts` field on coalesced responses must reflect the original probe write time, not `time()` at the moment of the coalesced read.** Carry the original `ts` through the single-flight lock value. Otherwise the player cannot detect stale data through the freshness window the contract implies.
 - [ ] **B1.5** Custom webhook log table
   - Create `{$wpdb->prefix}hs_webhook_log` with columns: `id`, `received_at` (UTC), `input_id`, `event_type`, `raw_body_hash`, `normalized_state`, `error_code`, `signature_ok`, `processed`, `correlation_id`.
   - Every webhook receipt writes one row, signature-failed or not.
@@ -598,7 +601,8 @@ Goal: make polling cheap. Fixes **B6** server-side and **B24**, **B25**.
 - [ ] **B2.2** Lightweight path (fixes **B24**)
   - The REST route handler must NOT do a full WP bootstrap per request — WP REST handlers already run after bootstrap, which is fine, but the handler itself must be a pure transient read with no plugin hooks firing.
   - If latency profile shows p50 > 5 ms, fall back to a dedicated non-WP PHP file that reads the transient value directly from `wp_options` with a single prepared query, bypassing WordPress entirely. Only do this if the REST route's measured p50 is too high.
-  - Consider: have the webhook handler (B1.3) write a flat JSON file `{wp-content}/hs-state/{inputId}.json` in addition to the transient. The lightweight endpoint reads the flat file with `readfile()` — zero DB hits. This is the fastest, cleanest path and I recommend it unless there's a reason not to.
+  - Have the webhook handler (B1.3) write a flat JSON file `{wp-content}/hs-state/{inputId}.json` in addition to the transient. The lightweight endpoint reads the flat file with `readfile()` — zero DB hits. This is the fastest, cleanest path; use it unless something prevents it.
+  - **B2.2a — Flat-file writes MUST be atomic.** Write to `<wp-content>/hs-state/<inputId>.json.tmp` then `rename()` to the final path. POSIX `rename()` is atomic on the same filesystem. Without this, a concurrent reader can hit a partially-written file mid-write and parse-fail. Same applies to any other flat-file the webhook handler maintains.
 - [ ] **B2.3** Response shape matches §4.1 exactly. Includes `ETag` header and respects `If-None-Match` → 304.
 - [ ] **B2.4** Single-flight lock on cache miss
   - Use a short `hs_probe_lock_{inputId}` transient (TTL 5 s) with `add_option` or `wp_cache_add` semantics. Before calling `/lifecycle` on a miss, acquire the lock. If the lock is held, return the previous state with `source: 'coalesced'` and no API call.
@@ -660,6 +664,7 @@ Goal: split the 1369-line monolith into classes. Remove dead code.
   - `celebration-child/endpoints/cloudflare_debug.log` (and add to `.gitignore`)
 - [ ] **B4.9** `admin.js` cleanup: AJAX responses re-render affected sections without full page reload; nonce always included; no `console.log` of sensitive values.
 - [ ] **B4.10** Backward-compat shims: keep old procedural function names (`hs_register_cf_webhook`, `hs_compute_server_live_state`, etc.) as thin delegates for one release.
+  - **B4.10a — Shims MUST validate their return value against the §4 contract shape before returning.** If a legacy code path produces contract-violating data (e.g., `state="live"` with `videoUID=null`, or a `source` value not in `{webhook, probe, coalesced}`), the shim logs a `_doing_it_wrong` notice and returns either a sanitized response or null. Do not silently propagate malformed data — that defeats the purpose of having a contract.
 
 **GATE:** All 10 boxes. Plugin smoke test: create a live input, register webhook, verify state, delete input — all via the admin UI. No console errors. Only then: B5.
 
@@ -670,7 +675,8 @@ Goal: split the 1369-line monolith into classes. Remove dead code.
 - [ ] **B5.3** Replace `$$variable = $value` content-parsing pattern (`Event Generic v2.php:602–603` and any siblings) with explicit `get_post_meta()` reads. Keep a fallback path that reads the old format and logs a deprecation warning when used, so legacy events still work while they're migrated.
 - [ ] **B5.4** Add `Content-Security-Policy` header to the player page (`HitchStream-Player.php`). Allow Cloudflare Stream origins only. Self-host Hls.js under `celebration-child/js/vendor/hls-<version>.min.js` rather than CDN.
 - [ ] **B5.5** Create admin activity page (`Tools → HitchStream Activity`). Renders last 200 rows of the webhook log table with filter-by-inputId. Two-click answer to "what happened at Wedding X at 3:42pm?"
-- [ ] **B5.6** Critical error email alerts: when a webhook arrives with `error_code` in `{ERR_STORAGE_QUOTA_EXHAUSTED, ERR_MISSING_SUBSCRIPTION}`, send an email to `HSCF_alert_email`.
+- [ ] **B5.6** Critical error email alerts: when a webhook arrives with an `error_code` in the configured alert set, send an email to `HSCF_alert_email`.
+  - **B5.6a — The alert-code set is read from a new WP option `HSCF_alert_codes`** (comma-separated string, default `"ERR_STORAGE_QUOTA_EXHAUSTED,ERR_MISSING_SUBSCRIPTION"`). Same default codes as today, but configurable so future Cloudflare error codes can be added or removed without a code deploy. Document in the settings page UI which codes are currently configured. The two default codes are also the two codes carried in `HSPlayerConfig.errorMessages` — keep these aligned by reading both lists from the same option in B3.5's settings page render.
 - [ ] **B5.7** (Optional, if A5.4 goes ahead) Build `POST /wp-json/hitchstream/v1/admin/recording-check?inputId=…` endpoint. Returns `{ready, videoUID, hlsUrl}`. Coordinate with Agent A on whether this is needed.
 - [ ] **B5.8** Runbook: `docs/runbook.md` with:
   - How to trigger a test webhook from Cloudflare dashboard
@@ -688,7 +694,9 @@ Goal: split the 1369-line monolith into classes. Remove dead code.
 
 Both agents stop feature work at each CP and validate together.
 
-### CP-0 — Contract freeze
+### CP-0 — Contract freeze ✅ SIGNED 2026-04-24
+Both agents confirmed §4 in their progress files. Five amendments folded into §6 (B1.3a, B1.4a, B2.2a, B4.10a, B5.6a) per Agent A's review of B's workstream. Contract is frozen. A1 and B1 may proceed in parallel.
+
 Before A1 / B1 start. One joint session. Both agents:
 - Have read and understood §1, §2, §4, §10.
 - Agree on every field name, type, and semantic in §4.
