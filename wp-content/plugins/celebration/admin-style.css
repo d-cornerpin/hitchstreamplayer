@@ -1,0 +1,61 @@
+.bt_rc_icon_preview:before {
+	content: attr(data-icon-code);
+}
+.bt_rc_icon_preview {
+	/*vertical-align: middle;*/
+}
+
+.bt_rc_iconpicker .bt_rc_iconpicker_icons .bt_rc_icon_preview {
+    height: 46px;
+	font-size: 36px;
+	padding: 5px 0px;
+}
+
+.bt_rc_icon_preview.bt_rc_icon_preview_fa {
+	font-family: FontAwesome;
+}
+.bt_rc_icon_preview.bt_rc_icon_preview_s7 {
+	font-family: Icon7Stroke;
+}
+
+/* FontAwesome */
+
+@font-face {
+    font-family: 'FontAwesome';
+    src: url('../../themes/celebration/fonts/fontawesome-webfont.eot?v=4.3.0');
+    src: url('../../themes/celebration/fonts/fontawesome-webfont.eot?#iefix&v=4.3.0') format('embedded-opentype'), url('../../themes/celebration/fonts/fontawesome-webfont.woff2?v=4.3.0') format('woff2'), url('../../themes/celebration/fonts/fontawesome-webfont.woff?v=4.3.0') format('woff'), url('../../themes/celebration/fonts/fontawesome-webfont.ttf?v=4.3.0') format('truetype'), url('../../themes/celebration/fonts/fontawesome-webfont.svg?v=4.3.0#fontawesomeregular') format('svg');
+    font-weight: normal;
+    font-style: normal;
+}
+
+/*  7-stroke (http://themes-pixeden.com/font-demos/7-stroke/index.html) */
+
+@font-face {
+    font-family: 'Icon7Stroke';
+    src:url('../../themes/celebration/fonts/Pe-icon-7-stroke.eot?d7yf1v');
+    src:url('../../themes/celebration/fonts/Pe-icon-7-stroke.eot?#iefixd7yf1v') format('embedded-opentype'),
+    url('../../themes/celebration/fonts/Pe-icon-7-stroke.woff?d7yf1v') format('woff'),
+    url('../../themes/celebration/fonts/Pe-icon-7-stroke.ttf?d7yf1v') format('truetype'),
+    url('../../themes/celebration/fonts/Pe-icon-7-stroke.svg?d7yf1v#Pe-icon-7-stroke') format('svg');
+    font-weight: normal;
+    font-style: normal;
+}  
+
+/* Custom icons */
+
+/*  Custom 'wedding' font */
+@font-face {
+    font-family: 'Wedding';
+    src:    url('../../themes/celebration/fonts/wedding.eot?dfbx70');
+    src:    url('../../themes/celebration/fonts/wedding.eot?dfbx70#iefix') format('embedded-opentype'),
+    url('../../themes/celebration/fonts/wedding.ttf?dfbx70') format('truetype'),
+    url('../../themes/celebration/fonts/wedding.woff?dfbx70') format('woff'),
+    url('../../themes/celebration/fonts/wedding.svg?dfbx70#wedding') format('svg');
+    font-weight: normal;
+    font-style: normal;
+}
+
+
+.bt_rc_icon_preview.bt_rc_icon_preview_cs {
+	font-family: Wedding;
+}

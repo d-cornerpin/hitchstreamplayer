@@ -1,0 +1,1568 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2022-09-04 10:12+0200\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=CHARSET\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: celebration.php:26
+msgid "Custom JS (Top)"
+msgstr ""
+
+#: celebration.php:42
+msgid "Custom JS (Bottom)"
+msgstr ""
+
+#: celebration.php:59 celebration.php:136 celebration.php:213
+msgid "Share on Facebook"
+msgstr ""
+
+#: celebration.php:74 celebration.php:151 celebration.php:228
+msgid "Share on Twitter"
+msgstr ""
+
+#: celebration.php:89 celebration.php:166 celebration.php:243
+msgid "Share on WhatsApp"
+msgstr ""
+
+#: celebration.php:104 celebration.php:181 celebration.php:258
+msgid "Share on LinkedIn"
+msgstr ""
+
+#: celebration.php:119 celebration.php:196 celebration.php:273
+msgid "Share on VK"
+msgstr ""
+
+#: celebration.php:354
+msgid "Header Right Icons"
+msgstr ""
+
+#: celebration.php:360
+msgid "Footer Widgets"
+msgstr ""
+
+#: celebration.php:368
+msgid "Footer Right Icons"
+msgstr ""
+
+#: celebration.php:2092
+msgid "Days"
+msgstr ""
+
+#: celebration.php:2093
+msgid "Hours"
+msgstr ""
+
+#: celebration.php:2094
+msgid "Minutes"
+msgstr ""
+
+#: celebration.php:2095
+msgid "Seconds"
+msgstr ""
+
+#: celebration.php:2570 celebration.php:2826 celebration.php:4060
+msgid "by"
+msgstr ""
+
+#: celebration.php:2711
+msgid "Category filter:"
+msgstr ""
+
+#: celebration.php:2712
+msgid "All"
+msgstr ""
+
+#: celebration.php:2721
+msgid "No more posts"
+msgstr ""
+
+#: celebration.php:2983 celebration.php:2985 celebration.php:3235
+#: celebration.php:3329 celebration.php:3339 celebration.php:3490
+msgid "Image"
+msgstr ""
+
+#: celebration.php:2983
+msgid "Single image"
+msgstr ""
+
+#: celebration.php:2986
+msgid "Caption Text"
+msgstr ""
+
+#: celebration.php:2987
+msgid "Size (e.g. thumbnail, medium, large, full)"
+msgstr ""
+
+#: celebration.php:2988
+msgid "Shape"
+msgstr ""
+
+#: celebration.php:2990
+msgid "Square"
+msgstr ""
+
+#: celebration.php:2991
+msgid "Circle"
+msgstr ""
+
+#: celebration.php:2993 celebration.php:3286 celebration.php:3330
+#: celebration.php:3340 celebration.php:3367 celebration.php:3549
+msgid "URL"
+msgstr ""
+
+#: celebration.php:2994
+msgid "Target"
+msgstr ""
+
+#: celebration.php:2996 celebration.php:3371 celebration.php:3553
+msgid "Self"
+msgstr ""
+
+#: celebration.php:2997 celebration.php:3372 celebration.php:3554
+msgid "Blank"
+msgstr ""
+
+#: celebration.php:2999 celebration.php:3066 celebration.php:3073
+#: celebration.php:3080 celebration.php:3088 celebration.php:3147
+#: celebration.php:3198 celebration.php:3224 celebration.php:3294
+#: celebration.php:3311 celebration.php:3358 celebration.php:3407
+#: celebration.php:3420 celebration.php:3438 celebration.php:3453
+#: celebration.php:3483 celebration.php:3491 celebration.php:3521
+#: celebration.php:3563 celebration.php:3597 celebration.php:3660
+#: celebration.php:3694 celebration.php:3707
+msgid "Extra Class Name(s)"
+msgstr ""
+
+#: celebration.php:3000 celebration.php:3067 celebration.php:3074
+#: celebration.php:3081 celebration.php:3089 celebration.php:3148
+#: celebration.php:3199 celebration.php:3225 celebration.php:3295
+#: celebration.php:3312 celebration.php:3359 celebration.php:3408
+#: celebration.php:3421 celebration.php:3439 celebration.php:3454
+#: celebration.php:3484 celebration.php:3492 celebration.php:3522
+#: celebration.php:3564 celebration.php:3598 celebration.php:3661
+#: celebration.php:3695 celebration.php:3708
+msgid "Inline Style"
+msgstr ""
+
+#: celebration.php:3004
+msgid "Section"
+msgstr ""
+
+#: celebration.php:3004
+msgid "Basic root element"
+msgstr ""
+
+#: celebration.php:3006
+msgid "Layout"
+msgstr ""
+
+#: celebration.php:3008
+msgid "Boxed"
+msgstr ""
+
+#: celebration.php:3009
+msgid "Wide"
+msgstr ""
+
+#: celebration.php:3011 celebration.php:3498
+msgid "Top spaced"
+msgstr ""
+
+#: celebration.php:3013 celebration.php:3022 celebration.php:3037
+#: celebration.php:3049 celebration.php:3135 celebration.php:3140
+#: celebration.php:3175 celebration.php:3180 celebration.php:3219
+#: celebration.php:3253 celebration.php:3290 celebration.php:3370
+#: celebration.php:3435 celebration.php:3470 celebration.php:3475
+#: celebration.php:3480 celebration.php:3500 celebration.php:3509
+#: celebration.php:3518 celebration.php:3552 celebration.php:3585
+#: celebration.php:3590 celebration.php:3595 celebration.php:3615
+#: celebration.php:3642 celebration.php:3652 celebration.php:3657
+msgid "No"
+msgstr ""
+
+#: celebration.php:3014 celebration.php:3023 celebration.php:3501
+#: celebration.php:3510
+msgid "Extra-Small-Spaced"
+msgstr ""
+
+#: celebration.php:3015 celebration.php:3024 celebration.php:3502
+#: celebration.php:3511
+msgid "Small-Spaced"
+msgstr ""
+
+#: celebration.php:3016 celebration.php:3025 celebration.php:3503
+#: celebration.php:3512
+msgid "Semi-Spaced"
+msgstr ""
+
+#: celebration.php:3017 celebration.php:3026 celebration.php:3504
+#: celebration.php:3513
+msgid "Spaced"
+msgstr ""
+
+#: celebration.php:3018 celebration.php:3027 celebration.php:3505
+#: celebration.php:3514
+msgid "Extra-Spaced"
+msgstr ""
+
+#: celebration.php:3020 celebration.php:3507
+msgid "Bottom spaced"
+msgstr ""
+
+#: celebration.php:3029
+msgid "Skin"
+msgstr ""
+
+#: celebration.php:3031 celebration.php:3042 celebration.php:3103
+#: celebration.php:3168
+msgid "Inherit"
+msgstr ""
+
+#: celebration.php:3032
+msgid "Dark"
+msgstr ""
+
+#: celebration.php:3033 celebration.php:3392
+msgid "Light"
+msgstr ""
+
+#: celebration.php:3035
+msgid "Full Screen"
+msgstr ""
+
+#: celebration.php:3038 celebration.php:3050 celebration.php:3136
+#: celebration.php:3141 celebration.php:3176 celebration.php:3181
+#: celebration.php:3254 celebration.php:3436 celebration.php:3471
+#: celebration.php:3476 celebration.php:3481 celebration.php:3519
+#: celebration.php:3584 celebration.php:3589 celebration.php:3594
+#: celebration.php:3616 celebration.php:3643 celebration.php:3653
+#: celebration.php:3658
+msgid "Yes"
+msgstr ""
+
+#: celebration.php:3040 celebration.php:3101 celebration.php:3166
+msgid "Vertical Align"
+msgstr ""
+
+#: celebration.php:3043 celebration.php:3104 celebration.php:3169
+#: celebration.php:3220 celebration.php:3374 celebration.php:3556
+msgid "Top"
+msgstr ""
+
+#: celebration.php:3044 celebration.php:3105 celebration.php:3170
+msgid "Middle"
+msgstr ""
+
+#: celebration.php:3045 celebration.php:3106 celebration.php:3171
+#: celebration.php:3221 celebration.php:3291
+msgid "Bottom"
+msgstr ""
+
+#: celebration.php:3047
+msgid "Divider"
+msgstr ""
+
+#: celebration.php:3052
+msgid "Background Image"
+msgstr ""
+
+#: celebration.php:3053 celebration.php:3143 celebration.php:3196
+msgid "Background color"
+msgstr ""
+
+#: celebration.php:3054
+msgid "YouTube Background Video"
+msgstr ""
+
+#: celebration.php:3055
+msgid "Video Settings (e.g. startAt:20, mute:true, stopMovieOnBlur:false)"
+msgstr ""
+
+#: celebration.php:3056
+msgid "MP4 Background Video"
+msgstr ""
+
+#: celebration.php:3057
+msgid "Ogg Background Video"
+msgstr ""
+
+#: celebration.php:3058
+msgid "WebM Background Video"
+msgstr ""
+
+#: celebration.php:3059
+msgid "Parallax (e.g. -.7)"
+msgstr ""
+
+#: celebration.php:3060
+msgid "Parallax Offset in px (e.g. -100)"
+msgstr ""
+
+#: celebration.php:3061
+msgid "Animation (forward)"
+msgstr ""
+
+#: celebration.php:3062
+msgid "Animation (backward)"
+msgstr ""
+
+#: celebration.php:3063
+msgid "Fullscreen Animation Icon"
+msgstr ""
+
+#: celebration.php:3064
+msgid "Impress Animation Settings"
+msgstr ""
+
+#: celebration.php:3065
+msgid "Custom Id Attribute"
+msgstr ""
+
+#: celebration.php:3071
+msgid "Row"
+msgstr ""
+
+#: celebration.php:3071
+msgid "Row element"
+msgstr ""
+
+#: celebration.php:3078
+msgid "Inner Row"
+msgstr ""
+
+#: celebration.php:3078
+msgid "Inner Row element"
+msgstr ""
+
+#: celebration.php:3085
+msgid "Custom Menu"
+msgstr ""
+
+#: celebration.php:3087
+msgid "Menu Name"
+msgstr ""
+
+#: celebration.php:3093
+msgid "Column"
+msgstr ""
+
+#: celebration.php:3093
+msgid "Column element"
+msgstr ""
+
+#: celebration.php:3095 celebration.php:3154
+msgid "Align"
+msgstr ""
+
+#: celebration.php:3097 celebration.php:3111 celebration.php:3156
+#: celebration.php:3386
+msgid "Left"
+msgstr ""
+
+#: celebration.php:3098 celebration.php:3112 celebration.php:3157
+#: celebration.php:3384
+msgid "Right"
+msgstr ""
+
+#: celebration.php:3099 celebration.php:3158
+msgid "Center"
+msgstr ""
+
+#: celebration.php:3108 celebration.php:3516
+msgid "Border"
+msgstr ""
+
+#: celebration.php:3110
+msgid "No Border"
+msgstr ""
+
+#: celebration.php:3114 celebration.php:3160
+msgid "Padding"
+msgstr ""
+
+#: celebration.php:3116 celebration.php:3162 celebration.php:3269
+#: celebration.php:3275 celebration.php:3532 celebration.php:3538
+msgid "Default"
+msgstr ""
+
+#: celebration.php:3117 celebration.php:3163
+msgid "No padding"
+msgstr ""
+
+#: celebration.php:3118 celebration.php:3164
+msgid "Double padding"
+msgstr ""
+
+#: celebration.php:3120 celebration.php:3183
+msgid "Animation"
+msgstr ""
+
+#: celebration.php:3122 celebration.php:3185
+msgid "No Animation"
+msgstr ""
+
+#: celebration.php:3123 celebration.php:3186
+msgid "Fade In"
+msgstr ""
+
+#: celebration.php:3124 celebration.php:3187
+msgid "Move Up"
+msgstr ""
+
+#: celebration.php:3125 celebration.php:3188
+msgid "Move Left"
+msgstr ""
+
+#: celebration.php:3126 celebration.php:3189
+msgid "Move Right"
+msgstr ""
+
+#: celebration.php:3127 celebration.php:3190
+msgid "Move Down"
+msgstr ""
+
+#: celebration.php:3128 celebration.php:3191
+msgid "Fade In / Move Up"
+msgstr ""
+
+#: celebration.php:3129 celebration.php:3192
+msgid "Fade In / Move Left"
+msgstr ""
+
+#: celebration.php:3130 celebration.php:3193
+msgid "Fade In / Move Right"
+msgstr ""
+
+#: celebration.php:3131 celebration.php:3194
+msgid "Fade In / Move Down"
+msgstr ""
+
+#: celebration.php:3133 celebration.php:3178
+msgid "Text indent"
+msgstr ""
+
+#: celebration.php:3138
+msgid "Cell highlight"
+msgstr ""
+
+#: celebration.php:3144
+msgid "Transparent (e.g. 0.4) (deprecated)"
+msgstr ""
+
+#: celebration.php:3145
+msgid "Inner Background color"
+msgstr ""
+
+#: celebration.php:3146
+msgid "Background image"
+msgstr ""
+
+#: celebration.php:3152
+msgid "Inner Column"
+msgstr ""
+
+#: celebration.php:3152
+msgid "Inner Column element"
+msgstr ""
+
+#: celebration.php:3173
+msgid "Highlight"
+msgstr ""
+
+#: celebration.php:3197
+msgid "Opacity (0 - 1, e.g. 0.4) (deprecated)"
+msgstr ""
+
+#: celebration.php:3203 celebration.php:3236 celebration.php:3293
+#: celebration.php:3338 celebration.php:3365 celebration.php:3445
+msgid "Text"
+msgstr ""
+
+#: celebration.php:3203
+msgid "Text element"
+msgstr ""
+
+#: celebration.php:3205
+msgid "Header"
+msgstr ""
+
+#: celebration.php:3205
+msgid "Header element"
+msgstr ""
+
+#: celebration.php:3207
+msgid "Superheadline"
+msgstr ""
+
+#: celebration.php:3208 celebration.php:3234 celebration.php:3246
+#: celebration.php:3260 celebration.php:3287
+msgid "Headline"
+msgstr ""
+
+#: celebration.php:3209
+msgid "Headline Size"
+msgstr ""
+
+#: celebration.php:3211 celebration.php:3280 celebration.php:3396
+#: celebration.php:3463 celebration.php:3543
+msgid "Small"
+msgstr ""
+
+#: celebration.php:3212 celebration.php:3282 celebration.php:3398
+#: celebration.php:3464 celebration.php:3545
+msgid "Medium"
+msgstr ""
+
+#: celebration.php:3213 celebration.php:3284 celebration.php:3418
+#: celebration.php:3431 celebration.php:3465 celebration.php:3547
+msgid "Large"
+msgstr ""
+
+#: celebration.php:3214
+msgid "Extra large"
+msgstr ""
+
+#: celebration.php:3215
+msgid "Huge"
+msgstr ""
+
+#: celebration.php:3217 celebration.php:3288
+msgid "Dash"
+msgstr ""
+
+#: celebration.php:3223
+msgid "Subheadline"
+msgstr ""
+
+#: celebration.php:3229
+msgid "Testimonials"
+msgstr ""
+
+#: celebration.php:3229
+msgid "Testimonials container"
+msgstr ""
+
+#: celebration.php:3232
+msgid "Testimonial Item"
+msgstr ""
+
+#: celebration.php:3232
+msgid "Single testimonial item"
+msgstr ""
+
+#: celebration.php:3237
+msgid "Name"
+msgstr ""
+
+#: celebration.php:3238
+msgid "Job"
+msgstr ""
+
+#: celebration.php:3243
+msgid "Tabs"
+msgstr ""
+
+#: celebration.php:3243
+msgid "Tabs container"
+msgstr ""
+
+#: celebration.php:3245
+msgid "Tab Item"
+msgstr ""
+
+#: celebration.php:3245
+msgid "Tabs items"
+msgstr ""
+
+#: celebration.php:3250
+msgid "Accordion"
+msgstr ""
+
+#: celebration.php:3250
+msgid "Accordion container"
+msgstr ""
+
+#: celebration.php:3251
+msgid "Open first item initially"
+msgstr ""
+
+#: celebration.php:3259
+msgid "Accordion Item"
+msgstr ""
+
+#: celebration.php:3259
+msgid "Single accordion element"
+msgstr ""
+
+#: celebration.php:3264
+msgid "Service"
+msgstr ""
+
+#: celebration.php:3264
+msgid "Service element"
+msgstr ""
+
+#: celebration.php:3266 celebration.php:3305 celebration.php:3366
+#: celebration.php:3526 celebration.php:3528
+msgid "Icon"
+msgstr ""
+
+#: celebration.php:3267 celebration.php:3530
+msgid "Icon Type"
+msgstr ""
+
+#: celebration.php:3270 celebration.php:3379 celebration.php:3450
+#: celebration.php:3533
+msgid "Filled"
+msgstr ""
+
+#: celebration.php:3271 celebration.php:3378 celebration.php:3534
+msgid "Outline"
+msgstr ""
+
+#: celebration.php:3273 celebration.php:3536
+msgid "Icon Color"
+msgstr ""
+
+#: celebration.php:3276 celebration.php:3391 celebration.php:3539
+msgid "Accent"
+msgstr ""
+
+#: celebration.php:3278 celebration.php:3541
+msgid "Icon Size"
+msgstr ""
+
+#: celebration.php:3281 celebration.php:3397 celebration.php:3544
+msgid "Extra Small"
+msgstr ""
+
+#: celebration.php:3283 celebration.php:3399 celebration.php:3546
+msgid "Big"
+msgstr ""
+
+#: celebration.php:3299
+msgid "Google Maps"
+msgstr ""
+
+#: celebration.php:3299
+msgid "Google Maps with marker on specified coordinates"
+msgstr ""
+
+#: celebration.php:3301
+msgid "API key"
+msgstr ""
+
+#: celebration.php:3302
+msgid "Latitude"
+msgstr ""
+
+#: celebration.php:3303
+msgid "Longitude"
+msgstr ""
+
+#: celebration.php:3304
+msgid "Zoom (e.g. 14)"
+msgstr ""
+
+#: celebration.php:3306
+msgid "Height (e.g. 250px)"
+msgstr ""
+
+#: celebration.php:3307
+msgid "Map primary color"
+msgstr ""
+
+#: celebration.php:3308
+msgid "Map secondary color"
+msgstr ""
+
+#: celebration.php:3309
+msgid "Map water color"
+msgstr ""
+
+#: celebration.php:3310
+msgid "Custom map style array"
+msgstr ""
+
+#: celebration.php:3316
+msgid "Logos or wishes"
+msgstr ""
+
+#: celebration.php:3316
+msgid "Logos or wishes container"
+msgstr ""
+
+#: celebration.php:3318 celebration.php:3353
+msgid "Type"
+msgstr ""
+
+#: celebration.php:3320 celebration.php:3355 celebration.php:3458
+msgid "Slider"
+msgstr ""
+
+#: celebration.php:3321 celebration.php:3356
+msgid "Regular"
+msgstr ""
+
+#: celebration.php:3323
+msgid "Items in a row"
+msgstr ""
+
+#: celebration.php:3327
+msgid "Client"
+msgstr ""
+
+#: celebration.php:3327
+msgid "Individual client element"
+msgstr ""
+
+#: celebration.php:3334
+msgid "Wish"
+msgstr ""
+
+#: celebration.php:3334
+msgid "Individual wish element"
+msgstr ""
+
+#: celebration.php:3336 celebration.php:3529 celebration.php:3701
+msgid "Title"
+msgstr ""
+
+#: celebration.php:3337 celebration.php:3702
+msgid "Subtitle"
+msgstr ""
+
+#: celebration.php:3344 celebration.php:4406
+msgid "Twitter"
+msgstr ""
+
+#: celebration.php:3344
+msgid "Twitter posts"
+msgstr ""
+
+#: celebration.php:3346
+msgid "Number of Tweets"
+msgstr ""
+
+#: celebration.php:3347
+msgid "Username"
+msgstr ""
+
+#: celebration.php:3348
+msgid "Cache (minutes)"
+msgstr ""
+
+#: celebration.php:3349
+msgid "Consumer Key"
+msgstr ""
+
+#: celebration.php:3350
+msgid "Consumer Secret"
+msgstr ""
+
+#: celebration.php:3351
+msgid "Access Token"
+msgstr ""
+
+#: celebration.php:3352
+msgid "Access Token Secret"
+msgstr ""
+
+#: celebration.php:3363
+msgid "Button"
+msgstr ""
+
+#: celebration.php:3363
+msgid "Button with custom link"
+msgstr ""
+
+#: celebration.php:3368 celebration.php:3550
+msgid "Target window"
+msgstr ""
+
+#: celebration.php:3373 celebration.php:3555
+msgid "Parent"
+msgstr ""
+
+#: celebration.php:3376 celebration.php:3448
+msgid "Style"
+msgstr ""
+
+#: celebration.php:3380
+msgid "Borderless"
+msgstr ""
+
+#: celebration.php:3382
+msgid "Icon Position"
+msgstr ""
+
+#: celebration.php:3385
+msgid "Inline"
+msgstr ""
+
+#: celebration.php:3388 celebration.php:3447
+msgid "Color"
+msgstr ""
+
+#: celebration.php:3390 celebration.php:3404 celebration.php:3417
+#: celebration.php:3430
+msgid "Normal"
+msgstr ""
+
+#: celebration.php:3394 celebration.php:3415 celebration.php:3428
+msgid "Size"
+msgstr ""
+
+#: celebration.php:3402
+msgid "Width"
+msgstr ""
+
+#: celebration.php:3405
+msgid "Full"
+msgstr ""
+
+#: celebration.php:3412
+msgid "Counter"
+msgstr ""
+
+#: celebration.php:3412
+msgid "Animated counter"
+msgstr ""
+
+#: celebration.php:3414
+msgid "Number"
+msgstr ""
+
+#: celebration.php:3425
+msgid "Countdown"
+msgstr ""
+
+#: celebration.php:3425
+msgid "Animated countdown"
+msgstr ""
+
+#: celebration.php:3427
+msgid "Target Date and Time"
+msgstr ""
+
+#: celebration.php:3427
+msgid "YY-mm-dd HH:mm:ss, e.g. 2015-02-22 22:45:00"
+msgstr ""
+
+#: celebration.php:3433
+msgid "Hide Indication"
+msgstr ""
+
+#: celebration.php:3433
+msgid "Hide indication of days, hours, minutes and seconds"
+msgstr ""
+
+#: celebration.php:3443
+msgid "Percentage bar"
+msgstr ""
+
+#: celebration.php:3443
+msgid "Animated percentage bar"
+msgstr ""
+
+#: celebration.php:3446
+msgid "Percentage"
+msgstr ""
+
+#: celebration.php:3451
+msgid "Line"
+msgstr ""
+
+#: celebration.php:3458
+msgid "Slider container"
+msgstr ""
+
+#: celebration.php:3460
+msgid "Slider height"
+msgstr ""
+
+#: celebration.php:3462
+msgid "Auto"
+msgstr ""
+
+#: celebration.php:3467
+msgid "Auto Play Speed (e.g. 3000)"
+msgstr ""
+
+#: celebration.php:3468
+msgid "Hide Arrows"
+msgstr ""
+
+#: celebration.php:3473
+msgid "Hide Paging"
+msgstr ""
+
+#: celebration.php:3478
+msgid "Simple Arrows"
+msgstr ""
+
+#: celebration.php:3488
+msgid "Slider Item"
+msgstr ""
+
+#: celebration.php:3488
+msgid "Individual slide element"
+msgstr ""
+
+#: celebration.php:3496
+msgid "Separator"
+msgstr ""
+
+#: celebration.php:3496
+msgid "Horizontal separator"
+msgstr ""
+
+#: celebration.php:3526
+msgid "Single icon with link"
+msgstr ""
+
+#: celebration.php:3561
+msgid "Icon and images holder"
+msgstr ""
+
+#: celebration.php:3561
+msgid "Icon container"
+msgstr ""
+
+#: celebration.php:3568
+msgid "Latest Posts"
+msgstr ""
+
+#: celebration.php:3568
+msgid "Recent posts"
+msgstr ""
+
+#: celebration.php:3570
+msgid "Number of Items"
+msgstr ""
+
+#: celebration.php:3571 celebration.php:3612
+msgid "Category Slug"
+msgstr ""
+
+#: celebration.php:3572
+msgid "Format"
+msgstr ""
+
+#: celebration.php:3574
+msgid "Horizontal"
+msgstr ""
+
+#: celebration.php:3575
+msgid "Vertical"
+msgstr ""
+
+#: celebration.php:3577 celebration.php:3645
+msgid "Post Type"
+msgstr ""
+
+#: celebration.php:3579 celebration.php:3647
+msgid "Blog"
+msgstr ""
+
+#: celebration.php:3580 celebration.php:3648 celebration.php:4498
+msgid "Portfolio"
+msgstr ""
+
+#: celebration.php:3582
+msgid "Show Excerpt"
+msgstr ""
+
+#: celebration.php:3587
+msgid "Show Date"
+msgstr ""
+
+#: celebration.php:3592
+msgid "Show Author"
+msgstr ""
+
+#: celebration.php:3602
+msgid "Grid"
+msgstr ""
+
+#: celebration.php:3602
+msgid "Grid with recent posts"
+msgstr ""
+
+#: celebration.php:3604
+msgid "Number of items"
+msgstr ""
+
+#: celebration.php:3605 celebration.php:3686
+msgid "Columns"
+msgstr ""
+
+#: celebration.php:3607 celebration.php:3628 celebration.php:3675
+#: celebration.php:3688
+msgid "3"
+msgstr ""
+
+#: celebration.php:3608 celebration.php:3629 celebration.php:3676
+#: celebration.php:3689
+msgid "4"
+msgstr ""
+
+#: celebration.php:3609 celebration.php:3630 celebration.php:3677
+#: celebration.php:3690
+msgid "5"
+msgstr ""
+
+#: celebration.php:3610 celebration.php:3631 celebration.php:3678
+#: celebration.php:3691
+msgid "6"
+msgstr ""
+
+#: celebration.php:3613
+msgid "Category Filter"
+msgstr ""
+
+#: celebration.php:3618
+msgid "Grid Type"
+msgstr ""
+
+#: celebration.php:3620
+msgid "Classic"
+msgstr ""
+
+#: celebration.php:3621
+msgid "Tiled"
+msgstr ""
+
+#: celebration.php:3623 celebration.php:3670
+msgid "Grid Gap"
+msgstr ""
+
+#: celebration.php:3625 celebration.php:3672
+msgid "0"
+msgstr ""
+
+#: celebration.php:3626 celebration.php:3673
+msgid "1"
+msgstr ""
+
+#: celebration.php:3627 celebration.php:3674
+msgid "2"
+msgstr ""
+
+#: celebration.php:3632 celebration.php:3679
+msgid "7"
+msgstr ""
+
+#: celebration.php:3633 celebration.php:3680
+msgid "8"
+msgstr ""
+
+#: celebration.php:3634 celebration.php:3681
+msgid "9"
+msgstr ""
+
+#: celebration.php:3635 celebration.php:3682
+msgid "10"
+msgstr ""
+
+#: celebration.php:3636 celebration.php:3683
+msgid "15"
+msgstr ""
+
+#: celebration.php:3637 celebration.php:3684
+msgid "20"
+msgstr ""
+
+#: celebration.php:3639
+msgid "Tiled Format"
+msgstr ""
+
+#: celebration.php:3640
+msgid "Show Title in Tiles"
+msgstr ""
+
+#: celebration.php:3650
+msgid "Scroll Loading"
+msgstr ""
+
+#: celebration.php:3655
+msgid "Show Sticky Posts"
+msgstr ""
+
+#: celebration.php:3665
+msgid "Grid Gallery"
+msgstr ""
+
+#: celebration.php:3665
+msgid "Responsive grid gallery with lightbox."
+msgstr ""
+
+#: celebration.php:3667
+msgid "Images"
+msgstr ""
+
+#: celebration.php:3668
+msgid "Format (e.g. 21,11,12)"
+msgstr ""
+
+#: celebration.php:3693
+msgid "Links (separated by new line)"
+msgstr ""
+
+#: celebration.php:3699
+msgid "Price List"
+msgstr ""
+
+#: celebration.php:3699
+msgid "Price List element"
+msgstr ""
+
+#: celebration.php:3703
+msgid "Sticker Text"
+msgstr ""
+
+#: celebration.php:3704
+msgid "Currency"
+msgstr ""
+
+#: celebration.php:3705
+msgid "Price"
+msgstr ""
+
+#: celebration.php:3706
+msgid "Items"
+msgstr ""
+
+#: celebration.php:3728
+msgid "BT Gallery"
+msgstr ""
+
+#: celebration.php:3729
+msgid "Gallery widget."
+msgstr ""
+
+#: celebration.php:3748
+msgid "Gallery"
+msgstr ""
+
+#: celebration.php:3752 celebration.php:3807 celebration.php:4005
+#: celebration.php:4074 celebration.php:4233 celebration.php:4416
+msgid "Title:"
+msgstr ""
+
+#: celebration.php:3756
+msgid "List of image IDs (comma-separated):"
+msgstr ""
+
+#: celebration.php:3781
+msgid "BT Text Image"
+msgstr ""
+
+#: celebration.php:3782
+msgid "Text with image."
+msgstr ""
+
+#: celebration.php:3811
+msgid "Image IDs:"
+msgstr ""
+
+#: celebration.php:3815 celebration.php:3897
+msgid "Text:"
+msgstr ""
+
+#: celebration.php:3841
+msgid "BT Icon"
+msgstr ""
+
+#: celebration.php:3842
+msgid "Icon with text and link."
+msgstr ""
+
+#: celebration.php:3882
+msgid "Icon:"
+msgstr ""
+
+#: celebration.php:3901
+msgid "URL or slug:"
+msgstr ""
+
+#: celebration.php:3906
+msgid "Show in accent color"
+msgstr ""
+
+#: celebration.php:3909 celebration.php:4245
+msgid "Target:"
+msgstr ""
+
+#: celebration.php:3949
+msgid "BT Recent Posts"
+msgstr ""
+
+#: celebration.php:3950
+msgid "Recent posts with thumbnails."
+msgstr ""
+
+#: celebration.php:4001
+msgid "Recent Posts"
+msgstr ""
+
+#: celebration.php:4009
+msgid "Number of posts:"
+msgstr ""
+
+#: celebration.php:4035
+msgid "BT Recent Comments"
+msgstr ""
+
+#: celebration.php:4036
+msgid "Recent comments with avatars."
+msgstr ""
+
+#: celebration.php:4070
+msgid "Recent Comments"
+msgstr ""
+
+#: celebration.php:4078
+msgid "Number of comments:"
+msgstr ""
+
+#: celebration.php:4108
+msgid "BT Instagram"
+msgstr ""
+
+#: celebration.php:4109
+msgid "Recent Instagram images."
+msgstr ""
+
+#: celebration.php:4225
+msgid "Instagram"
+msgstr ""
+
+#: celebration.php:4237
+msgid "Instagram username:"
+msgstr ""
+
+#: celebration.php:4241
+msgid "Number of images:"
+msgstr ""
+
+#: celebration.php:4261
+msgid "Hashtag:"
+msgstr ""
+
+#: celebration.php:4265 celebration.php:4428
+msgid "Cache (minutes):"
+msgstr ""
+
+#: celebration.php:4355
+msgid "BT Twitter"
+msgstr ""
+
+#: celebration.php:4356
+msgid "Twitter feed."
+msgstr ""
+
+#: celebration.php:4420
+msgid "Number of tweets:"
+msgstr ""
+
+#: celebration.php:4424
+msgid "Username:"
+msgstr ""
+
+#: celebration.php:4432
+msgid "Consumer key:"
+msgstr ""
+
+#: celebration.php:4436
+msgid "Consumer secret:"
+msgstr ""
+
+#: celebration.php:4440
+msgid "Access token:"
+msgstr ""
+
+#: celebration.php:4444
+msgid "Access token secret:"
+msgstr ""
+
+#: celebration.php:4499
+msgid "Portfolio Item"
+msgstr ""
+
+#: celebration.php:4508
+msgid "Portfolio Categories"
+msgstr ""
+
+#: section_anims.php:7
+msgid "Move to left | from right"
+msgstr ""
+
+#: section_anims.php:8
+msgid "Move to right | from left"
+msgstr ""
+
+#: section_anims.php:9
+msgid "Move to top | from bottom"
+msgstr ""
+
+#: section_anims.php:10
+msgid "Move to bottom | from top"
+msgstr ""
+
+#: section_anims.php:11
+msgid "Fade | from right"
+msgstr ""
+
+#: section_anims.php:12
+msgid "Fade | from left"
+msgstr ""
+
+#: section_anims.php:13
+msgid "Fade | from bottom"
+msgstr ""
+
+#: section_anims.php:14
+msgid "Fade | from top"
+msgstr ""
+
+#: section_anims.php:15
+msgid "Fade left | Fade right"
+msgstr ""
+
+#: section_anims.php:16
+msgid "Fade right | Fade left"
+msgstr ""
+
+#: section_anims.php:17
+msgid "Fade top | Fade bottom"
+msgstr ""
+
+#: section_anims.php:18
+msgid "Fade bottom | Fade top"
+msgstr ""
+
+#: section_anims.php:19
+msgid "Different easing | from right"
+msgstr ""
+
+#: section_anims.php:20
+msgid "Different easing | from left"
+msgstr ""
+
+#: section_anims.php:21
+msgid "Different easing | from bottom"
+msgstr ""
+
+#: section_anims.php:22
+msgid "Different easing | from top"
+msgstr ""
+
+#: section_anims.php:23
+msgid "Scale down | from right"
+msgstr ""
+
+#: section_anims.php:24
+msgid "Scale down | from left"
+msgstr ""
+
+#: section_anims.php:25
+msgid "Scale down | from bottom"
+msgstr ""
+
+#: section_anims.php:26
+msgid "Scale down | from top"
+msgstr ""
+
+#: section_anims.php:27
+msgid "Scale down | scale down"
+msgstr ""
+
+#: section_anims.php:28
+msgid "Scale up | scale up"
+msgstr ""
+
+#: section_anims.php:29
+msgid "Move to left | scale up"
+msgstr ""
+
+#: section_anims.php:30
+msgid "Move to right | scale up"
+msgstr ""
+
+#: section_anims.php:31
+msgid "Move to top | scale up"
+msgstr ""
+
+#: section_anims.php:32
+msgid "Move to bottom | scale up"
+msgstr ""
+
+#: section_anims.php:33
+msgid "Scale down | scale up"
+msgstr ""
+
+#: section_anims.php:34
+msgid "Glue left | from right"
+msgstr ""
+
+#: section_anims.php:35
+msgid "Glue right | from left"
+msgstr ""
+
+#: section_anims.php:36
+msgid "Glue bottom | from top"
+msgstr ""
+
+#: section_anims.php:37
+msgid "Glue top | from bottom"
+msgstr ""
+
+#: section_anims.php:38
+msgid "Flip right"
+msgstr ""
+
+#: section_anims.php:39
+msgid "Flip left"
+msgstr ""
+
+#: section_anims.php:40
+msgid "Flip top"
+msgstr ""
+
+#: section_anims.php:41
+msgid "Flip bottom"
+msgstr ""
+
+#: section_anims.php:42
+msgid "Push left | from right"
+msgstr ""
+
+#: section_anims.php:43
+msgid "Push right | from left"
+msgstr ""
+
+#: section_anims.php:44
+msgid "Push top | from bottom"
+msgstr ""
+
+#: section_anims.php:45
+msgid "Push bottom | from top"
+msgstr ""
+
+#: section_anims.php:46
+msgid "Push left | pull right"
+msgstr ""
+
+#: section_anims.php:47
+msgid "Push right | pull left"
+msgstr ""
+
+#: section_anims.php:48
+msgid "Push top | pull bottom"
+msgstr ""
+
+#: section_anims.php:49
+msgid "Push bottom | pull top"
+msgstr ""
+
+#: section_anims.php:50
+msgid "Fold left | from right"
+msgstr ""
+
+#: section_anims.php:51
+msgid "Fold right | from left"
+msgstr ""
+
+#: section_anims.php:52
+msgid "Fold top | from bottom"
+msgstr ""
+
+#: section_anims.php:53
+msgid "Fold bottom | from top"
+msgstr ""
+
+#: section_anims.php:54
+msgid "Move to right | unfold left"
+msgstr ""
+
+#: section_anims.php:55
+msgid "Move to left | unfold right"
+msgstr ""
+
+#: section_anims.php:56
+msgid "Move to bottom | unfold top"
+msgstr ""
+
+#: section_anims.php:57
+msgid "Move to top | unfold bottom"
+msgstr ""
+
+#: section_anims.php:58
+msgid "Room to left"
+msgstr ""
+
+#: section_anims.php:59
+msgid "Room to right"
+msgstr ""
+
+#: section_anims.php:60
+msgid "Room to top"
+msgstr ""
+
+#: section_anims.php:61
+msgid "Room to bottom"
+msgstr ""
+
+#: section_anims.php:62
+msgid "Cube to left"
+msgstr ""
+
+#: section_anims.php:63
+msgid "Cube to right"
+msgstr ""
+
+#: section_anims.php:64
+msgid "Cube to top"
+msgstr ""
+
+#: section_anims.php:65
+msgid "Cube to bottom"
+msgstr ""
+
+#: section_anims.php:66
+msgid "Carousel to left"
+msgstr ""
+
+#: section_anims.php:67
+msgid "Carousel to right"
+msgstr ""
+
+#: section_anims.php:68
+msgid "Carousel to top"
+msgstr ""
+
+#: section_anims.php:69
+msgid "Carousel to bottom"
+msgstr ""
+
+#: section_anims.php:70
+msgid "Sides"
+msgstr ""
+
+#: section_anims.php:71
+msgid "Slide"
+msgstr ""
