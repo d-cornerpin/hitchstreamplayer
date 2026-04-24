@@ -480,7 +480,41 @@ class HSVideoElement extends HTMLElement {
             // or a new live session begins.
             this.latestLiveHlsUrl = null;
 
-            this.hls = new Hls({
+            // Prefer Hls.js (MSE) when available, fall back to native HLS for
+            // browsers without MSE support (iOS < 17.1, etc.).
+            if (Hls.isSupported()) {
+                this._loadWithHlsJs(streamUrl, video);
+            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                // Native HLS path — browser handles prebuffer, manifest, etc.
+                video.src = streamUrl;
+                this.debugLog('Native HLS path for stream URL:', streamUrl);
+                // Start a fatal timer for time-to-first-frame (no prebuffer gate in native).
+                this._nativeHlsTimerId = setTimeout(() => {
+                    this._nativeHlsTimerId = null;
+                    if (this.playerState !== STATE.PLAYING && this.playerState !== STATE.IDLE && this.playerState !== STATE.FATAL) {
+                        this.debugLog('Native HLS: time-to-first-frame timeout; entering fatal state.');
+                        this.enterFatalState();
+                    }
+                }, FATAL_TIMEOUT_MS);
+                // On metadata load, attempt autoplay (browser has the first frame).
+                video.addEventListener('loadedmetadata', () => {
+                    this.debugLog('Native HLS: loadedmetadata fired; attempting autoplay.');
+                    // Clear the fatal timer — the video started fast enough.
+                    if (this._nativeHlsTimerId) {
+                        clearTimeout(this._nativeHlsTimerId);
+                        this._nativeHlsTimerId = null;
+                    }
+                    if (this.autoplay) this._attemptAutoplay(video);
+                }, { once: true });
+            } else {
+                this.debugError('No HLS support (neither Hls.js nor native).');
+                this.enterFatalState();
+            }
+    }
+
+    // Internal: loadStream() delegate when Hls.js is available.
+    _loadWithHlsJs(streamUrl, video) {
+        this.hls = new Hls({
             // Prefer smoothness over low-latency; build a deeper buffer
             lowLatencyMode: false,
             liveSyncMode: 'buffered',
