@@ -22,6 +22,10 @@ const MIN_THROUGHPUT_SAMPLES = 3;           // minimum frag samples to trust thr
 const PREBUFFER_TIMEOUT_MS = 60000;         // start anyway after this wait
 const MAX_THROUGHPUT_SAMPLES = 10;          // cap for stored throughput samples
 
+// HLS origin allowlist regex (contract §4.3). Only Cloudflare Stream URLs match.
+const HLS_ORIGIN_ALLOWLIST_REGEX =
+    /^https:\/\/customer-[a-z0-9]{12,20}\.cloudflarestream\.com\/[A-Za-z0-9]+\/manifest\/video\.m3u8(\?.*)?$/;
+
 // Audio/Video sync threshold.  If the difference between audio and video
 // timestamps exceeds this number of video frames, the player will
 // display an "Audio sync issue" message in the status overlay.  Adjust
@@ -185,6 +189,12 @@ class HSVideoElement extends HTMLElement {
     debugLog(...messages) { if (this.debugMode) console.log(...messages); }
     debugError(...errors) { if (this.debugMode) console.error(...errors); }
 
+    // Validate an HLS URL against the §4.3 origin allowlist.
+    static isValidHlsUrl(url) {
+        if (typeof url !== 'string') return false;
+        return HLS_ORIGIN_ALLOWLIST_REGEX.test(url);
+    }
+
     // Watch for poster attribute changes
     static get observedAttributes() { return ['poster-initial', 'poster-idle', 'poster-fatal']; }
     attributeChangedCallback(name, oldValue, newValue) {
@@ -324,9 +334,19 @@ class HSVideoElement extends HTMLElement {
                                 }
                             }
                         } else if (isLive && vid) {
-                        // A live stream is available. Save the HLS manifest URL so we can
-                        // begin loading it later when the viewer clicks the play button.
-                        const hlsUrl = `https://customer-${CLOUDFLARE_CUSTOMER_ID}.cloudflarestream.com/${vid}/manifest/video.m3u8`;
+                        // A live stream is available. Use server-provided hlsUrl (B14)
+                        // validated against the §4.3 origin allowlist. Fall back to
+                        // client-side construction only if the server did not provide one.
+                        let hlsUrl = null;
+                        if (data.hlsUrl && HSVideoElement.isValidHlsUrl(data.hlsUrl)) {
+                            hlsUrl = data.hlsUrl;
+                        } else if (data.hlsUrl && !HSVideoElement.isValidHlsUrl(data.hlsUrl)) {
+                            this.debugError('Rejected invalid hlsUrl from server:', data.hlsUrl);
+                        }
+                        if (!hlsUrl) {
+                            // Fallback: construct client-side if server didn't provide one.
+                            hlsUrl = `https://customer-${CLOUDFLARE_CUSTOMER_ID}.cloudflarestream.com/${vid}/manifest/video.m3u8`;
+                        }
                         this.latestLiveHlsUrl = hlsUrl;
                         this.ingestFalseCount = 0;
                         // Update the top-left status indicator. If we're already playing,
@@ -528,6 +548,12 @@ class HSVideoElement extends HTMLElement {
     // Configure Hls.js and start live playback
     loadStream(streamUrl) {
         if (this._destroyed) return;
+        // Validate URL against §4.3 origin allowlist (defense in depth).
+        if (!HSVideoElement.isValidHlsUrl(streamUrl)) {
+            this.debugError('Rejected invalid HLS URL in loadStream:', streamUrl);
+            this.enterFatalState();
+            return;
+        }
         const video = this.videoEl || this.shadowRoot.querySelector('video');
         if (this.hls) this.hls.destroy();
 
