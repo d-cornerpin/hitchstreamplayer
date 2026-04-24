@@ -370,7 +370,7 @@ function HSCF_webhook_secret_notice() {
     if (!current_user_can('manage_options')) return;
     $secret = get_option('HSCF_webhook_secret', '');
     if (empty($secret)) {
-        echo '<div class="notice notice-warning is-dismissible"><p><strong>HitchStream:</strong> Webhook secret is not configured. Incoming webhooks will be accepted without signature verification. <a href="' . admin_url('admin.php?page=HitchStream_Cloudflare') . '">Configure it here</a>.</p></div>';
+        echo '<div class="notice notice-error" style="border-left-color:#d63638;"><p><strong style="color:#d63638">&#9888; HitchStream:</strong> <strong style="color:#d63638">Webhook secret is NOT configured!</strong> All incoming webhooks are being rejected. Your weddings are not receiving stream state updates. <a href="' . admin_url('admin.php?page=HitchStream_Cloudflare') . '">Configure it here</a>.</p></div>';
     }
 }
 
