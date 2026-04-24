@@ -215,6 +215,26 @@ class HSVideoElement extends HTMLElement {
         posterFatalURL
     }) {
         if (this._destroyed) return;
+
+        // Fail loud: assert window.HSPlayerConfig exists (B21 fix).
+        if (typeof window === 'undefined' || !window.HSPlayerConfig || typeof window.HSPlayerConfig !== 'object') {
+            this.debugError('FATAL: window.HSPlayerConfig is missing or invalid. Cannot initialize player.');
+            // Set fatal poster even if shadow DOM isn't ready yet.
+            try { this.setPoster(POSTER_FATAL_URL, 'fatal'); } catch(_) {}
+            return;
+        }
+        const cfg = window.HSPlayerConfig;
+        if (!cfg.endpoints || !cfg.endpoints.liveState) {
+            this.debugError('FATAL: window.HSPlayerConfig.endpoints.liveState is missing.');
+            try { this.setPoster(POSTER_FATAL_URL, 'fatal'); } catch(_) {}
+            return;
+        }
+        if (!cfg.cloudflare || !cfg.cloudflare.customerCode) {
+            this.debugError('FATAL: window.HSPlayerConfig.cloudflare.customerCode is missing.');
+            try { this.setPoster(POSTER_FATAL_URL, 'fatal'); } catch(_) {}
+            return;
+        }
+
         this.debugLog('API Information set:', { inputId, isLive, autoplay });
         this.inputId = inputId;
         this.playerMode = isLive ? 'live' : 'vod';
