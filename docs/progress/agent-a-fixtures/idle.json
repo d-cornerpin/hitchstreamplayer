@@ -1,0 +1,20 @@
+{
+  "_scenario": "idle",
+  "_description": "No active broadcast. Either hasn't started yet, or streamer has cut. videoUID and hlsUrl are both null — the server does NOT return last-known values.",
+  "_used_by": ["A1.16", "A2.3", "A6.2 (IT-1, IT-2, IT-4, IT-8)"],
+  "_server_must": "videoUID must be null, hlsUrl must be null. errorCode may be null or may be present if the stream went idle due to a Cloudflare error (e.g. ERR_STORAGE_QUOTA_EXHAUSTED). ETag changes from the last non-idle state.",
+  "response_headers": {
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "no-store",
+    "ETag": "\"idle-etag-003\"",
+    "X-HS-Correlation-Id": "c3d4e5f6-a7b8-9012-cdef-123456789012"
+  },
+  "response_body": {
+    "state": "idle",
+    "videoUID": null,
+    "hlsUrl": null,
+    "errorCode": null,
+    "source": "webhook",
+    "ts": 1777020120
+  }
+}

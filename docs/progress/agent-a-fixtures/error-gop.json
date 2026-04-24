@@ -1,0 +1,20 @@
+{
+  "_scenario": "error-gop-out-of-range",
+  "_description": "Cloudflare reported ERR_GOP_OUT_OF_RANGE (keyframe interval out of range). videoUID and hlsUrl are null. Player shows idle UX (not a visible error message) — the error code is logged to debug panel only.",
+  "_used_by": ["A1.16", "A2.3", "A6.2 (IT-10, IT-13)"],
+  "_player_behavior": "errorCode is logged to debug panel. Since ERR_GOP_OUT_OF_RANGE is NOT in errorMessages config, player shows idle UX (no visible error). If it WERE in errorMessages, the text from that key would be displayed.",
+  "response_headers": {
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "no-store",
+    "ETag": "\"err-gop-etag-004\"",
+    "X-HS-Correlation-Id": "d4e5f6a7-b8c9-0123-defa-234567890123"
+  },
+  "response_body": {
+    "state": "error",
+    "videoUID": null,
+    "hlsUrl": null,
+    "errorCode": "ERR_GOP_OUT_OF_RANGE",
+    "source": "webhook",
+    "ts": 1777020300
+  }
+}

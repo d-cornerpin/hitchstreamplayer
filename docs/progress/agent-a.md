@@ -198,6 +198,47 @@
 
 4. **ETag / `If-None-Match`** (contract §4.1) — The contract says the server returns ETag. The player currently doesn't handle 304 responses. Should the player skip state updates on 304?
 
-5. **`X-HS-Correlation-Id`** (contract §4.1) — Agent A includes it in debug panel. Need to confirm whether the player should also send it back as a request header on subsequent polls.
+5. **`X-HS-Correlation-Id`** (contract §4.1) — Agent A includes it in debug panel. Need to confirm whether the player should also send it back as a request header on subsequent polls. **RESOLVED:** read-only, per-request, not echoed back.
 
-6. **`server.isLive` default** — Contract says default is `false`. In the current PHP code, `hs_compute_server_live_state()` can return truthy. Need to confirm this maps 1:1.
+6. **`server.isLive` default** — Contract says default is `false`. In the current PHP code, `hs_compute_server_live_state()` can return truthy. Need to confirm this maps 1:1. **RESOLVED:** `server.isLive` is a hint to the player (avoids first-poll delay if already live), not authoritative. The poll callback is the source of truth.
+
+### B-side review findings
+
+I reviewed §6 (Agent B's workstream) against §4 and §10. Here are the issues I spotted:
+
+#### B1.3 — `live_input.connected` with failed `/lifecycle`
+**Issue:** The plan says: if `/lifecycle` fails, store `state` with empty `videoUID`. But if the event is `live_input.connected`, the server would write `state: "live"` with `videoUID: null/""`. This violates the contract (§4.1: `live` must have `videoUID` populated).
+**Recommendation:** If `/lifecycle` fails, **do not update the transient**. Log the error and wait for the next webhook. A transient may already hold the correct state. Writing `live` + `videoUID: null` is worse than keeping the old transient.
+
+#### B2.2 — Flat file atomic writes
+**Issue:** The plan recommends writing a flat JSON file per input for zero-DB reads. No mention of atomic writes (write to temp file then rename()). Without this, a polling endpoint could read a partially-written file.
+**Recommendation:** Add atomic write requirement to B2.2.
+
+#### B1.4 — Timestamp on coalesced state
+**Issue:** When serving coalesced result, what should `ts` be? The plan doesn't specify.
+**Clarification:** `ts` must reflect when the data was originally written, NOT the current time. Otherwise the player can't detect stale data.
+
+#### B4.10 — Backward-compat shims could mask contract violations
+**Issue:** The plan keeps `hs_compute_server_live_state()` as a thin delegate. If the old function returns data in the old format (e.g., `videoUID: null` while `state: "live"`), the delegate preserves that wrong data.
+**Recommendation:** Shims should validate against §4 shape before delegating, and log a warning if data is malformed.
+
+#### B5.6 — Error email hardcodes codes
+**Issue:** B5.6 hardcodes `ERR_STORAGE_QUOTA_EXHAUSTED` and `ERR_MISSING_SUBSCRIPTION` for email alerts. The contract says these are in `errorMessages` config.
+**Recommendation:** Read from config or document that these two are fixed and won't change.
+
+---
+
+### Mock fixtures (A0.4)
+
+Fixture files in `docs/progress/agent-a-fixtures/` serve as a concrete spec for Agent B to validate their endpoint against during B2.8:
+
+| Fixture | Scenario | Key contract point tested |
+|---|---|---|
+| `live.json` | Stream actively broadcasting | `videoUID` + `hlsUrl` populated, `source: "webhook"` |
+| `reconnecting.json` | Brief disconnect, session held | Same `videoUID`/`hlsUrl` as preceding `live` |
+| `idle.json` | No active broadcast | `videoUID` = null, `hlsUrl` = null (contract enforced) |
+| `error-gop.json` | ERR_GOP_OUT_OF_RANGE | errorCode present, idle UX (not in errorMessages) |
+| `error-quota.json` | ERR_STORAGE_QUOTA_EXHAUSTED | errorCode present, visible error (IS in errorMessages) |
+| `handover-new-uid.json` | New videoUID (ceremony → reception) | Both `videoUID` and `hlsUrl` are NEW values |
+| `304-response.json` | 304 Not Modified | No body, poll counter incremented, ETag stored |
+| `coalesced.json` | Single-flight lock result | `source: "coalesced"`, `ts` from original probe time |

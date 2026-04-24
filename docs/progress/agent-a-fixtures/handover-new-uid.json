@@ -1,0 +1,20 @@
+{
+  "_scenario": "handover-new-uid",
+  "_description": "Streamer restarts with a NEW videoUID (new broadcast session). This simulates ceremony → reception where the streamer creates a new live input. The player must hand over smoothly: detect the UID change, pre-load the new manifest, swap engines.",
+  "_used_by": ["A5.2", "A5.5", "A6.2 (IT-9)"],
+  "_server_behavior": "ETag differs from the preceding state. videoUID and hlsUrl are BOTH populated with NEW values (different from the ones the player previously held). source is 'webhook' if the new broadcast triggered a webhook.",
+  "response_headers": {
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "no-store",
+    "ETag": "\"handover-etag-006\"",
+    "X-HS-Correlation-Id": "f6a7b8c9-d0e1-2345-fabc-456789012345"
+  },
+  "response_body": {
+    "state": "live",
+    "videoUID": "9c8d7e6f5a4b3c2d1e0f1a2b3c4d5e6f",
+    "hlsUrl": "https://customer-juu1r5es4cbffqjf.cloudflarestream.com/9c8d7e6f5a4b3c2d1e0f1a2b3c4d5e6f/manifest/video.m3u8",
+    "errorCode": null,
+    "source": "webhook",
+    "ts": 1777020900
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "_scenario": "live",
+  "_description": "Stream is actively broadcasting. Both videoUID and hlsUrl are populated.",
+  "_used_by": ["A1.16", "CP-1", "CP-2"],
+  "_server_must": "ETag must change when any of state/videoUID/hlsUrl/errorCode changes. Source must be 'webhook' when state was last written by webhook event.",
+  "response_headers": {
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "no-store",
+    "ETag": "\"live-etag-001\"",
+    "X-HS-Correlation-Id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+  },
+  "response_body": {
+    "state": "live",
+    "videoUID": "6b9e68b07dfee8cc2d116e4c51d6a957",
+    "hlsUrl": "https://customer-juu1r5es4cbffqjf.cloudflarestream.com/6b9e68b07dfee8cc2d116e4c51d6a957/manifest/video.m3u8",
+    "errorCode": null,
+    "source": "webhook",
+    "ts": 1777020000
+  }
+}

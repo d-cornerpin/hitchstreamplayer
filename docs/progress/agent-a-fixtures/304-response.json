@@ -1,0 +1,14 @@
+{
+  "_scenario": "304-not-modified",
+  "_description": "Not a response body — this is the HTTP-level 304 response. The player should NOT parse any body, should NOT advance the state machine, should increment the poll counter, and should store the ETag as 'last confirmed'.",
+  "_used_by": ["A0.4", "A2.3", "A6.2 (IT-10)"],
+  "http_response": {
+    "status": 304,
+    "headers": {
+      "Cache-Control": "no-store",
+      "ETag": "\"live-etag-001\"",
+      "X-HS-Correlation-Id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+    },
+    "body": "(empty — no body on 304)"
+  }
+}

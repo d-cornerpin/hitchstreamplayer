@@ -1,0 +1,20 @@
+{
+  "_scenario": "error-storage-quota",
+  "_description": "Cloudflare reported ERR_STORAGE_QUOTA_EXHAUSTED. This code IS in errorMessages config, so player shows visible 'Service unavailable' status.",
+  "_used_by": ["A2.3", "A6.2 (IT-10)"],
+  "_player_behavior": "errorCode IS in errorMessages config → player surfaces visible error to viewer. All other error codes fall through to idle UX.",
+  "response_headers": {
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "no-store",
+    "ETag": "\"err-quota-etag-005\"",
+    "X-HS-Correlation-Id": "e5f6a7b8-c9d0-1234-efab-345678901234"
+  },
+  "response_body": {
+    "state": "error",
+    "videoUID": null,
+    "hlsUrl": null,
+    "errorCode": "ERR_STORAGE_QUOTA_EXHAUSTED",
+    "source": "probe",
+    "ts": 1777020360
+  }
+}
