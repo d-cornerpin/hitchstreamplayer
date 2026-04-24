@@ -414,43 +414,8 @@ class HSVideoElement extends HTMLElement {
                             }
                         }
                         if (this.ingestFalseCount >= 2) {
-                            // Clear any fatal countdown if stream goes idle
-                            try { this.clearFatalTimer(); } catch (e) { console.error('[hs-video] clearFatalTimer failed:', e); }
-                            if (this.hls) { try { this.hls.destroy(); } catch (_) {} this.hls = null; }
-                            const v = (this.videoEl || this.shadowRoot.querySelector('video'));
-                            try { v.pause(); } catch (_) {}
-                            // No separate audio drift detection teardown needed
-                            // Reset audio/video PTS trackers on return to idle
-                            this.lastAudioPts = null;
-                            this.lastVideoPts = null;
-                            this.audioSyncIssueActive = false;
-                            try { v.controls = false; } catch (_) {}
-                                this.currentStreamUrl = null;
-                                // Clear any saved live URL because the stream is no longer live
-                                this.latestLiveHlsUrl = null;
-                            // Choose poster based on whether we have played before
-                            try {
-                                const posterUrl = this.hasPlayedOnce ? this.getAttribute('poster-idle') : this.getAttribute('poster-initial');
-                                this.setPoster(posterUrl, this.hasPlayedOnce ? 'idle' : 'initial');
-                            } catch (e) { console.error('[hs-video] fatal error:', e); }
-                            // Show overlay again so the poster is visible. Only show
-                            // the play button if the user has not yet interacted
-                            // with the player. Once userGestureUnlocked becomes true
-                            // (after the first click), the play button remains hidden
-                            // when returning to idle.
-                            try {
-                                if (this.overlayEl) this.overlayEl.style.display = 'block';
-                                if (this.playButtonEl && !this.userGestureUnlocked) {
-                                    this.playButtonEl.style.display = 'block';
-                                }
-                            } catch (e) { console.error('[hs-video] fatal error:', e); }
-                            window._safe(() => { this.playerState = STATE.IDLE; this._updateDebugPanel({}); });
-                            // Show paused/ended or waiting message after returning to idle
-                            if (this.hasPlayedOnce) {
-                                this.updateStatus('paused');
-                            } else {
-                                this.updateStatus('waiting');
-                            }
+                            // Delegate teardown to managePlayerState(STATE.IDLE) (B20 fix).
+                            this.managePlayerState(STATE.IDLE);
                         }
                     }
                 })
@@ -512,6 +477,8 @@ class HSVideoElement extends HTMLElement {
         } else if (newState === STATE.IDLE && this.playerState !== STATE.IDLE) {
             this.debugLog('Stream is not live. Poster displayed.');
             video.controls = false;
+            this.currentStreamUrl = null;
+            this.latestLiveHlsUrl = null;
             if (this.hls) { this.hls.destroy(); this.hls = null; }
             video.pause();
             // No separate audio drift detection teardown needed when leaving the playing state
