@@ -1,13 +1,16 @@
 # Agent A Progress — HitchStream Player v2
 
-**Current phase:** A0 — Preparation
-**What I'm actively working on:** A0.6 — CP-0 sign-off with Agent B
-**Last updated:** 2026-04-24T10:35:00Z
+**Current phase:** A1 — In-place critical fixes
+**What I'm actively working on:** A1.1 — Disambiguate this.isLive (B3)
+**Last updated:** 2026-04-24T11:00:00Z
 **Open questions:** See CP-0 section below
 
 ---
 
 ## CP-0 Status
+
+**CP-0 SIGNED** — Both agents have read and agreed to §4 (as amended).
+**§4 has been amended** with CP-0 clarifications (committed to main):
 
 **§4 has been amended** with CP-0 clarifications (committed to main):
 - `hlsUrl` and `videoUID` are `null` when state is `idle` or `error`
@@ -37,12 +40,19 @@
   - Contract enforcement (idle/error → null hlsUrl/videoUID)
 - [x] **A0.5** Reproduce B2 bug with Playwright
   **Status:** DONE — test at `B2-repro.spec.js` confirms player does NOT reach PLAYING when Hls.isSupported()=false (bug confirmed)
-- [ ] **A0.6** Sign off on §4 at CP-0 joint session with Agent B
+- [x] **A0.6** Sign off on §4 at CP-0 joint session with Agent B
+  **Status:** DONE — Joint CP-0 signed. Both agents confirmed §4 is internally consistent.
   **Status:** PENDING — awaiting Agent B joint session
 
 ## A1 — In-place critical fixes
 
-- [ ] **A1.1** Fix B3 — Disambiguate `this.isLive`
+- [x] **A1.1** Fix B3 — Disambiguate `this.isLive`
+  **Status:** DONE — Committed to a/phase-A1.
+  - Added `this.playerMode` (read-only after `setApiInfo`, values `'live'` or `'vod'`)
+  - Added `this.streamCurrentlyLive` (default `false`, written only by poll callback)
+  - Replaced all three dispatch sites: `setApiInfo` line 209, `onClickPlayButton` line 816, `connectedCallback` line 865
+  - Deleted all references to `this.isLive` (zero remaining)
+  - **Test:** with mock returning idle state and `playerMode='live'`, clicking play calls `prepareToPlay()` (which saves `latestLiveHlsUrl`), does NOT call `_attemptAutoplay`. Verified with mock server + test page.
 - [ ] **A1.2** Fix B2 — Add native HLS fallback to live path
 - [ ] **A1.3** Fix B4 — Single-fire guard on onClickPlayButton
 - [ ] **A1.4** Fix B5 — Cap manifest probe attempts
