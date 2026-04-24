@@ -7,9 +7,24 @@
 
 ---
 
+## CP-0 Status
+
+**§4 has been amended** with CP-0 clarifications (committed to main):
+- `hlsUrl` and `videoUID` are `null` when state is `idle` or `error`
+- 304 handling: player does not advance state machine
+- `errorCode` is server pass-through; player shows text only for codes in `errorMessages` config
+- `X-HS-Correlation-Id` is per-request, not echoed back
+- `source` describes HOW state was determined, never "no_data"
+- Unknown error codes fall through to idle UX
+
+**Agent A status:** ALL A0 items complete. Ready for A1.
+**Pending:** Joint CP-0 sign-off with Agent B before A1 starts.
+
+---
+
 ## A0 — Preparation
 
-- [ ] **A0.1** Read §1, §2, §4, §10 of the plan. Read Cloudflare docs.
+- [x] **A0.1** Read §1, §2, §4, §10 of the plan. Read Cloudflare docs.
   **Status:** DONE — Read all sections and Cloudflare docs (Watch a Live Stream.md, Receive Live Webhooks.md)
 - [x] **A0.2** Map every function in current HSPlayerElement.js to target modules in §5.3
   **Status:** DONE — comprehensive mapping of ~40 methods across 15 modules (see mapping table below)
