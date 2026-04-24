@@ -601,8 +601,6 @@ class HSVideoElement extends HTMLElement {
             startOnSegmentBoundary: true,
             startFragPrefetch: true,
             autoStartLoad: false,
-            manifestLoadingRetryDelay: 1500,
-            manifestLoadingMaxRetryTimeout: 60000,
             levelLoadingMaxRetry: 5,
             levelLoadingRetryDelay: 1500,
             levelLoadingMaxRetryTimeout: 60000,
