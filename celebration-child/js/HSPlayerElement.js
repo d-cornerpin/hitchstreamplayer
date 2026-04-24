@@ -90,6 +90,7 @@ class HSVideoElement extends HTMLElement {
         this.bufferGateInterval = null;   // interval ID for prebuffer gating
         this.prebufferStartTs = 0;        // timestamp when gating began
         this.throughputSamples = [];      // recent throughput samples (bps)
+        this.probeAttempts = 0; // manifest probe attempt counter
         this.manifestProbeInterval = null; // timer id for manifest probe
         this.healthPollInterval = null;   // timer id for health polling during playback
         this.currentStreamUrl = null;      // URL currently loaded into Hls.js
@@ -1078,7 +1079,21 @@ class HSVideoElement extends HTMLElement {
 
     // Probe the manifest URL via fetch (CORS) and start Hls.js once reachable
     _probeManifestAndStart(streamUrl) {
+        const MAX_PROBE_ATTEMPTS = 40; // ~60 s at MANIFEST_PROBE_INTERVAL_MS
         const attempt = async () => {
+            // Stop probing if the engine was destroyed or we entered a fatal state.
+            if (this.hls === null || this.playerState === STATE.FATAL) return;
+
+            this.probeAttempts++;
+
+            // Cap probe attempts to prevent infinite loops on permanently-404ing manifests.
+            if (this.probeAttempts > MAX_PROBE_ATTEMPTS) {
+                this.debugError('Manifest probe exceeded', MAX_PROBE_ATTEMPTS, 'attempts; entering fatal state.');
+                if (this.manifestProbeInterval) { clearInterval(this.manifestProbeInterval); this.manifestProbeInterval = null; }
+                this.enterFatalState();
+                return;
+            }
+
             try {
                 const sep = streamUrl.includes('?') ? '&' : '?';
                 const probeUrl = `${streamUrl}${sep}_cb=${Date.now()}`;
