@@ -912,10 +912,12 @@ class HSVideoElement extends HTMLElement {
             // hiding the overlay.  Use the { once: true } option so the
             // listener is removed automatically.
             const videoEl = this.videoEl;
+            let timeupdateHideTimer = null;
             const handleTimeUpdate = () => {
                 try {
                     if (videoEl) videoEl.removeEventListener('timeupdate', handleTimeUpdate);
                 } catch (e) { console.error('[hs-video] fatal error:', e); }
+                if (timeupdateHideTimer) { clearTimeout(timeupdateHideTimer); timeupdateHideTimer = null; }
                 // Hide the overlay and show controls now that playback has
                 // progressed beyond the first frame
                 this._hideUi();
@@ -926,6 +928,13 @@ class HSVideoElement extends HTMLElement {
                 try { this.updateStatus('live'); } catch (e) { console.error('[hs-video] updateStatus failed:', e); }
                 // Audio drift detection is handled via fragment PTS; no explicit setup needed.
             };
+            // A1.14 — 2 s fallback timer for the overlay-hide race (B22).
+            timeupdateHideTimer = setTimeout(() => {
+                try {
+                    if (videoEl) videoEl.removeEventListener('timeupdate', handleTimeUpdate);
+                } catch (_) {}
+                handleTimeUpdate();
+            }, 2000);
             try {
                 if (videoEl) videoEl.addEventListener('timeupdate', handleTimeUpdate, { once: true, signal: this._listenerController.signal });
             } catch (_) {
