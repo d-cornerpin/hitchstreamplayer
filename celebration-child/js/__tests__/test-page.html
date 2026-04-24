@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>HSPlayer v2 — Mock Test</title>
+    <script src="//cdn.jsdelivr.net/npm/hls.js@latest"></script>
+</head>
+<body>
+    <h1>HSPlayer v2 Mock Server Test</h1>
+    <p id="status">Loading...</p>
+
+    <!-- Player iframe loaded against mock endpoint -->
+    <iframe id="player-frame" style="width:80vw;height:45vw;max-height:450px;border:1px solid #333;"
+        src="about:blank">
+    </iframe>
+
+    <script>
+        const MOCK = 'http://localhost:3456';
+        const STATUS = document.getElementById('status');
+
+        // Test 1: Mock server returns idle state
+        fetch(MOCK + '/live-state?inputId=test001')
+            .then(r => r.json())
+            .then(data => {
+                STATUS.textContent = 'GET /live-state (idle): ' + JSON.stringify(data);
+                console.log('Idle response:', data);
+
+                // Test 2: Switch to live via admin endpoint
+                return fetch(MOCK + '/admin/state', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ state: 'live', videoUID: 'abc123def456', hlsUrl: MOCK + '/live/test001/abc123def456/manifest/video.m3u8' })
+                });
+            })
+            .then(() => {
+                return fetch(MOCK + '/live-state?inputId=test001');
+            })
+            .then(r => r.json())
+            .then(data => {
+                STATUS.textContent += '\nGET /live-state (live): ' + JSON.stringify(data);
+                console.log('Live response:', data);
+                STATUS.textContent += '\n\nNow loading player iframe...';
+
+                // Load player iframe with the mock state
+                const iframe = document.getElementById('player-frame');
+                const playerSrc = `
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <script src="//cdn.jsdelivr.net/npm/hls.js@latest"><\/script>
+                        <script src="../../../../HSPlayerElement.js"><\/script>
+                        <script>
+                            window.HSPlayerConfig = {
+                                debug: true,
+                                mode: 'live',
+                                inputId: 'test001',
+                                autoplay: true,
+                                endpoints: {
+                                    liveState: '${MOCK}/live-state'
+                                },
+                                cloudflare: {
+                                    customerCode: 'juu1r5es4cbffqjf',
+                                    hlsOriginAllowlistRegex: '^https://customer-[a-z0-9]{12,20}\\\\.cloudflarestream\\\\.com/[A-Za-z0-9]+/manifest/video\\\\.m3u8(\\\\?.*)?$'
+                                },
+                                posters: {
+                                    initial: 'https://hitchstream.com/wp-content/uploads/2024/04/Poster_Initial_Default.png',
+                                    idle: 'https://hitchstream.com/wp-content/uploads/2024/04/Poster_Idle_Default.png',
+                                    fatal: 'https://hitchstream.com/wp-content/uploads/2025/09/Poster_fatal_2.png'
+                                },
+                                server: { isLive: true },
+                                errorMessages: {
+                                    ERR_STORAGE_QUOTA_EXHAUSTED: 'Service unavailable',
+                                    ERR_MISSING_SUBSCRIPTION: 'Service unavailable'
+                                }
+                            };
+                        <\/script>
+                    </head>
+                    <body style="margin:0">
+                        <hs-video id="video" inputId="test001" live autoplay style="width:100%;aspect-ratio:16/9"></hs-video>
+                    </body>
+                    </html>
+                `;
+                iframe.srcdoc = playerSrc;
+                STATUS.textContent += '\nPlayer iframe loaded.';
+            })
+            .catch(err => {
+                STATUS.textContent = 'Error: ' + err.message;
+                console.error('Test error:', err);
+            });
+    </script>
+</body>
+</html>
