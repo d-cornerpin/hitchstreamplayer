@@ -142,6 +142,14 @@ class HSVideoElement extends HTMLElement {
         // record this URL and defer loading until the user interacts.
         this.latestLiveHlsUrl = null;
 
+        // Disambiguate player mode (live-mode vs VOD-mode) from stream
+        // live state.  this.playerMode is set once by setApiInfo and never
+        // changes — it tells the player HOW to behave (polling with prebuffer
+        // vs direct video load).  this.streamCurrentlyLive is set by the poll
+        // callback and reflects the current Cloudflare state.
+        this.playerMode = null;
+        this.streamCurrentlyLive = false;
+
         // Track the most recent audio and video Presentation Time Stamps (PTS)
         // observed during fragment parsing.  These values are updated when
         // FRAG_PARSING_DATA events fire for audio and video samples.  They
@@ -189,7 +197,7 @@ class HSVideoElement extends HTMLElement {
     }) {
         this.debugLog('API Information set:', { inputId, isLive, autoplay });
         this.inputId = inputId;
-        this.isLive = isLive;
+        this.playerMode = isLive ? 'live' : 'vod';
         this.autoplay = autoplay;
         // Override hardcoded defaults with provided values
         if (posterInitialURL) POSTER_INITIAL_URL = posterInitialURL;
@@ -198,7 +206,8 @@ class HSVideoElement extends HTMLElement {
         if (posterFatalURL) POSTER_FATAL_URL = posterFatalURL;
 
         if (this.isConnected) {
-            if (this.isLive) this.startPolling(); else this.loadVideoDirectly();
+            if (this.playerMode === 'live') this.startPolling();
+            else this.loadVideoDirectly();
         }
     }
 
@@ -260,8 +269,9 @@ class HSVideoElement extends HTMLElement {
                     const source   = data && data.source ? data.source : null;
                         // update debug overlay
                         this._updateDebugPanel({ liveStatus: isLive, videoUID: vid, pollCount: this.pollCount, error_code, source });
-                        // update instance-level live flag so onClickPlayButton reflects the current stream state
-                        this.isLive = isLive;
+                        // update instance-level live state flag (used only for status display).
+                        // this.playerMode (set once in setApiInfo) tells the player how to behave.
+                        this.streamCurrentlyLive = isLive;
 
                         // Handle reconnecting state from webhook — show status but keep streaming.
                         if (rawState === 'reconnecting') {
@@ -803,7 +813,7 @@ class HSVideoElement extends HTMLElement {
                 // buffering.
                 try { if (this.playButtonEl) this.playButtonEl.style.display = 'none'; } catch(_) {}
                 this.userGestureUnlocked = true;
-                if (this.isLive) {
+                if (this.playerMode === 'live') {
                     // For live streams, begin loading the discovered live URL only when
                     // the viewer clicks the play button.  If a live URL was already
                     // discovered via polling, load it now; otherwise, it will be
@@ -852,9 +862,9 @@ class HSVideoElement extends HTMLElement {
         try { if (this.debugPanelEl) this.debugPanelEl.style.display = this.enableDebug ? 'block' : 'none'; } catch(_){}
         this._updateDebugPanel({});
 
-        if (this.inputId && this.isLive) {
+        if (this.inputId && this.playerMode === 'live') {
             this.startPolling();
-        } else if (this.inputId && !this.isLive) {
+        } else if (this.inputId && this.playerMode === 'vod') {
             this.loadVideoDirectly();
         }
     }
