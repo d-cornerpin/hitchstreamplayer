@@ -109,6 +109,7 @@ class HSVideoElement extends HTMLElement {
         this.liveStatus = null;
         this.videoUID = null;
 
+        this._networkErrorRecoveryAttempts = 0; // A1.15 — post-network-error recovery budget
         // Timer ID for fatal condition detection. If non-null, a countdown is
         // underway to trigger a fatal state if playback does not begin in
         // a reasonable amount of time after manifest attachment. Cleared on
@@ -783,8 +784,28 @@ class HSVideoElement extends HTMLElement {
                             this.debugError('Max media error recovery attempts reached. Entering fatal state.');
                             this.enterFatalState();
                         }
+                    } else if (errType === Hls.ErrorTypes.NETWORK_ERROR) {
+                        // Network errors can often be recovered. Budget of 2 retries
+                        // with 2s / 5s backoff (A1.15 — B19).
+                        const recoverableDetails = [
+                            'manifestLoadError', 'manifestLoadTimeOut',
+                            'levelLoadError', 'levelLoadTimeOut',
+                            'fragLoadError', 'fragLoadTimeOut',
+                        ];
+                        if (this._networkErrorRecoveryAttempts < 2 && recoverableDetails.includes(data.details)) {
+                            this.debugLog('Network error (recoverable), attempt', this._networkErrorRecoveryAttempts + 1);
+                            const backoff = this._networkErrorRecoveryAttempts === 0 ? 2000 : 5000;
+                            this._networkErrorRecoveryAttempts++;
+                            setTimeout(() => {
+                                try { this.hls.startLoad(-1); } catch(_) {}
+                            }, backoff);
+                        } else {
+                            this.debugError('Max network error recovery attempts reached. Entering fatal state.');
+                            this._networkErrorRecoveryAttempts = 0;
+                            this.enterFatalState();
+                        }
                     } else {
-                        // Network and other fatal errors are considered unrecoverable.
+                        // Other fatal errors are considered unrecoverable.
                         // Enter the fatal state so the user can refresh the page.
                         this.debugError('Unrecoverable error encountered. Entering fatal state.');
                         this.enterFatalState();
