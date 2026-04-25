@@ -92,11 +92,11 @@ function hs_webhook_secret() {
 }
 
 /**
- * Verify HMAC-SHA256 signature from Cloudflare.
+ * Verify Cloudflare Notifications shared-secret token.
  * Returns true if valid; rejects (returns false) if the secret is not configured
- * or the signature does not match.
+ * or the token does not match.
  */
-function hs_verify_webhook($body, $signature) {
+function hs_verify_webhook($auth) {
     $secret = hs_webhook_secret();
 
     // No secret configured — reject and alert loudly.
@@ -105,13 +105,12 @@ function hs_verify_webhook($body, $signature) {
         return false;
     }
 
-    if (!$signature) {
-        error_log('[HitchStream] Webhook received without signature header.');
+    if (!$auth) {
+        error_log('[HitchStream] Webhook received without cf-webhook-auth header.');
         return false;
     }
 
-    $expected = hash_hmac('sha256', $body, $secret);
-    return hash_equals($expected, $signature);
+    return hash_equals($secret, $auth);
 }
 
 /**
@@ -188,13 +187,10 @@ if (isset($parsed['live_input_errored']['error']['code'])) {
 // Extract state from nested data (only present in live_input_errored events).
 $state = $parsed['live_input_errored']['state'] ?? null;
 
-// Validate signature. Cloudflare docs don't specify the exact header name;
-// try all common variants.
-$signature = $_SERVER['HTTP_CF_WEBHOOK_SIGNATURE']
-    ?? $_SERVER['HTTP_CF_WEBHOOK_SIG']
-    ?? $_SERVER['HTTP_X_CF_WEBHOOK_SIGNATURE']
-    ?? '';
-if (!hs_verify_webhook($body, $signature)) {
+// Validate signature. Cloudflare Notifications sends the shared secret
+// verbatim in the cf-webhook-auth header.
+$auth = $_SERVER['HTTP_CF_WEBHOOK_AUTH'] ?? '';
+if (!hs_verify_webhook($auth)) {
     // Log failed signature to webhook log table
     $log_data = [
         'received_at'   => current_time('mysql'),
@@ -210,6 +206,25 @@ if (!hs_verify_webhook($body, $signature)) {
     hs_webhook_log_insert($log_data);
     http_response_code(403);
     echo json_encode(['error' => 'Invalid webhook signature']);
+    exit;
+}
+
+// Detect test pings (no data.event_type — sent by Cloudflare Notifications "Save and Test")
+$is_test_ping = (empty($event_type) && empty($input_id));
+if ($is_test_ping) {
+    hs_webhook_log_insert([
+        'received_at'   => current_time('mysql'),
+        'input_id'      => '',
+        'event_type'    => 'notifications.test',
+        'raw_body_hash' => hash('sha256', $body),
+        'normalized_state' => null,
+        'error_code'    => null,
+        'signature_ok'  => 1,
+        'processed'     => 0,
+        'correlation_id'=> '',
+    ]);
+    http_response_code(200);
+    echo json_encode(['received' => true, 'test' => true]);
     exit;
 }
 

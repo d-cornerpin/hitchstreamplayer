@@ -12,34 +12,23 @@
 export SECRET='STAGING_SECRET'
 export URL='https://STAGING_URL/wp-content/themes/celebration-child/endpoints/cf-live-webhook.php'
 export INPUT='test-input-id'
-
-# Timestamped HMAC (t=<ts>,v1=<hmac>) over "ts.body"
-ts_sig() {
-    local ts=$(date +%s)
-    local payload="${ts}.$1"
-    local sig=$(printf '%s' "$payload" | openssl dgst -sha256 -hmac "$SECRET" -hex | awk '{print $NF}')
-    echo "t=${ts},v1=${sig}"
-}
-
-# Plain HMAC (signature IS the raw HMAC over the body)
-plain_sig() {
-    printf '%s' "$1" | openssl dgst -sha256 -hmac "$SECRET" -hex | awk '{print $NF}'
-}
 ```
+
+> The `cf-webhook-auth` header value IS the plain shared secret — no signing needed.
+
 
 ---
 
-## Test 1: Valid `live_input.connected` (timestamped format)
+## Test 1: Valid `live_input.connected` (shared-secret)
 
 **Setup:** Nothing. This is the happy path.
 
 **Run:**
 ```bash
 BODY='{"data":{"event_type":"live_input.connected","input_id":"'$INPUT'"}}'
-SIG=$(ts_sig "$BODY")
 curl -s -w "\nHTTP_STATUS:%{http_code}\n" -X POST "$URL" \
   -H "Content-Type: application/json" \
-  -H "CF-Webhook-Signature: $SIG" \
+  -H "CF-Webhook-Auth: $SECRET" \
   -d "$BODY"
 ```
 
@@ -62,10 +51,9 @@ curl -s -w "\nHTTP_STATUS:%{http_code}\n" -X POST "$URL" \
 **Run:**
 ```bash
 BODY='{"data":{"event_type":"live_input.disconnected","input_id":"'$INPUT'"}}'
-SIG=$(ts_sig "$BODY")
 curl -s -w "\nHTTP_STATUS:%{http_code}\n" -X POST "$URL" \
   -H "Content-Type: application/json" \
-  -H "CF-Webhook-Signature: $SIG" \
+  -H "CF-Webhook-Auth: $SECRET" \
   -d "$BODY"
 ```
 
@@ -80,16 +68,14 @@ curl -s -w "\nHTTP_STATUS:%{http_code}\n" -X POST "$URL" \
 
 ---
 
-## Test 3: Tampered signature
+## Test 3: Wrong secret
 
 **Run:**
 ```bash
 BODY='{"data":{"event_type":"live_input.connected","input_id":"'$INPUT'"}}'
-# Tamper with signature: append garbage to a valid signature
-VALID_SIG=$(ts_sig "$BODY")
 curl -s -w "\nHTTP_STATUS:%{http_code}\n" -X POST "$URL" \
   -H "Content-Type: application/json" \
-  -H "CF-Webhook-Signature: ${VALID_SIG}X" \
+  -H "CF-Webhook-Auth: wrong-secret-value" \
   -d "$BODY"
 ```
 
@@ -101,7 +87,7 @@ curl -s -w "\nHTTP_STATUS:%{http_code}\n" -X POST "$URL" \
 
 ---
 
-## Test 4: Missing `CF-Webhook-Signature` header
+## Test 4: Missing `cf-webhook-auth` header
 
 **Run:**
 ```bash
@@ -119,45 +105,41 @@ curl -s -w "\nHTTP_STATUS:%{http_code}\n" -X POST "$URL" \
 
 ---
 
-## Test 5: Replay attack (timestamp >5 min old)
+## Test 5: Cloudflare Notifications test ping (dashboard "Save and Test")
 
 **Run:**
 ```bash
-BODY='{"data":{"event_type":"live_input.connected","input_id":"'$INPUT'"}}'
-OLD_TS=$(($(date +%s) - 601))
-OLD_PAYLOAD="${OLD_TS}.${BODY}"
-OLD_SIG=$(printf '%s' "$OLD_PAYLOAD" | openssl dgst -sha256 -hmac "$SECRET" -hex | awk '{print $NF}')
+# Test ping has no data.event_type — handler must accept (200) without updating state
 curl -s -w "\nHTTP_STATUS:%{http_code}\n" -X POST "$URL" \
   -H "Content-Type: application/json" \
-  -H "CF-Webhook-Signature: t=${OLD_TS},v1=${OLD_SIG}" \
-  -d "$BODY"
+  -H "CF-Webhook-Auth: $SECRET" \
+  -d '{"text":"Hello World! This is a test message sent from https://cloudflare.com."}'
 ```
 
 **Expected:**
-- HTTP 403
-- Response: `{"error":"Invalid webhook signature"}`
-- No transient write
-- `hs_webhook_log`: row with `signature_ok=0`, `processed=0`
+- HTTP 200
+- Response: `{"received":true,"test":true}`
+- `hs_webhook_log`: row with `event_type=notifications.test`, `input_id=''`, `signature_ok=1`, `processed=0`
+- No transient created
 
 ---
 
-## Test 6: Plain-HMAC fallback (no t=,v1= prefix)
+## Test 6: Valid `live_input.errored` (error state)
 
 **Run:**
 ```bash
-BODY='{"data":{"event_type":"live_input.connected","input_id":"'$INPUT'"}}'
-SIG=$(plain_sig "$BODY")
+BODY='{"data":{"event_type":"live_input.errored","input_id":"'$INPUT'"},"live_input_errored":{"error":{"code":"ERR_GOP_OUT_OF_RANGE","message":".."},"state":"failed_to_connect"}}'
 curl -s -w "\nHTTP_STATUS:%{http_code}\n" -X POST "$URL" \
   -H "Content-Type: application/json" \
-  -H "CF-Webhook-Signature: $SIG" \
+  -H "CF-Webhook-Auth: $SECRET" \
   -d "$BODY"
 ```
 
 **Expected:**
-- HTTP 200 (signature verified via plain HMAC path)
-- Response: `{"status":"ok","normalized_state":"live"}`
-- Transient has `state=live`
-- `hs_webhook_log`: row with `signature_ok=1`
+- HTTP 200
+- Response: `{"status":"ok","normalized_state":"error"}`
+- Transient `state=error`, `errorCode=ERR_GOP_OUT_OF_RANGE`, `ttl=3600`
+- `hs_webhook_log`: row with `normalized_state=error`, `signature_ok=1`
 
 ---
 
@@ -179,10 +161,9 @@ else
     # This will call /lifecycle for test-input-id. If it returns 404/500,
     # B1.3a says transient is NOT updated — prior value for prior-input is preserved.
     BODY='{"data":{"event_type":"live_input.connected","input_id":"test-input-id"}}'
-    SIG=$(ts_sig "$BODY")
     curl -s -w "\nHTTP_STATUS:%{http_code}\n" -X POST "$URL" \
       -H "Content-Type: application/json" \
-      -H "CF-Webhook-Signature: $SIG" \
+      -H "CF-Webhook-Auth: $SECRET" \
       -d "$BODY"
 
     # Verify prior-input transient is untouched
@@ -218,11 +199,11 @@ wp transient set hs_live_state_cool-input '{"state":"live","videoUID":"seeded-vi
 ```bash
 # Event 1 — seed is 2s old < 3s threshold → Event 1 is DROPPED (coalesced)
 BODY1='{"data":{"event_type":"live_input.connected","input_id":"cool-input"}}'
-SIG1=$(ts_sig "$BODY1")
+SIG1=$SECRET
 echo "=== Event 1 (coalesced — should return seeded state) ==="
 EVENT1_RESP=$(curl -s -w "\nHTTP_STATUS:%{http_code}\n" -X POST "$URL" \
   -H "Content-Type: application/json" \
-  -H "CF-Webhook-Signature: $SIG1" \
+  -H "CF-Webhook-Auth: $SECRET" \
   -d "$BODY1")
 echo "$EVENT1_RESP"
 
@@ -231,11 +212,11 @@ sleep 4
 
 # Event 2 — coalescing key expired → processed normally
 BODY2='{"data":{"event_type":"live_input.connected","input_id":"cool-input"}}'
-SIG2=$(ts_sig "$BODY2")
+SIG2=$SECRET
 echo "=== Event 2 (fresh — should update transient with current ts) ==="
 EVENT2_RESP=$(curl -s -w "\nHTTP_STATUS:%{http_code}\n" -X POST "$URL" \
   -H "Content-Type: application/json" \
-  -H "CF-Webhook-Signature: $SIG2" \
+  -H "CF-Webhook-Auth: $SECRET2" \
   -d "$BODY2")
 echo "$EVENT2_RESP"
 
@@ -261,27 +242,23 @@ wp db query "SELECT id, event_type, processed, correlation_id FROM wp_hs_webhook
 
 ```bash
 BODY='{"data":{"event_type":"live_input.connected","input_id":"idem-input"}}'
-SIG=$(ts_sig "$BODY")
 echo "=== First send ==="
 curl -s -w "\nHTTP_STATUS:%{http_code}\n" -X POST "$URL" \
   -H "Content-Type: application/json" \
-  -H "CF-Webhook-Signature: $SIG" \
+  -H "CF-Webhook-Auth: $SECRET" \
   -d "$BODY"
 
 sleep 2
 ```
 
-**Run (same body, new timestamp — but the coalesced key checks body match):**
-
-Actually, the idempotency key drops exact duplicates (same body + same event) within 60s. For a new timestamp, the body changes in the signature header but the raw body is identical. The function compares `$parsed['data']['event_type']` and `$body` from the stored transient.
+**Run (same body, just re-send — identical body triggers dedup within 60s):**
 
 ```bash
 # Send identical body 5 seconds later
 echo "=== Duplicate send (5s later, same body) ==="
-SIG2=$(ts_sig "$BODY")
 curl -s -w "\nHTTP_STATUS:%{http_code}\n" -X POST "$URL" \
   -H "Content-Type: application/json" \
-  -H "CF-Webhook-Signature: $SIG2" \
+  -H "CF-Webhook-Auth: $SECRET" \
   -d "$BODY"
 ```
 
@@ -306,11 +283,10 @@ wp option delete HSCF_webhook_secret --allow-root 2>/dev/null
 
 # Now send any webhook — should be rejected
 BODY='{"data":{"event_type":"live_input.connected","input_id":"nosec-input"}}'
-SIG=$(ts_sig "$BODY")
 echo "=== Webhook with secret cleared ==="
 curl -s -w "\nHTTP_STATUS:%{http_code}\n" -X POST "$URL" \
   -H "Content-Type: application/json" \
-  -H "CF-Webhook-Signature: $SIG" \
+  -H "CF-Webhook-Auth: $SECRET" \
   -d "$BODY"
 
 # Restore secret

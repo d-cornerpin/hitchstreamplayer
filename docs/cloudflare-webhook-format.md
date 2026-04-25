@@ -1,15 +1,52 @@
 # Cloudflare Live Webhook Format
 
-> **Status:** Documented from Cloudflare docs + existing integration. **Empirical verification pending** (B1.1 — requires ngrok test webhook on staging).
-> **Last updated:** 2026-04-24
+> **Status:** Validated against a real Cloudflare Notifications test webhook on 2026-04-25.
+> **Last updated:** 2026-04-25
 
-## Payload structure
+## Captured evidence (real Cloudflare Notifications test ping)
 
-Cloudflare Notifications sends the webhook in JSON format:
+**Headers:**
+```
+cf-webhook-auth: <REDACTED-SECRET>
+cf-ray: 9f1b7110aa7e08ff-SEA
+cf-worker: cf-application-services.workers.dev
+cf-visitor: {"scheme":"https"}
+cdn-loop: cloudflare; loops=1
+content-type: application/json
+content-length: 140
+```
+
+**Body:**
+```json
+{"text":"Hello World! This is a test message sent from https://cloudflare.com. If you can see this, your webhook is configured correctly."}
+```
+
+## Authentication
+
+- **Header name:** `cf-webhook-auth` (case-insensitive via `$_SERVER['HTTP_CF_WEBHOOK_AUTH']`)
+- **Value:** The configured secret, sent verbatim as a plain shared-secret token.
+- **NO HMAC.** **NO timestamp.** **NO signature.** **NO replay protection.**
+
+```php
+// Verification in PHP:
+$auth = $_SERVER['HTTP_CF_WEBHOOK_AUTH'] ?? '';
+$secret = get_option('HSCF_webhook_secret', '');
+$valid = $auth !== '' && $secret !== '' && hash_equals($secret, $auth);
+```
+
+**Security implications:** Shared-secret auth is weaker than HMAC. Anyone who learns the secret can forge webhooks. Mitigations:
+- Production secret must be 32+ chars, cryptographically random.
+- Webhook URL must be HTTPS (Cloudflare requires this).
+- Rotate the secret quarterly (and immediately after any suspected leak).
+- The webhook handler must not log the secret value anywhere.
+
+## Body shapes
+
+### Real Stream Live event (production)
 
 ```json
 {
-  "name": "Live Webhook Test",
+  "name": "Live Webhook",
   "text": "Notification type: Stream Live Input\nInput ID: ...",
   "data": {
     "notification_name": "Stream Live Input",
@@ -19,7 +56,7 @@ Cloudflare Notifications sends the webhook in JSON format:
     "live_input_errored": {
       "error": {
         "code": "ERR_GOP_OUT_OF_RANGE",
-        "message": "..."
+        "message": ".."
       },
       "video_codec": "",
       "audio_codec": ""
@@ -29,26 +66,15 @@ Cloudflare Notifications sends the webhook in JSON format:
 }
 ```
 
-## Signature verification
+Distinguished by presence of `data.event_type`.
 
-**Expected format** (documented in Cloudflare Notifications product docs):
+### Cloudflare Notifications test ping (dashboard "Save and Test")
 
-- **Header name:** `CF-Webhook-Signature` (case-insensitive)
-- **Format:** `t=<unix_timestamp>,v1=<hex_hmac_sha256>`
-- **Payload:** `<timestamp>.<raw_body>`
-- **Key:** the webhook secret from `HSCF_webhook_secret`
-
-```php
-// Example verification:
-$parts = explode(',', $_SERVER['HTTP_CF_WEBHOOK_SIGNATURE']);
-$timestamp = substr($parts[0], 2); // strip 't='
-$signature = substr($parts[1], 3); // strip 'v1='
-$payload = $timestamp . '.' . $body;
-$expected = hash_hmac('sha256', $payload, $secret);
-$valid = hash_equals($expected, $signature);
+```json
+{"text":"Hello World! This is a test message sent from https://cloudflare.com..."}
 ```
 
-**Replay protection:** `abs(time() - $timestamp) > $maxAgeSeconds`
+Distinguished by absence of `data.event_type` and `data.input_id`. The handler accepts (200) or rejects (403) based on `cf-webhook-auth`, writes a log row with `event_type='notifications.test'`, but does NOT update any transient or trigger `/lifecycle`.
 
 ## `/lifecycle` endpoint
 
@@ -58,19 +84,11 @@ Unauthenticated. Returns `{isInput, videoUID, live}`. Used to populate `videoUID
 GET https://customer-<CODE>.cloudflarestream.com/<INPUT_ID>/lifecycle
 ```
 
-No auth headers needed. Documented in `CloudFlare Docs/Watch a Live Stream.md`.
+No auth headers needed.
 
 ## Current webhook handler
 
 - File: `celebration-child/endpoints/cf-live-webhook.php`
-- Header name guesses: `cf-webhook-signature`, `cf-webhook-sig`, `x-cf-webhook-signature`
-- Currently uses **plain HMAC over body** (no timestamp prefix)
-- **B1.2 must align with the actual format** once empirical verification confirms it
-
-## Pending (B1.1)
-
-- [ ] Empirical verification via ngrok test webhook
-- [ ] Confirm exact header name
-- [ ] Confirm: plain HMAC over body, OR `t=<ts>,v1=<hex>` over `<ts>.<body>`
-- [ ] Confirm replay-protection mechanism (timestamp in header vs `updated_at` in body)
-- [ ] Update this doc with raw captured header(s) as evidence
+- Header: `cf-webhook-auth` only (single source of truth)
+- Auth: Plain shared-secret via `hash_equals()` (timing-safe)
+- Test pings: Detected by missing `data.event_type`; handled with 200 + `{"test":true}`, logged with `event_type=notifications.test`

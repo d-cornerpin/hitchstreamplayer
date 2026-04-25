@@ -1,11 +1,10 @@
 <?php
 /**
- * Tests for HS\Webhook\Verifier
+ * Tests for HS\Webhook\Verifier (shared-secret format).
  *
  * Run: php -d memory_limit=64M tests/test-verifier.php
  */
 
-// Autoload the Verifier class
 require_once __DIR__ . '/../src/HS/Webhook/Verifier.php';
 use HS\Webhook\Verifier;
 
@@ -25,45 +24,34 @@ function test($name, $expected, $actual) {
     }
 }
 
-echo "=== Verifier Tests ===\n\n";
+echo "=== Verifier Tests (shared-secret) ===\n\n";
 
 $secret = 'test-secret-key-12345678901234567890';
 
-// 1. Plain HMAC: secret is the signature directly (fallback mode)
-$body = '{"data":{"event_type":"live_input.connected","input_id":"abc123"}}';
-$plain_sig = hash_hmac('sha256', $body, $secret);
-test('Plain HMAC verification succeeds', true, Verifier::verify($plain_sig, $body, $secret, 300));
-test('Plain HMAC with bad sig fails', false, Verifier::verify('bad-signature', $body, $secret, 300));
+// 1. Valid secret matches
+test('Matching secret → true', true, Verifier::verify($secret, $secret));
 
-// 2. Timestamped format: t=<ts>,v1=<hmac> over "<ts>.<body>"
-$ts = time();
-$payload = "{$ts}.{$body}";
-$ts_sig = hash_hmac('sha256', $payload, $secret);
-$ts_header = "t={$ts},v1={$ts_sig}";
-test('Timestamped HMAC verification succeeds', true, Verifier::verify($ts_header, $body, $secret, 300));
+// 2. Mismatched secret
+test('Mismatched secret → false', false, Verifier::verify('wrong-secret', $secret));
 
-// 3. Expired timestamp (B1.2 replay protection)
-$old_ts = $ts - 600; // 10 min ago
-$old_payload = "{$old_ts}.{$body}";
-$old_sig = hash_hmac('sha256', $old_payload, $secret);
-$old_header = "t={$old_ts},v1={$old_sig}";
-test('Expired timestamp rejected', false, Verifier::verify($old_header, $body, $secret, 300));
+// 3. Empty incoming header
+test('Empty header → false', false, Verifier::verify('', $secret));
 
-// 4. No secret
-test('No secret → false', false, Verifier::verify($ts_sig, $body, '', 300));
+// 4. Empty configured secret
+test('Empty configured secret → false', false, Verifier::verify($secret, ''));
 
-// 5. No signature header
-test('No signature → false', false, Verifier::verify('', $body, $secret, 300));
+// 5. Both empty
+test('Both empty → false', false, Verifier::verify('', ''));
 
-// 6. Future timestamp (within tolerance)
-$future_ts = time() + 100;
-$future_payload = "{$future_ts}.{$body}";
-$future_sig = hash_hmac('sha256', $future_payload, $secret);
-$future_header = "t={$future_ts},v1={$future_sig}";
-test('Future timestamp within tolerance → false (replay protection)', false, Verifier::verify($future_header, $body, $secret, 300));
+// 6. Partial match
+test('Partial match → false', false, Verifier::verify('test-secret-key-123456789012345', $secret));
 
-// 7. Malformed timestamped format (should fall through to plain HMAC)
-test('Malformed ts header falls through to plain HMAC', true, Verifier::verify($plain_sig, $body, $secret, 300));
+// 7. Extra chars
+test('Extra chars → false', false, Verifier::verify($secret . 'x', $secret));
+
+// 8. Timing-safe (hash_equals used — verify no early return on same length mismatch)
+$similar = str_replace('9', '0', $secret); // same length, different value
+test('Same-length different value → false (timing-safe)', false, Verifier::verify($similar, $secret));
 
 echo "\n=== Results ===\n";
 echo "Passed: {$passed}/{$tests}\n";

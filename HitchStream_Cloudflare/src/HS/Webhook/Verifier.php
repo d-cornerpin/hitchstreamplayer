@@ -1,9 +1,9 @@
 <?php
 /**
- * Cloudflare webhook signature verifier.
+ * Cloudflare webhook shared-secret authenticator.
  *
- * Supports both the Cloudflare Notifications format (t=<ts>,v1=<hmac>)
- * and plain HMAC over raw body. Auto-detects the format from the header content.
+ * Cloudflare Notifications sends a plain shared-secret token
+ * in the cf-webhook-auth header — no HMAC, no timestamp, no replay protection.
  */
 
 namespace HS\Webhook;
@@ -11,43 +11,22 @@ namespace HS\Webhook;
 class Verifier
 {
     /**
-     * Verify a webhook signature.
+     * Verify the webhook shared-secret token.
      *
-     * @param string $header   The signature header value (CF-Webhook-Signature or equivalent).
-     * @param string $body     The raw POST body.
-     * @param string $secret   The webhook secret.
-     * @param int    $maxAge   Maximum age in seconds for replay protection (default 300 = 5 min).
+     * @param string $auth   The cf-webhook-auth header value.
+     * @param string $secret The configured secret from WP option.
      * @return bool
      */
-    public static function verify(string $header, string $body, string $secret, int $maxAge = 300): bool
+    public static function verify(string $auth, string $secret): bool
     {
         if (!$secret) {
             return false;
         }
 
-        if (!$header) {
+        if (!$auth) {
             return false;
         }
 
-        // Detect format: Cloudflare Notifications uses "t=<ts>,v1=<hmac>"
-        // Cloudflare Stream may use plain HMAC directly.
-        if (preg_match('/^t=(\d+),v1=([a-fA-F0-9]{64})$/', $header, $matches)) {
-            $timestamp = (int) $matches[1];
-            $signature = $matches[2];
-
-            // Replay protection
-            if (abs(time() - $timestamp) > $maxAge) {
-                return false;
-            }
-
-            // HMAC over "<timestamp>.<body>"
-            $payload = "{$timestamp}.{$body}";
-            $expected = hash_hmac('sha256', $payload, $secret);
-            return hash_equals($expected, $signature);
-        }
-
-        // Fallback: plain HMAC over raw body
-        $expected = hash_hmac('sha256', $body, $secret);
-        return hash_equals($expected, $header);
+        return hash_equals($secret, $auth);
     }
 }

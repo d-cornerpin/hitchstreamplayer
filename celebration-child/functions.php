@@ -664,17 +664,17 @@ function ajax_fetch_current_video_uid() {
  * Returns true if valid; rejects (returns false) if the secret is not configured
  * or the signature does not match.
  */
-function hs_verify_webhook_signature($body, $signature) {
-    $secret = get_option('HSCF_webhook_secret', '');
+function hs_verify_webhook_signature($auth, $secret = '') {
+    $configured = get_option('HSCF_webhook_secret', '');
+    $secret = $secret ?: $configured;
     if (!$secret) {
         error_log('[HitchStream] CRITICAL: Webhook secret not configured. Rejecting webhook to prevent unauthorized state manipulation.');
         return false;
     }
-    if (!$signature) {
+    if (!$auth) {
         return false;
     }
-    $expected = hash_hmac('sha256', $body, $secret);
-    return hash_equals($expected, $signature);
+    return hash_equals($secret, $auth);
 }
 
 /**
