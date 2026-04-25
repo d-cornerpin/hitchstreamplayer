@@ -1,8 +1,8 @@
 # Agent A Progress — HitchStream Player v2
 
 **Current phase:** A1 — In-place critical fixes
-**What I'm actively working on:** A1.1 — Disambiguate this.isLive (B3)
-**Last updated:** 2026-04-24T11:00:00Z
+**What I'm actively working on:** PR [#2](https://github.com/d-cornerpin/hitchstreamplayer/pull/2) — 15/16 checkboxes committed, awaiting staging smoke test
+**Last updated:** 2026-04-24T19:50:00Z
 **Open questions:** See CP-0 section below
 
 ---
@@ -53,21 +53,44 @@
   - Replaced all three dispatch sites: `setApiInfo` line 209, `onClickPlayButton` line 816, `connectedCallback` line 865
   - Deleted all references to `this.isLive` (zero remaining)
   - **Test:** with mock returning idle state and `playerMode='live'`, clicking play calls `prepareToPlay()` (which saves `latestLiveHlsUrl`), does NOT call `_attemptAutoplay`. Verified with mock server + test page.
-- [ ] **A1.2** Fix B2 — Add native HLS fallback to live path
-- [ ] **A1.3** Fix B4 — Single-fire guard on onClickPlayButton
-- [ ] **A1.4** Fix B5 — Cap manifest probe attempts
-- [ ] **A1.5** Fix B6 — AbortController + timeout + concurrency guard on polling
-- [ ] **A1.6** Fix B7 — Clean up all listeners on disconnect
-- [ ] **A1.7** Fix B15 — Deduplicate Hls.js config keys
-- [ ] **A1.8** Fix B16 — Complete observedAttributes
-- [ ] **A1.9** Fix B14 — Trust server hlsUrl + origin allowlist
-- [ ] **A1.10** Fix B21 — Fail loud on missing config
-- [ ] **A1.11** Fix B20 — Deduplicate idle teardown
-- [ ] **A1.12** Idle-while-playing drains buffer
-- [ ] **A1.13** Page visibility handling
-- [ ] **A1.14** Overlay-hide race fallback timer
-- [ ] **A1.15** Post-network-error recovery
+- [x] **A1.2** Fix B2 — Add native HLS fallback to live path
+  **Status:** DONE — Committed to a/phase-A1.
+  - Wrapped `loadStream()` Hls.js instantiation in `if (Hls.isSupported())`
+  - Native HLS path: `video.src = streamUrl`, fatal timer for time-to-first-frame, `loadedmetadata` listener for autoplay
+  - Fallback: `enterFatalState()` if neither Hls.js nor native HLS supported
+  - Extracted existing Hls.js code into `_loadWithHlsJs(streamUrl, video)`
+- [x] **A1.3** Fix B4 — Single-fire guard on onClickPlayButton
+  **Status:** DONE — Committed to a/phase-A1.
+  - Added `if (this.userGestureUnlocked) return;` guard as first line
+  - Replaced three `{ once: true }` document listeners with AbortController
+  - On first fire, `abort()` cancels remaining listeners
+  - Cleanup in `disconnectedCallback` and constructor init
+- [x] **A1.4** Fix B5 — Cap manifest probe attempts
+  **Status:** DONE — Committed to a/phase-A1. Max 40 attempts (~60s), then fatal.
+- [x] **A1.5** Fix B6 — AbortController + timeout + concurrency guard on polling
+  **Status:** DONE — Committed to a/phase-A1. Per poll: AbortController (8s timeout), concurrency guard, 304 handling, exponential backoff (3+ errors → double, cap 60s), ±1500ms jitter on initial delay.
+- [x] **A1.6** Fix B7 — Clean up all listeners on disconnect
+  **Status:** DONE — Committed to a/phase-A1. Consolidated gesture controller into _listenerController (all listeners), disconnectedCallback aborts first + nulls refs + sets _destroyed, guards on all public methods.
+- [x] **A1.7** Fix B15 — Deduplicate Hls.js config keys
+  **Status:** DONE — Committed to a/phase-A1. Removed duplicate manifestLoadingRetryDelay + manifestLoadingMaxRetryTimeout. Added .eslintrc.json with no-dupe-keys rule.
+- [x] **A1.8** Fix B16 — Complete observedAttributes
+  **Status:** DONE — Committed to a/phase-A1. Added 'poster-fatal', all three attributes routed to setPoster regardless of state.
+- [x] **A1.9** Fix B14 — Trust server hlsUrl + origin allowlist
+  **Status:** DONE — Committed to a/phase-A1. Added HLS_ORIGIN_ALLOWLIST_REGEX + isValidHlsUrl(), poll callback uses data.hlsUrl with validation, loadStream validates before engine.
+- [x] **A1.10** Fix B21 — Fail loud on missing config
+  **Status:** DONE — Committed to a/phase-A1. Assert window.HSPlayerConfig + endpoints.liveState + cloudflare.customerCode at setApiInfo. Missing any → fatal poster + error log.
+- [x] **A1.11** Fix B20 — Deduplicate idle teardown
+  **Status:** DONE — Committed to a/phase-A1. Poll callback delegates to managePlayerState(STATE.IDLE) — removed 33 lines of duplicate teardown. Added currentStreamUrl/latestLiveHlsUrl clearing to managePlayerState.
+- [x] **A1.12** Idle-while-playing drains buffer
+  **Status:** DONE — Committed to a/phase-A1. When idle arrives during PLAYING with buffered content, drains until ended. Extracted teardown to _executeIdleTeardown().
+- [x] **A1.13** Page visibility handling
+  **Status:** DONE — Committed to a/phase-A1. Hidden: stop poll + store timestamp. Visible: immediate poll + HLS re-sync if >30s.
+- [x] **A1.14** Overlay-hide race fallback timer
+  **Status:** DONE — Committed to a/phase-A1. 2s timeout alongside timeupdate listener. Whichever fires first clears the other.
+- [x] **A1.15** Post-network-error recovery
+  **Status:** DONE — Committed to a/phase-A1. NETWORK_ERROR: 2 retries with 2s/5s backoff. Only for recoverable details. Escalates to fatal after budget.
 - [ ] **A1.16** Staging smoke test
+  **Status:** PENDING — PR [#2](https://github.com/d-cornerpin/hitchstreamplayer/pull/2) deployed to staging. Awaiting manual test.
 
 ## A2 — State machine extraction
 
