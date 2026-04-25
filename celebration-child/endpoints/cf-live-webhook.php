@@ -179,17 +179,6 @@ function hs_state_ttl($state) {
     }
 }
 
-/**
- * Debounce: only process if last update for this input was > 3 seconds ago.
- */
-function hs_should_process($input_id) {
-    $last_update = get_transient("hs_webhook_update_ts_{$input_id}");
-    if ($last_update && (time() - $last_update) < 3) {
-        return false;
-    }
-    return true;
-}
-
 // --- Main ---
 
 // Read the raw POST body for signature verification.
@@ -276,7 +265,24 @@ function hs_should_process_coalesced($input_id, $body) {
 $normalized = hs_normalize_state($event_type, $state);
 if (!$normalized) {
     error_log("[HitchStream] Unrecognized webhook event: {$event_type} state: " . json_encode($state));
+    // Log unknown event but don't fail the webhook
     echo json_encode(['status' => 'unknown_event']);
+    exit;
+}
+
+// B1.4: Coalesced debounce check
+$coalesce_result = hs_should_process_coalesced($input_id, $body);
+if (!$coalesce_result['allow']) {
+    if (isset($coalesce_result['coalesced']) && $coalesce_result['coalesced']) {
+        // Coalesced: return existing state with carried ts
+        $existing = get_transient("hs_live_state_{$input_id}");
+        if ($existing) {
+            $existing['ts'] = $coalesce_result['ts'];
+            echo json_encode(['status' => 'coalesced', 'data' => $existing]);
+            exit;
+        }
+    }
+    echo json_encode(['status' => 'debounced']);
     exit;
 }
 
@@ -321,7 +327,29 @@ if ($normalized === 'idle' && ($event_type === 'live_input.disconnected' || in_a
     $hls_url = null;
 }
 
-// Store in transient.
+// B1.3a: If /lifecycle failed for a live event, do NOT update the transient.
+// Preserve stale-but-valid prior state. Log the failure; the next webhook or
+// next viewer cache miss will re-attempt.
+if ($normalized === 'live' && $lifecycle_failed) {
+    // Write log row even though we don't update state
+    $log_data = [
+        'received_at'   => current_time('mysql'),
+        'input_id'      => $input_id,
+        'event_type'    => $event_type,
+        'raw_body_hash' => hash('sha256', $body),
+        'normalized_state' => $normalized,
+        'error_code'    => $error_code,
+        'signature_ok'  => 1,
+        'processed'     => 0,
+        'correlation_id'=> '',
+    ];
+    hs_webhook_log_insert($log_data);
+    error_log("[HitchStream] B1.3a: /lifecycle failed for live input={$input_id} — NOT updating transient. Prior state preserved.");
+    echo json_encode(['status' => 'ok', 'normalized_state' => $normalized, 'lifecycle_failed' => true]);
+    exit;
+}
+
+// Normal path: update transient.
 $ttl = hs_state_ttl($normalized);
 $correlation_id = wp_generate_uuid4();
 $now_ts = time();
@@ -329,19 +357,13 @@ $data = [
     'state'      => $normalized,
     'videoUID'   => $video_uid,
     'hlsUrl'     => $hls_url,
-    'error_code' => $error_code,
-    'event_type' => $event_type,
-    'ts'         => $now_ts,
+    'errorCode'  => $error_code ?: null,
     'source'     => 'webhook',
+    'ts'         => $now_ts,
 ];
 
 set_transient("hs_live_state_{$input_id}", $data, $ttl);
 set_transient("hs_webhook_update_ts_{$input_id}", $now_ts, 5);
-
-// B1.3a on lifecycle failure: if we failed to get videoUID for a live event,
-// keep the transient value from the last successful write — but don't overwrite
-// with a broken state. We handle this above by only setting video_uid if lifecycle
-// succeeded.
 
 // B1.5: Write log row
 $log_data = [
@@ -357,15 +379,8 @@ $log_data = [
 ];
 hs_webhook_log_insert($log_data);
 
-// B2.2: Write flat file for lightweight endpoint
-hs_write_flat_state_file($input_id, [
-    'state' => $normalized,
-    'videoUID' => $video_uid,
-    'hlsUrl' => $hls_url,
-    'errorCode' => $error_code ?: null,
-    'source' => 'webhook',
-    'ts' => $now_ts,
-]);
+// B2.2a: Atomic flat-file write for lightweight endpoint
+hs_write_flat_state_file($input_id, $data);
 
 // Log for debugging.
 error_log("[HitchStream] Webhook: input={$input_id} event={$event_type} state={$normalized} videoUID={$video_uid} corr={$correlation_id}");
