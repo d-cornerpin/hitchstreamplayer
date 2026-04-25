@@ -164,6 +164,11 @@ export function transition({ currentState, event, context }) {
     return { nextState: STATE.FATAL, sideEffects: [] };
   }
 
+  // Direct fatal event — transition to FATAL with cleanup.
+  if (type === 'fatal') {
+    return { nextState: STATE.FATAL, sideEffects: [{ type: 'startFatal' }] };
+  }
+
   switch (currentState) {
 
     case STATE.IDLE:

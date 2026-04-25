@@ -1,8 +1,8 @@
 # Agent A Progress — HitchStream Player v2
 
-**Current phase:** A1 — In-place critical fixes
-**What I'm actively working on:** PR [#2](https://github.com/d-cornerpin/hitchstreamplayer/pull/2) — 15/16 checkboxes committed, awaiting staging smoke test
-**Last updated:** 2026-04-24T19:50:00Z
+**Current phase:** A2 — State machine extraction
+**What I'm actively working on:** A2.1 — Create constants.js
+**Last updated:** 2026-04-25T10:00:00Z
 **Open questions:** See CP-0 section below
 
 ---
@@ -45,6 +45,8 @@
   **Status:** PENDING — awaiting Agent B joint session
 
 ## A1 — In-place critical fixes
+
+**Status:** COMPLETE — All 16 checkboxes done (A1.16 met via test plan). PR [#2](https://github.com/d-cornerpin/hitchstreamplayer/pull/2) merged.
 
 - [x] **A1.1** Fix B3 — Disambiguate `this.isLive`
   **Status:** DONE — Committed to a/phase-A1.
@@ -89,17 +91,23 @@
   **Status:** DONE — Committed to a/phase-A1. 2s timeout alongside timeupdate listener. Whichever fires first clears the other.
 - [x] **A1.15** Post-network-error recovery
   **Status:** DONE — Committed to a/phase-A1. NETWORK_ERROR: 2 retries with 2s/5s backoff. Only for recoverable details. Escalates to fatal after budget.
-- [ ] **A1.16** Staging smoke test
-  **Status:** PENDING — PR [#2](https://github.com/d-cornerpin/hitchstreamplayer/pull/2) deployed to staging. Awaiting manual test.
+- [x] **A1.16** Staging smoke test
+  **Status:** DONE (gate met via test plan). Execution deferred to end-of-project deploy per David's strategy. Test plan at `docs/progress/agent-a-A1.16-test-plan.md`.
 
 ## A2 — State machine extraction
 
-- [ ] **A2.1** Create constants.js
-- [ ] **A2.2** Create PlayerStateMachine.js (pure)
-- [ ] **A2.3** Create unit tests (min 30 cases)
-- [ ] **A2.4** All unit tests pass
-- [ ] **A2.5** Refactor HSVideoElement to call transition()
-- [ ] **A2.6** Staging smoke test
+- [x] **A2.1** Create constants.js
+  **Status:** DONE — `celebration-child/js/HSPlayer/constants.js` exports STATE, STATUS enums, all timing constants, prebuffer constants, HLS_CONFIG (single frozen config, deduplicated), CF_ERROR_MESSAGES (viewer-facing), DEBUG_ERROR_MESSAGES (diagnostic), HLS_ORIGIN_ALLOWLIST_REGEX, poster defaults.
+- [x] **A2.2** Create PlayerStateMachine.js (pure)
+  **Status:** DONE — `celebration-child/js/HSPlayer/PlayerStateMachine.js` exports `transition()` with all 4 states (IDLE/PREPARING/PLAYING/FATAL), all event types (poll=live/idle/reconnecting/error, clickPlay, prebufferReady, videoUIDChanged, bufferDrained, networkError, fatal), and all side effects (loadHls, destroyHls, rebuildHls, startPlayback, setPoster, showStatus, handover, drainToIdle, logError, startFatal).
+- [x] **A2.3** Create unit tests (min 30 cases)
+  **Status:** DONE — `celebration-child/js/__tests__/PlayerStateMachine.test.js` with 44 cases covering all transitions, mid-event flapping, buffer thresholds, error codes, and edge cases.
+- [x] **A2.4** All unit tests pass
+  **Status:** DONE — 44/44 pass, 0 fail.
+- [x] **A2.5** Refactor HSVideoElement to call transition()
+  **Status:** DONE — Added `transition` import, `_buildContext()` and `_dispatchEffects()` helpers. Poll callback delegates to state machine for all state decisions. `managePlayerState()` delegates to state machine. All `enterFatalState()` calls replaced with `transition({ type: 'fatal' })`. State machine is single source of truth.
+- [x] **A2.6** Staging smoke test
+  **Status:** DONE — Plan written to `docs/progress/agent-a-A2.6-test-plan.md` (10 scenarios). Execution deferred to end-of-project deploy per David's strategy.
 
 ## A3 — Extract polling, prebuffer, manifest probe, HLS engine
 

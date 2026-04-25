@@ -43,6 +43,9 @@ const LATENCY_LOG_INTERVAL_MS = 15000;
 const GATE_CHECK_INTERVAL_MS = 1000;
 const MANIFEST_PROBE_INTERVAL_MS = 1500;
 const INITIAL_MANIFEST_DELAY_MS = 5000; // wait before first manifest probe
+// State machine — imports from pure transition module (A2.5).
+import { transition } from './HSPlayer/PlayerStateMachine.js';
+
 // Player state constants.  In addition to IDLE and PLAYING, PREPARING represents
 // the period after the manifest is parsed but before playback actually starts.
 // FATAL indicates an unrecoverable error has occurred and the player is
@@ -71,6 +74,98 @@ const STATE = {
 // that might be recoverable. If this count is exceeded without successful
 // playback, the player displays the fatal poster.
 const MAX_MEDIA_ERROR_RECOVERY_ATTEMPTS = 3;
+
+// ─── State machine helpers (A2.5) ───
+
+/** Build context object for the state machine. */
+function _buildContext(el) {
+    const video = el.videoEl || el.shadowRoot?.querySelector('video');
+    let hasBufferedContent = false;
+    let bufferAhead = 0;
+    try {
+        if (video?.buffered?.length) {
+            for (let i = 0; i < video.buffered.length; i++) {
+                if (video.buffered.end(i) > video.currentTime + 0.5) { hasBufferedContent = true; break; }
+            }
+            bufferAhead = Math.max(0, (video.buffered.end(0) || 0) - video.currentTime);
+        }
+    } catch (_) {}
+    return {
+        hasPlayedOnce: !!el.hasPlayedOnce,
+        userGestureUnlocked: !!el.userGestureUnlocked,
+        bufferAhead,
+        hasBufferedContent,
+        currentVideoUID: el._currentVideoUID || null,
+    };
+}
+
+/** Dispatch side-effects returned by the state machine. */
+function _dispatchEffects(el, effects) {
+    for (const effect of effects) {
+        switch (effect.type) {
+            case 'loadHls':
+                el.currentStreamUrl = effect.payload.url;
+                el.latestLiveHlsUrl = effect.payload.url;
+                el.ingestFalseCount = 0;
+                el.loadStream(effect.payload.url);
+                break;
+            case 'destroyHls':
+                if (el.hls) { try { el.hls.destroy(); } catch (_) {} el.hls = null; }
+                { const video = el.videoEl || el.shadowRoot?.querySelector('video'); try { video?.pause(); } catch(_) {} }
+                el.currentStreamUrl = null;
+                el.latestLiveHlsUrl = null;
+                break;
+            case 'rebuildHls':
+                el.currentStreamUrl = effect.payload.videoUID;
+                el.hls?.destroy();
+                el.hls = null;
+                el.loadStream(el.latestLiveHlsUrl);
+                break;
+            case 'startPlayback':
+                { const video = el.videoEl || el.shadowRoot?.querySelector('video'); try { video?.play(); } catch(_) {} }
+                break;
+            case 'setPoster':
+                {
+                    const posterMap = { initial: 'poster-initial', idle: 'poster-idle', fatal: 'poster-fatal' };
+                    const attr = posterMap[effect.payload.which] || 'poster-initial';
+                    const url = el.getAttribute(attr) || (effect.payload.which === 'initial' ? POSTER_INITIAL_URL : (effect.payload.which === 'idle' ? POSTER_IDLE_URL : POSTER_FATAL_URL));
+                    el.setPoster(url, effect.payload.which);
+                }
+                break;
+            case 'showStatus':
+                el.updateStatus(effect.payload);
+                break;
+            case 'handover':
+                el._currentVideoUID = effect.payload.newVideoUID;
+                if (el.hls) {
+                    el.hls.destroy();
+                    el.hls = null;
+                    el.loadStream(el.latestLiveHlsUrl);
+                }
+                break;
+            case 'drainToIdle':
+                {
+                    const video = el.videoEl || el.shadowRoot?.querySelector('video');
+                    el._drainingToIdle = true;
+                    el.updateStatus('paused');
+                    try {
+                        video?.addEventListener('ended', () => {
+                            if (!el._drainingToIdle) return;
+                            el._drainingToIdle = false;
+                            el._executeIdleTeardown();
+                        }, { once: true });
+                    } catch (_) {}
+                }
+                break;
+            case 'logError':
+                el.debugError('Poll error:', effect.payload.errorCode, 'source:', effect.payload.source);
+                break;
+            case 'startFatal':
+                el.enterFatalState();
+                break;
+        }
+    }
+}
 
 class HSVideoElement extends HTMLElement {
     // Set up component state and optional debug mode
@@ -345,79 +440,49 @@ class HSVideoElement extends HTMLElement {
                         // this.playerMode (set once in setApiInfo) tells the player how to behave.
                         this.streamCurrentlyLive = isLive;
 
-                        // Handle reconnecting state from webhook — show status but keep streaming.
+                        // ── A2.5: All state decisions via state machine ──
+
+                        // Reconnecting: early UI-only update, no state change.
                         if (rawState === 'reconnecting') {
-                            if (this.playerState === STATE.PLAYING) {
-                                this.updateStatus('reconnecting');
-                            } else {
-                                // Not yet playing — if we have a live URL saved, keep trying to prepare.
-                                if (this.latestLiveHlsUrl) {
-                                    this.updateStatus('reconnecting');
-                                }
-                            }
+                            this.updateStatus('reconnecting');
                         } else if (isLive && vid) {
-                        // A live stream is available. Use server-provided hlsUrl (B14)
-                        // validated against the §4.3 origin allowlist. Fall back to
-                        // client-side construction only if the server did not provide one.
-                        let hlsUrl = null;
-                        if (data.hlsUrl && HSVideoElement.isValidHlsUrl(data.hlsUrl)) {
-                            hlsUrl = data.hlsUrl;
-                        } else if (data.hlsUrl && !HSVideoElement.isValidHlsUrl(data.hlsUrl)) {
-                            this.debugError('Rejected invalid hlsUrl from server:', data.hlsUrl);
-                        }
-                        if (!hlsUrl) {
-                            // Fallback: construct client-side if server didn't provide one.
-                            hlsUrl = `https://customer-${CLOUDFLARE_CUSTOMER_ID}.cloudflarestream.com/${vid}/manifest/video.m3u8`;
-                        }
-                        this.latestLiveHlsUrl = hlsUrl;
-                        this.ingestFalseCount = 0;
-                        // Update the top-left status indicator. If we're already playing,
-                        // show "live". If the viewer has clicked, we're preparing; otherwise
-                        // remain in the waiting state so the poster stays visible.
-                        if (this.playerState === STATE.PLAYING) {
-                            this.updateStatus('live');
+                            // Live: delegate to state machine.
+                            let hlsUrl = null;
+                            if (data.hlsUrl && HSVideoElement.isValidHlsUrl(data.hlsUrl)) {
+                                hlsUrl = data.hlsUrl;
+                            } else if (data.hlsUrl && !HSVideoElement.isValidHlsUrl(data.hlsUrl)) {
+                                this.debugError('Rejected invalid hlsUrl from server:', data.hlsUrl);
+                            }
+                            if (!hlsUrl) {
+                                hlsUrl = `https://customer-${CLOUDFLARE_CUSTOMER_ID}.cloudflarestream.com/${vid}/manifest/video.m3u8`;
+                            }
+                            this.latestLiveHlsUrl = hlsUrl;
+                            this.ingestFalseCount = 0;
+
+                            const result = transition({
+                                currentState: this.playerState,
+                                event: { type: 'poll', payload: { state: 'live', videoUID: vid, hlsUrl, source } },
+                                context: _buildContext(this),
+                            });
+                            this.playerState = result.nextState;
+                            this._updateDebugPanel({ liveStatus: isLive, videoUID: vid, pollCount: this.pollCount, error_code, source });
+                            _dispatchEffects(this, result.sideEffects);
                         } else {
-                            if (this.userGestureUnlocked) {
-                                this.updateStatus('preparing');
-                            } else {
-                                this.updateStatus('waiting');
-                            }
-                        }
-                        // Only begin preparing (loading the HLS stream) once the viewer has
-                        // interacted with the player and we're not in the fatal state. This
-                        // avoids starting the buffer prematurely when the page is opened while
-                        // the stream happens to be live.
-                        if (this.userGestureUnlocked && this.playerState !== STATE.FATAL) {
-                            if (!this.hls || this.currentStreamUrl !== hlsUrl) {
-                                this.prepareToPlay(hlsUrl);
-                            }
-                        }
-                    } else {
-                        // Not live; update status accordingly
-                        // Check for error_code from webhooks (display before default idle handling).
-                        if (error_code) {
-                            const errorMessages = {
-                                'ERR_GOP_OUT_OF_RANGE': 'Stream issue — restarting...',
-                                'ERR_UNSUPPORTED_VIDEO_CODEC': 'Stream codec error',
-                                'ERR_UNSUPPORTED_AUDIO_CODEC': 'Audio stream error',
-                                'ERR_STORAGE_QUOTA_EXHAUSTED': 'Service temporarily unavailable',
-                                'ERR_MISSING_SUBSCRIPTION': 'Service unavailable',
-                            };
-                            this.currentErrorMessage = errorMessages[error_code] || 'Stream error';
-                            this.updateStatus('error');
-                        }
-                        this.ingestFalseCount = (this.ingestFalseCount || 0) + 1;
-                        this.debugLog('lifecycle indicates not live yet (count=' + this.ingestFalseCount + ')');
-                        // If this is the first not-live check, show waiting indicator
-                        if (this.ingestFalseCount < 2) {
-                            // show waiting status only if we haven't yet played
-                            if (!this.hasPlayedOnce) {
-                                this.updateStatus('waiting');
-                            }
-                        }
-                        if (this.ingestFalseCount >= 2) {
-                            // Delegate teardown to managePlayerState(STATE.IDLE) (B20 fix).
-                            this.managePlayerState(STATE.IDLE);
+                            // Non-live: error or idle → state machine decides.
+                            const event = error_code
+                                ? { type: 'poll', payload: { state: 'error', errorCode: error_code, source } }
+                                : { type: 'poll', payload: { state: 'idle', videoUID: null, hlsUrl: null } };
+                            this.ingestFalseCount = (this.ingestFalseCount || 0) + 1;
+                            this.debugLog('lifecycle indicates not live yet (count=' + this.ingestFalseCount + ')');
+
+                            const result = transition({
+                                currentState: this.playerState,
+                                event,
+                                context: _buildContext(this),
+                            });
+                            this.playerState = result.nextState;
+                            this._updateDebugPanel({ liveStatus: isLive, videoUID: null, pollCount: this.pollCount, error_code, source });
+                            _dispatchEffects(this, result.sideEffects);
                         }
                     }
                 })
@@ -464,51 +529,17 @@ class HSVideoElement extends HTMLElement {
     }
 
 
-    // Switch UI and playback between IDLE and PLAYING
-    managePlayerState(newState, streamUrl = '') {
-        if (this._destroyed) return;
-        this.debugLog(`Changing player state from ${this.playerState} to ${newState}`);
-        const video = this.videoEl || this.shadowRoot.querySelector('video');
 
-        if (newState === STATE.PLAYING && this.playerState !== STATE.PLAYING) {
-            this.debugLog('Stream found, preparing to play...');
-            video.controls = true;
-            // this.stopPolling(); // keep discovery polling running during playback
-            // load immediately; prebuffer gating will handle smooth start
-            this.debugLog('Attaching media and preparing to buffer');
-            this.loadStream(streamUrl);
-        } else if (newState === STATE.IDLE && this.playerState !== STATE.IDLE) {
-            // A1.12 — drain buffer before tearing down if playing with buffered content.
-            if (this.playerState === STATE.PLAYING) {
-                try {
-                    const hasBufferedContent = (() => {
-                        const buf = video.buffered;
-                        for (let i = 0; i < buf.length; i++) {
-                            if (buf.end(i) > video.currentTime + 0.5) return true;
-                        }
-                        return false;
-                    })();
-                    if (hasBufferedContent) {
-                        this._drainingToIdle = true;
-                        this.debugLog('Idle while playing — draining buffer instead of tearing down.');
-                        this.updateStatus('paused');
-                        // Listen for video end to complete the idle teardown.
-                        video.addEventListener('ended', () => {
-                            if (!this._drainingToIdle) return;
-                            this._drainingToIdle = false;
-                            this._executeIdleTeardown();
-                        }, { once: true });
-                        this.playerState = newState;
-                        this._updateDebugPanel({});
-                        return;
-                    }
-                } catch (_) {}
-            }
-            this.debugLog('Stream is not live. Poster displayed.');
-            this._executeIdleTeardown();
-        }
-        this.playerState = newState;
+    // Switch UI and playback between IDLE and PLAYING (A2.5 — delegated to state machine).
+    managePlayerState(desiredState, streamUrl = '') {
+        if (this._destroyed) return;
+        this.debugLog(`Desired player state: ${desiredState}`);
+        // Build event from desired state; state machine overrides based on context.
+        const event = { type: 'poll', payload: { state: desiredState } };
+        const result = transition({ currentState: this.playerState, event, context: _buildContext(this) });
+        this.playerState = result.nextState;
         this._updateDebugPanel({});
+        _dispatchEffects(this, result.sideEffects);
     }
 
     // Internal: execute idle teardown (extracted for drain support).
@@ -563,7 +594,9 @@ class HSVideoElement extends HTMLElement {
         // Validate URL against §4.3 origin allowlist (defense in depth).
         if (!HSVideoElement.isValidHlsUrl(streamUrl)) {
             this.debugError('Rejected invalid HLS URL in loadStream:', streamUrl);
-            this.enterFatalState();
+            const r = transition({ currentState: this.playerState, event: { type: 'fatal' }, context: _buildContext(this) });
+            this.playerState = r.nextState;
+            _dispatchEffects(this, r.sideEffects);
             return;
         }
         const video = this.videoEl || this.shadowRoot.querySelector('video');
@@ -591,7 +624,9 @@ class HSVideoElement extends HTMLElement {
                     this._nativeHlsTimerId = null;
                     if (this.playerState !== STATE.PLAYING && this.playerState !== STATE.IDLE && this.playerState !== STATE.FATAL) {
                         this.debugLog('Native HLS: time-to-first-frame timeout; entering fatal state.');
-                        this.enterFatalState();
+                        const r = transition({ currentState: this.playerState, event: { type: 'fatal' }, context: _buildContext(this) });
+                        this.playerState = r.nextState;
+                        _dispatchEffects(this, r.sideEffects);
                     }
                 }, FATAL_TIMEOUT_MS);
                 // On metadata load, attempt autoplay (browser has the first frame).
@@ -606,7 +641,9 @@ class HSVideoElement extends HTMLElement {
                 }, { once: true });
             } else {
                 this.debugError('No HLS support (neither Hls.js nor native).');
-                this.enterFatalState();
+                const r = transition({ currentState: this.playerState, event: { type: 'fatal' }, context: _buildContext(this) });
+                this.playerState = r.nextState;
+                _dispatchEffects(this, r.sideEffects);
             }
     }
 
@@ -782,7 +819,9 @@ class HSVideoElement extends HTMLElement {
                             this.mediaErrorRecoveryAttempts++;
                         } else {
                             this.debugError('Max media error recovery attempts reached. Entering fatal state.');
-                            this.enterFatalState();
+                            const r = transition({ currentState: this.playerState, event: { type: 'fatal' }, context: _buildContext(this) });
+                            this.playerState = r.nextState;
+                            _dispatchEffects(this, r.sideEffects);
                         }
                     } else if (errType === Hls.ErrorTypes.NETWORK_ERROR) {
                         // Network errors can often be recovered. Budget of 2 retries
@@ -802,13 +841,17 @@ class HSVideoElement extends HTMLElement {
                         } else {
                             this.debugError('Max network error recovery attempts reached. Entering fatal state.');
                             this._networkErrorRecoveryAttempts = 0;
-                            this.enterFatalState();
+                            const r = transition({ currentState: this.playerState, event: { type: 'fatal' }, context: _buildContext(this) });
+                            this.playerState = r.nextState;
+                            _dispatchEffects(this, r.sideEffects);
                         }
                     } else {
                         // Other fatal errors are considered unrecoverable.
                         // Enter the fatal state so the user can refresh the page.
                         this.debugError('Unrecoverable error encountered. Entering fatal state.');
-                        this.enterFatalState();
+                        const r = transition({ currentState: this.playerState, event: { type: 'fatal' }, context: _buildContext(this) });
+                        this.playerState = r.nextState;
+                        _dispatchEffects(this, r.sideEffects);
                     }
                 } catch (e) { console.error('[hs-video] fatal error:', e); }
             });
@@ -1245,7 +1288,9 @@ class HSVideoElement extends HTMLElement {
             if (this.probeAttempts > MAX_PROBE_ATTEMPTS) {
                 this.debugError('Manifest probe exceeded', MAX_PROBE_ATTEMPTS, 'attempts; entering fatal state.');
                 if (this.manifestProbeInterval) { clearInterval(this.manifestProbeInterval); this.manifestProbeInterval = null; }
-                this.enterFatalState();
+                const r = transition({ currentState: this.playerState, event: { type: 'fatal' }, context: _buildContext(this) });
+                this.playerState = r.nextState;
+                _dispatchEffects(this, r.sideEffects);
                 return;
             }
 
@@ -1350,7 +1395,9 @@ class HSVideoElement extends HTMLElement {
                     // the player is not destroyed.  Avoid false positives if
                     // playback actually started.
                     if (this.playerState !== STATE.PLAYING && this.playerState !== STATE.IDLE && this.playerState !== STATE.FATAL) {
-                        this.enterFatalState();
+                        const r = transition({ currentState: this.playerState, event: { type: 'fatal' }, context: _buildContext(this) });
+                        this.playerState = r.nextState;
+                        _dispatchEffects(this, r.sideEffects);
                     }
                 } catch (e) { console.error('[hs-video] fatal error:', e); }
             }, FATAL_TIMEOUT_MS);
