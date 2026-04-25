@@ -109,6 +109,11 @@ function my_plugin_register_template() {
 }
 add_action('init', 'my_plugin_register_template');
 
+// B2.1: Register the live-state REST endpoint.
+require_once plugin_dir_path(__FILE__) . 'src/HS/LiveState/Endpoint.php';
+add_action('init', function() {
+    \HS\LiveState\Endpoint::register();
+});
 
 add_action("admin_menu", "HitchStream_CloudFlare_setup_menu");
 

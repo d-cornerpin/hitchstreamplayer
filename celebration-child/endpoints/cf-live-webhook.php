@@ -365,6 +365,11 @@ $data = [
 set_transient("hs_live_state_{$input_id}", $data, $ttl);
 set_transient("hs_webhook_update_ts_{$input_id}", $now_ts, 5);
 
+// B2.2a: Also write flat-file for the lightweight read path.
+if (class_exists('HS\LiveState\StateWriter')) {
+    \HS\LiveState\StateWriter::write($input_id, $data, $ttl);
+}
+
 // B1.5: Write log row
 $log_data = [
     'received_at'   => current_time('mysql'),
