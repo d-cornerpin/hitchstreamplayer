@@ -84,21 +84,6 @@ function hs_unschedule_webhook_log_trim() {
 }
 
 /**
- * Atomically write a flat-state file for the live-state endpoint.
- * B2.2a: write to .tmp then rename (POSIX atomic on same filesystem).
- */
-function hs_write_flat_state_file($input_id, $data) {
-    $dir = WP_CONTENT_DIR . '/hs-state';
-    if (!is_dir($dir)) {
-        wp_mkdir_p($dir);
-    }
-    $tmp = "{$dir}/{$input_id}.json.tmp";
-    $final = "{$dir}/{$input_id}.json";
-    file_put_contents($tmp, json_encode($data, JSON_UNESCAPED_SLASHES));
-    rename($tmp, $final); // atomic
-}
-
-/**
  * Get the webhook shared secret from WP options.
  * Returns empty string if not configured.
  */
@@ -378,9 +363,6 @@ $log_data = [
     'correlation_id'=> $correlation_id,
 ];
 hs_webhook_log_insert($log_data);
-
-// B2.2a: Atomic flat-file write for lightweight endpoint
-hs_write_flat_state_file($input_id, $data);
 
 // Log for debugging.
 error_log("[HitchStream] Webhook: input={$input_id} event={$event_type} state={$normalized} videoUID={$video_uid} corr={$correlation_id}");
