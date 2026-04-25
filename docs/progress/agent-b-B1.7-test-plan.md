@@ -202,49 +202,56 @@ fi
 
 ## Test 8: Coalescing window (B1.4) — two events <3s apart
 
-**Setup:** First, seed the "update time" transient so we know the original ts.
+**Setup:** Seed the coalescing transient so Event 1 falls inside the 3s window.
 
 ```bash
-# Seed: make it look like an update happened 10 minutes ago
-wp transient set hs_webhook_update_ts_coalesce-input 3600 --allow-root
+# Seed the coalescing key with a value from ~2 seconds ago
+# The code stores ['ts' => time()] as an associative array
+OLD_TS=$(($(date +%s) - 2))
+wp transient set hs_webhook_coalesce_cool-input '{"ts":'$OLD_TS'}' --type=array --allow-root
+
+# Seed a prior state for Event 1 to reference on coalesced read
+wp transient set hs_live_state_cool-input '{"state":"live","videoUID":"seeded-video","hlsUrl":"https://example.com/seeded.m3u8","source":"webhook","ts":'$OLD_TS'}' 300 --allow-root
 ```
 
 **Run:**
 ```bash
-# Event 1 — first event
-BODY1='{"data":{"event_type":"live_input.connected","input_id":"coalesce-input"}}'
+# Event 1 — seed is 2s old < 3s threshold → Event 1 is DROPPED (coalesced)
+BODY1='{"data":{"event_type":"live_input.connected","input_id":"cool-input"}}'
 SIG1=$(ts_sig "$BODY1")
-echo "=== Event 1 ==="
-curl -s -w "\nHTTP_STATUS:%{http_code}\n" -X POST "$URL" \
+echo "=== Event 1 (coalesced — should return seeded state) ==="
+EVENT1_RESP=$(curl -s -w "\nHTTP_STATUS:%{http_code}\n" -X POST "$URL" \
   -H "Content-Type: application/json" \
   -H "CF-Webhook-Signature: $SIG1" \
-  -d "$BODY1"
+  -d "$BODY1")
+echo "$EVENT1_RESP"
 
-sleep 1
+# Wait for the coalescing key TTL to expire (TTL=5s, seed was 2s old, so wait 4s → seed is 6s old → expired)
+sleep 4
 
-# Event 2 — within 3s coalescing window
-BODY2='{"data":{"event_type":"live_input.connected","input_id":"coalesce-input"}}'
+# Event 2 — coalescing key expired → processed normally
+BODY2='{"data":{"event_type":"live_input.connected","input_id":"cool-input"}}'
 SIG2=$(ts_sig "$BODY2")
-echo "=== Event 2 ==="
-curl -s -w "\nHTTP_STATUS:%{http_code}\n" -X POST "$URL" \
+echo "=== Event 2 (fresh — should update transient with current ts) ==="
+EVENT2_RESP=$(curl -s -w "\nHTTP_STATUS:%{http_code}\n" -X POST "$URL" \
   -H "Content-Type: application/json" \
   -H "CF-Webhook-Signature: $SIG2" \
-  -d "$BODY2"
+  -d "$BODY2")
+echo "$EVENT2_RESP"
 
-sleep 2
-
-# Read the transient — ts should be from Event 1 (~10 min ago), not Event 2
-echo "=== Transient ts (should be ~3600, original, NOT current time) ==="
-wp transient get hs_live_state_coalesce-input --allow-root 2>/dev/null || echo "(no transient)"
-echo "=== Update ts (should be ~10 min ago if coalesced) ==="
-wp transient get hs_webhook_update_ts_coalesce-input --allow-root 2>/dev/null || echo "(no update ts)"
+# Verify: Event 1 was coalesced (returned seeded state with ts=OLD_TS)
+# Event 2 was processed fresh (ts = current time)
+echo "=== Final live state ts (should be Event 2's time, ~NOW) ==="
+wp transient get hs_live_state_cool-input --allow-root 2>/dev/null || echo "(no transient)"
+echo "=== Log rows for cool-input (should be 2 total, both processed=1) ==="
+wp db query "SELECT id, event_type, processed, correlation_id FROM wp_hs_webhook_log WHERE input_id='cool-input' ORDER BY id" --allow-root 2>/dev/null || echo "(no log)"
 ```
 
 **Expected:**
-- Event 1: HTTP 200, transient written with ts=3600 (original seeded value)
-- Event 2: HTTP 200, response `{"status":"coalesced","data":{...}}` with original ts
-- Transient ts = 3600 (original), NOT current time
-- Only one log row with `processed=1`
+- Event 1: HTTP 200, response `{"status":"coalesced","data":{"state":"live","videoUID":"seeded-video","ts":OLD_TS,...}}`
+- Event 2: HTTP 200, response `{"status":"ok","normalized_state":"live"}`, transient updated with ts=NOW
+- Final transient ts = current time (Event 2's time), NOT OLD_TS
+- `hs_webhook_log`: 2 rows — both with `processed=1`
 
 ---
 
@@ -330,15 +337,15 @@ After all tests:
 # Clear test data
 wp transient delete hs_live_state_test-input-id --allow-root
 wp transient delete hs_live_state_prior-input --allow-root
-wp transient delete hs_live_state_coalesce-input --allow-root
-wp transient delete hs_webhook_update_ts_coalesce-input --allow-root
+wp transient delete hs_live_state_cool-input --allow-root
+wp transient delete hs_live_state_idem-input --allow-root
+wp transient delete hs_webhook_coalesce_cool-input --allow-root
+wp transient delete hs_webhook_update_ts_test-input-id --allow-root
+wp transient delete hs_webhook_update_ts_cool-input --allow-root
 wp transient delete hs_webhook_update_ts_idem-input --allow-root
 wp transient delete hs_webhook_idem_test-input-id --allow-root
-wp transient delete hs_webhook_idem_coalesce-input --allow-root
 wp transient delete hs_webhook_idem_idem-input --allow-root
 wp transient delete hs_webhook_coalesce_test-input-id --allow-root
-wp transient delete hs_webhook_coalesce_coalesce-input --allow-root
-wp transient delete hs_webhook_coalesce_idem-input --allow-root
 ```
 
 Verify log table:
