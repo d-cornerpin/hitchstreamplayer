@@ -8,6 +8,24 @@
  * Author URI: https://davecliff.io
  */
 
+// ── Autoloader for HS\ namespace classes ───────────────────────
+
+require_once __DIR__ . '/src/HS/ConfigError.php';
+spl_autoload_register(function ($class) {
+    if ($class !== 'HS\ConfigError' && strpos($class, 'HS\\') !== 0) {
+        return;
+    }
+    $relative = str_replace('HS\\', '', $class);
+    $file = __DIR__ . '/src/HS/' . str_replace('\\', '/', $relative) . '.php';
+    if (file_exists($file)) {
+        require_once $file;
+    }
+});
+
+// Load LiveState components
+require_once __DIR__ . '/src/HS/LiveState/Endpoint.php';
+require_once __DIR__ . '/src/HS/LiveState/StateWriter.php';
+
 function get_max_execution_time() {
     $max_execution_time = ini_get('max_execution_time'); // Fetches the max execution time in seconds
 
@@ -22,30 +40,18 @@ function get_max_execution_time() {
 }
 
 function HSCF_list_cloudflare_videos() {
-    $api_key = get_option("HSCF_cloudflare_api_key");
-    $account_id = get_option("HSCF_cloudflare_account_id");
-    $email = get_option("HSCF_cloudflare_email");
-
-    $url = "https://api.cloudflare.com/client/v4/accounts/$account_id/stream";
-    $response = wp_remote_get($url, [
-        'headers' => [
-            'X-Auth-Email' => $email,
-            'X-Auth-Key' => $api_key,
-            'Content-Type' => 'application/json'
-        ]
-    ]);
-
-    if (is_wp_error($response)) {
-        return "Error fetching videos: " . $response->get_error_message();
-    }
-
-    $body = wp_remote_retrieve_body($response);
-    $data = json_decode($body, true);
-
-    if (isset($data['success']) && $data['success']) {
-        return $data['result'];
-    } else {
+    try {
+        $client = new \HS\CloudflareClient(\HS\Config::cloudflareAccountId());
+        $result = $client->listVideos();
+        $data = json_decode($result['body'], true);
+        if ($result['success'] && isset($data['success']) && $data['success']) {
+            return $data['result'];
+        }
         return "Failed to fetch videos.";
+    } catch (\HS\ConfigError $e) {
+        return "Cloudflare credentials not configured: " . $e->getMessage();
+    } catch (\Throwable $e) {
+        return "Error fetching videos: " . $e->getMessage();
     }
 }
 
@@ -130,27 +136,27 @@ function HSCF_upload_video() {
         $email = get_option("HSCF_cloudflare_email");
 
         // Prepare to get the TUS endpoint from Cloudflare
-        $ch = curl_init("https://api.cloudflare.com/client/v4/accounts/$account_id/media");
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, [
-            "X-Auth-Email: $email",
-            "X-Auth-Key: $api_key",
-            "Tus-Resumable: 1.0.0",
-            "Upload-Length: " . $_FILES['video_file']['size'],
-            "Upload-Metadata: filename " . base64_encode($_FILES['video_file']['name'])
-        ]);
+        try {
+            $client = new \HS\CloudflareClient(\HS\Config::cloudflareAccountId());
+            $result = $client->post('media', [
+                'headers' => [
+                    'Tus-Resumable' => '1.0.0',
+                    'Upload-Length' => (string)$_FILES['video_file']['size'],
+                    'Upload-Metadata' => 'filename ' . base64_encode($_FILES['video_file']['name']),
+                ],
+            ]);
 
-        $response = curl_exec($ch);
-        $info = curl_getinfo($ch);
-
-        if ($info['http_code'] == 201) {
-            $location = curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
-            wp_send_json_success(['location' => $location]);
-        } else {
-            wp_send_json_error('Error creating TUS session: ' . $response);
+            if ($result['success']) {
+                $location = $result['body'] ?? '';
+                wp_send_json_success(['location' => $location]);
+            } else {
+                wp_send_json_error('Error creating TUS session: ' . $result['body']);
+            }
+        } catch (\HS\ConfigError $e) {
+            wp_send_json_error('Credentials not configured: ' . $e->getMessage());
+        } catch (\Throwable $e) {
+            wp_send_json_error('Error creating TUS session: ' . $e->getMessage());
         }
-        curl_close($ch);
     }
 }
 add_action('wp_ajax_hscf_upload_video', 'HSCF_upload_video');
@@ -164,6 +170,7 @@ function HitchStream_CloudFlare_setup_menu()
     add_action("admin_init", "HSCF_register_webhook_settings");
     add_action("admin_init", "HSCF_register_player_settings");
     add_action("admin_init", "HSCF_register_streamer_settings");
+    add_action("admin_init", "HSCF_register_alert_settings");
 }
 
 function HSCF_register_settings()
@@ -172,6 +179,7 @@ function HSCF_register_settings()
     register_setting("HSCF_settings", "HSCF_cloudflare_email");
     register_setting("HSCF_settings", "HSCF_cloudflare_api_key");
     register_setting("HSCF_settings", "HSCF_cloudflare_account_id");
+    register_setting("HSCF_settings", "HSCF_cloudflare_api_token");
 
     // Add field for Cloudflare Email
     add_settings_field("HSCF_cloudflare_email_field", "CloudFlare Email", "HSCF_cloudflare_email_field_callback", "HitchStream_Cloudflare", "HSCF_cloudflare_settings_section");
@@ -183,6 +191,12 @@ function HSCF_register_settings()
     add_settings_field("HSCF_cloudflare_api_key_field", "CloudFlare API Key", "HSCF_cloudflare_api_key_field_callback", "HitchStream_Cloudflare", "HSCF_cloudflare_settings_section");
 
     add_settings_field("HSCF_cloudflare_account_id_field", "CloudFlare Account ID", "HSCF_cloudflare_account_id_field_callback", "HitchStream_Cloudflare", "HSCF_cloudflare_settings_section");
+
+    // B3.5: New field for Bearer token (preferred auth method)
+    add_settings_field("HSCF_cloudflare_api_token_field", "CloudFlare API Token (Bearer)", "HSCF_cloudflare_api_token_field_callback", "HitchStream_Cloudflare", "HSCF_cloudflare_settings_section");
+
+    // B3.5: Test button for Cloudflare credentials
+    add_settings_field("hscf_cf_test_field", null, "HSCF_cf_test_field_callback", "HitchStream_Cloudflare", "HSCF_cloudflare_settings_section");
 }
 
 // --- Webhook Settings ---
@@ -215,8 +229,39 @@ function HSCF_webhook_url_field_callback()
 function HSCF_webhook_secret_field_callback()
 {
     $setting = get_option('HSCF_webhook_secret', '');
-    echo '<input type="text" name="HSCF_webhook_secret" value="' . esc_attr($setting) . '" style="width:100%;max-width:600px;" placeholder="Leave blank — Cloudflare generates its own secret" disabled />';
-    echo '<p class="description">Cloudflare generates its own secret when you click "Register Webhook". The stored secret is overwritten by Cloudflare\'s value. Leave this field blank.</p>';
+    echo '<input type="text" name="HSCF_webhook_secret" value="' . esc_attr($setting) . '" style="width:100%;max-width:600px;" placeholder="Set by Cloudflare on Register" disabled />';
+    echo '<p class="description">Cloudflare generates its own secret when you click "Register Webhook". The stored secret is overwritten by Cloudflare\'s value.</p>';
+    echo '<p><button type="button" class="button" id="hscf-webhook-rotate-btn">Rotate Secret</button> <span id="hscf-webhook-rotate-result" class="hscf-test-result"></span></p>';
+    echo '<script>
+    (function($) {
+        $(document).on("click", "#hscf-webhook-rotate-btn", function() {
+            var $btn = $(this);
+            var $result = $("#hscf-webhook-rotate-result");
+            $btn.prop("disabled", true).text("Rotating...");
+            $result.text("");
+            $.ajax({
+                url: ajaxurl,
+                type: "POST",
+                data: {
+                    action: "hscf_rotate_webhook",
+                    nonce: $("#_wpnonce").val() || $("input[name=_wpnonce][value]").val()
+                },
+                success: function(resp) {
+                    $btn.prop("disabled", false).text("Rotate Secret");
+                    if (resp.success) {
+                        $result.html("<span style=\"color:green\">&#10004; Secret rotated</span>");
+                    } else {
+                        $result.html("<span style=\"color:red\">&#10008; " + (resp.data || "Rotation failed") + "</span>");
+                    }
+                },
+                error: function() {
+                    $btn.prop("disabled", false).text("Rotate Secret");
+                    $result.html("<span style=\"color:red\">&#10008; Request failed</span>");
+                }
+            });
+        });
+    })(jQuery);
+    </script>';
 }
 
 // AJAX: Register webhook with Cloudflare
@@ -291,6 +336,38 @@ function hscf_fetch_webhooks_admin() {
     wp_send_json_success($result);
 }
 
+// AJAX: Rotate webhook secret
+add_action('wp_ajax_hscf_rotate_webhook', 'hscf_rotate_webhook_admin');
+function hscf_rotate_webhook_admin() {
+    if (!wp_verify_nonce(sanitize_text_field($_POST['_wpnonce'] ?? ''), 'hscf_admin')) {
+        wp_send_json_error('nonce verification failed', 403);
+    }
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('forbidden', 403);
+    }
+    // First delete the old webhook, then register a new one with a fresh secret
+    $callback_url = get_option('HSCF_webhook_url', '');
+    if (!$callback_url) {
+        wp_send_json_error('Webhook URL not configured.');
+        return;
+    }
+    $new_secret = bin2hex(random_bytes(32));
+    // Delete old webhook first
+    hs_delete_cf_webhook();
+    // Register new webhook with fresh secret
+    $result = hs_register_cf_webhook($callback_url, $new_secret);
+    if (isset($result['error'])) {
+        wp_send_json_error($result['error']);
+        return;
+    }
+    if (isset($result['result']['secret'])) {
+        update_option('HSCF_webhook_secret', $result['result']['secret']);
+        update_option('HSCF_webhook_url', $callback_url);
+        wp_send_json_success(['message' => 'Secret rotated successfully.']);
+    }
+    wp_send_json_error('Rotation returned no secret. Response: ' . json_encode($result));
+}
+
 // --- Player Settings ---
 
 function HSCF_register_player_settings()
@@ -346,6 +423,9 @@ function HSCF_register_streamer_settings()
     add_settings_section("HSCF_streamer_settings_section", "Streamer Service", "HSCF_streamer_settings_section_callback", "HitchStream_Cloudflare");
     add_settings_field("HSCF_streamer_api_url_field", "Streamer API URL", "HSCF_streamer_api_url_field_callback", "HitchStream_Cloudflare", "HSCF_streamer_settings_section");
     add_settings_field("HSCF_streamer_api_key_field", "Streamer API Key", "HSCF_streamer_api_key_field_callback", "HitchStream_Cloudflare", "HSCF_streamer_settings_section");
+
+    // B3.5: Test button for Streamer
+    add_settings_field("hscf_streamer_test_field", null, "HSCF_streamer_test_field_callback", "HitchStream_Cloudflare", "HSCF_streamer_settings_section");
 }
 
 function HSCF_streamer_settings_section_callback()
@@ -367,6 +447,101 @@ function HSCF_streamer_api_key_field_callback()
     if ($setting) {
         echo ' <em>(set — leave blank to keep unchanged)</em>';
     }
+}
+
+function HSCF_streamer_test_field_callback()
+{
+    echo '<p><button type="button" class="button" id="hscf-streamer-test-btn">Test Streamer Service</button> <span id="hscf-streamer-test-result" class="hscf-test-result"></span></p>';
+    echo '<script>
+    (function($) {
+        $(document).on("click", "#hscf-streamer-test-btn", function() {
+            var $btn = $(this);
+            var $result = $("#hscf-streamer-test-result");
+            $btn.prop("disabled", true).text("Testing...");
+            $result.text("");
+            $.ajax({
+                url: ajaxurl,
+                type: "POST",
+                data: {
+                    action: "hscf_test_streamer",
+                    nonce: $("#_wpnonce").val() || $("input[name=_wpnonce][value]").val()
+                },
+                success: function(resp) {
+                    $btn.prop("disabled", false).text("Test Streamer Service");
+                    if (resp.success) {
+                        $result.html("<span style=\"color:green\">&#10004; " + (resp.data || "Streamer responded OK") + "</span>");
+                    } else {
+                        $result.html("<span style=\"color:red\">&#10008; " + (resp.data || "Streamer test failed") + "</span>");
+                    }
+                },
+                error: function() {
+                    $btn.prop("disabled", false).text("Test Streamer Service");
+                    $result.html("<span style=\"color:red\">&#10008; Request failed</span>");
+                }
+            });
+        });
+    })(jQuery);
+    </script>';
+}
+
+add_action('wp_ajax_hscf_test_streamer', function() {
+    if (!wp_verify_nonce(sanitize_text_field($_POST['_wpnonce'] ?? ''), 'hscf_admin')) {
+        wp_send_json_error('nonce verification failed', 403);
+    }
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('forbidden', 403);
+    }
+    $apiUrl = \HS\Config::streamerApiUrl() . '/api/stream-state';
+    $apiKey = \HS\Config::streamerApiKey();
+    if (!$apiKey) {
+        wp_send_json_error('Streamer API key not configured');
+        return;
+    }
+    $response = wp_remote_get($apiUrl, [
+        'headers' => ['X-API-KEY' => $apiKey],
+        'timeout' => 10,
+    ]);
+    if (is_wp_error($response)) {
+        wp_send_json_error('Connection failed: ' . $response->get_error_message());
+        return;
+    }
+    $code = wp_remote_retrieve_response_code($response);
+    if ($code >= 200 && $code < 300) {
+        wp_send_json_success('Streamer service responded OK');
+    } else {
+        wp_send_json_error('Streamer returned HTTP ' . $code);
+    }
+});
+
+// --- Alerts Settings ---
+
+function HSCF_register_alert_settings()
+{
+    register_setting("HSCF_alert_settings", "HSCF_alert_email");
+    register_setting("HSCF_alert_settings", "HSCF_alert_codes");
+
+    add_settings_section("HSCF_alert_settings_section", "Alerts", "HSCF_alert_settings_section_callback", "HitchStream_Cloudflare");
+    add_settings_field("HSCF_alert_email_field", "Alert Email", "HSCF_alert_email_field_callback", "HitchStream_Cloudflare", "HSCF_alert_settings_section");
+    add_settings_field("HSCF_alert_codes_field", "Alert Codes", "HSCF_alert_codes_field_callback", "HitchStream_Cloudflare", "HSCF_alert_settings_section");
+}
+
+function HSCF_alert_settings_section_callback()
+{
+    echo '<p>Email alerts are sent when critical webhook error_codes are received during a live stream.</p>';
+}
+
+function HSCF_alert_email_field_callback()
+{
+    $setting = get_option('HSCF_alert_email', '');
+    echo '<input type="email" name="HSCF_alert_email" value="' . esc_attr($setting) . '" style="width:100%;max-width:600px;" placeholder="admin@example.com" />';
+    echo '<p class="description">Leave blank to disable critical error email alerts.</p>';
+}
+
+function HSCF_alert_codes_field_callback()
+{
+    $setting = get_option('HSCF_alert_codes', 'ERR_STORAGE_QUOTA_EXHAUSTED,ERR_MISSING_SUBSCRIPTION');
+    echo '<input type="text" name="HSCF_alert_codes" value="' . esc_attr($setting) . '" style="width:100%;max-width:600px;" placeholder="Comma-separated error codes" />';
+    echo '<p class="description">Default: <code>ERR_STORAGE_QUOTA_EXHAUSTED,ERR_MISSING_SUBSCRIPTION</code>. These codes are also reflected in the player error messages.</p>';
 }
 
 // Admin notice: warn when webhook secret is not configured
@@ -403,48 +578,96 @@ function HSCF_cloudflare_account_id_field_callback()
     echo "<input type='text' name='HSCF_cloudflare_account_id' value='" . esc_attr($setting) . "' />";
 }
 
-function HSCF_get_live_inputs()
+function HSCF_cloudflare_api_token_field_callback()
 {
-    $api_key = get_option("HSCF_cloudflare_api_key");
-    $account_id = get_option("HSCF_cloudflare_account_id");
-    $email = get_option("HSCF_cloudflare_email");
+    $setting = get_option("HSCF_cloudflare_api_token", '');
+    echo '<input type="password" name="HSCF_cloudflare_api_token" value="' . esc_attr($setting) . '" style="width:100%;max-width:600px;" placeholder="Optional — Bearer token (preferred over API key)" data-original-value="' . esc_attr($setting) . '" />';
+    echo '<p class="description"><strong>Preferred auth method.</strong> When set, CloudflareClient uses Bearer token auth. Falls back to email+API-key with deprecation notice when unset.</p>';
+}
 
-    if (!$api_key || !$account_id || !$email) {
-        return "API Key, Account ID, and/or Email is missing.";
+function HSCF_cf_test_field_callback()
+{
+    echo '<p><button type="button" class="button" id="hscf-cf-test-btn">Test Cloudflare Connection</button> <span id="hscf-cf-test-result" class="hscf-test-result"></span></p>';
+    echo '<script>
+    (function($) {
+        $(document).on("click", "#hscf-cf-test-btn", function() {
+            var $btn = $(this);
+            var $result = $("#hscf-cf-test-result");
+            $btn.prop("disabled", true).text("Testing...");
+            $result.text("");
+            $.ajax({
+                url: ajaxurl,
+                type: "POST",
+                data: {
+                    action: "hscf_test_connection",
+                    nonce: $("#_wpnonce").val() || $("input[name=_wpnonce][value]").val()
+                },
+                success: function(resp) {
+                    $btn.prop("disabled", false).text("Test Cloudflare Connection");
+                    if (resp.success) {
+                        $result.html("<span style=\"color:green\">&#10004; Connected successfully — " + (resp.data && resp.data.input_id ? "input " + resp.data.input_id : "") + "</span>");
+                    } else {
+                        $result.html("<span style=\"color:red\">&#10008; " + (resp.data || "Connection failed") + "</span>");
+                    }
+                },
+                error: function() {
+                    $btn.prop("disabled", false).text("Test Cloudflare Connection");
+                    $result.html("<span style=\"color:red\">&#10008; Request failed</span>");
+                }
+            });
+        });
+    })(jQuery);
+    </script>';
+}
+
+add_action('wp_ajax_hscf_test_connection', function() {
+    if (!wp_verify_nonce(sanitize_text_field($_POST['_wpnonce'] ?? ''), 'hscf_admin')) {
+        wp_send_json_error('nonce verification failed', 403);
     }
-
-    $url = "https://api.cloudflare.com/client/v4/accounts/$account_id/stream/live_inputs";
-
-    $response = wp_remote_get($url, ["headers" => ["X-Auth-Key" => $api_key, "X-Auth-Email" => $email, "Content-Type" => "application/json"]]);
-
-    if (is_wp_error($response)) {
-        return "Error fetching live inputs: " . $response->get_error_message();
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('forbidden', 403);
     }
-
-    $body = wp_remote_retrieve_body($response);
-    $data = json_decode($body);
-
-    if (!$data || !$data->success) {
-        return "Failed to fetch live inputs.";
+    try {
+        $client = new \HS\CloudflareClient(\HS\Config::cloudflareAccountId());
+        $result = $client->lifecycle('test');
+        $data = json_decode($result['body'], true);
+        $input_id = $data['inputId'] ?? ($data['result']['inputId'] ?? '');
+        wp_send_json_success(['input_id' => $input_id]);
+    } catch (\HS\ConfigError $e) {
+        wp_send_json_error('Credentials not configured: ' . $e->getMessage());
+    } catch (\Throwable $e) {
+        wp_send_json_error('Connection failed: ' . $e->getMessage());
     }
+});
 
-    foreach ($data->result as $input) {
-        $detail_url = "https://api.cloudflare.com/client/v4/accounts/$account_id/stream/live_inputs/" . $input->uid;
-        $detail_response = wp_remote_get($detail_url, ["headers" => ["X-Auth-Key" => $api_key, "X-Auth-Email" => $email, "Content-Type" => "application/json"]]);
-        
-        if (!is_wp_error($detail_response)) {
-            $detail_body = wp_remote_retrieve_body($detail_response);
-            $detail_data = json_decode($detail_body);
+function HSCF_get_live_inputs() {
+    try {
+        $account_id = \HS\Config::cloudflareAccountId();
+        $client = new \HS\CloudflareClient($account_id);
+        $result = $client->listVideos();
+        $data = json_decode($result['body'], true);
 
-            if ($detail_data && $detail_data->success && is_object($detail_data->result)) {
-                $input->srt_details = isset($detail_data->result->srt) ? $detail_data->result->srt : null;
-                $input->rtmp_details = isset($detail_data->result->rtmps) ? $detail_data->result->rtmps : null;
-                $input->status_details = isset($detail_data->result->status->current->state) ? $detail_data->result->status->current->state : "Status Unavailable";
+        if (!$result['success'] || !($data['success'] ?? false)) {
+            return "Failed to fetch live inputs.";
+        }
+
+        foreach ($data['result'] as $input) {
+            $detail_result = $client->getLiveInput($input->uid);
+            $detail_data = json_decode($detail_result['body'], true);
+
+            if ($detail_result['success'] && $detail_data['success'] ?? false && isset($detail_data['result'])) {
+                $input->srt_details = $detail_data['result']['srt'] ?? null;
+                $input->rtmp_details = $detail_data['result']['rtmps'] ?? null;
+                $input->status_details = $detail_data['result']['status']['current']['state'] ?? 'Status Unavailable';
             }
         }
-    }
 
-    return $data->result;
+        return $data['result'];
+    } catch (\HS\ConfigError $e) {
+        return "Cloudflare credentials not configured: " . $e->getMessage();
+    } catch (\Throwable $e) {
+        return "Error fetching live inputs: " . $e->getMessage();
+    }
 }
 
 function HSCF_ajax_get_live_inputs() {
@@ -480,66 +703,45 @@ function HSCF_ajax_get_live_inputs() {
     }
     $live_inputs = HSCF_get_live_inputs();
 
-function HSCF_delete_live_input($input_id)
-{
-    $api_key = get_option("HSCF_cloudflare_api_key");
-    $account_id = get_option("HSCF_cloudflare_account_id");
-    $email = get_option("HSCF_cloudflare_email");
+function HSCF_delete_live_input($input_id) {
+    try {
+        $client = new \HS\CloudflareClient(\HS\Config::cloudflareAccountId());
+        $result = $client->deleteLiveInput($input_id);
+        $data = json_decode($result['body'], true);
 
-    if (!$api_key || !$account_id || !$email) {
-        return "API Key, Account ID, and/or Email is missing.";
-    }
-
-    $url = "https://api.cloudflare.com/client/v4/accounts/$account_id/stream/live_inputs/$input_id";
-
-    $response = wp_remote_request($url, ["method" => "DELETE", "headers" => ["X-Auth-Key" => $api_key, "X-Auth-Email" => $email, "Content-Type" => "application/json"]]);
-
-    if (is_wp_error($response)) {
-        return "Error deleting live input: " . $response->get_error_message();
-    }
-
-    $body = wp_remote_retrieve_body($response);
-    $data = json_decode($body);
-
-    if (!$data) {
-        return "Failed to decode response.";
-    }
-
-    if ($data->success) {
-        return "Live input deleted successfully.";
-    } else {
-        return "Failed to delete live input: " . json_encode($data->errors);
+        if ($result['success'] && ($data['success'] ?? false)) {
+            return "Live input deleted successfully.";
+        }
+        return "Failed to delete live input: " . json_encode($data['errors'] ?? []);
+    } catch (\HS\ConfigError $e) {
+        return "Cloudflare credentials not configured: " . $e->getMessage();
+    } catch (\Throwable $e) {
+        return "Error deleting live input: " . $e->getMessage();
     }
 }
 
-function HSCF_create_live_input($stream_name)
-{
-    $api_key = get_option("HSCF_cloudflare_api_key");
-    $account_id = get_option("HSCF_cloudflare_account_id");
-    $email = get_option("HSCF_cloudflare_email");
+function HSCF_create_live_input($stream_name) {
+    try {
+        $client = new \HS\CloudflareClient(\HS\Config::cloudflareAccountId());
+        $result = $client->createLiveInput([
+            'meta' => ['name' => $stream_name],
+            'recording' => ['mode' => 'automatic'],
+        ]);
+        $data = json_decode($result['body'], true);
 
-    $url = "https://api.cloudflare.com/client/v4/accounts/$account_id/stream/live_inputs";
+        if (!$result['success'] || !($data['success'] ?? false)) {
+            error_log("Failed to create live input: " . json_encode($data['errors'] ?? []));
+            return;
+        }
 
-    $body = ["meta" => ["name" => $stream_name], "recording" => ["mode" => "automatic"]];
-
-    $response = wp_remote_post($url, ["headers" => ["X-Auth-Key" => $api_key, "X-Auth-Email" => $email, "Content-Type" => "application/json"], "body" => json_encode($body)]);
-
-    if (is_wp_error($response)) {
-        // Handle error appropriately
-        error_log("Error creating live input: " . $response->get_error_message());
+        return $data['result'];
+    } catch (\HS\ConfigError $e) {
+        error_log("Live input creation failed: " . $e->getMessage());
+        return;
+    } catch (\Throwable $e) {
+        error_log("Error creating live input: " . $e->getMessage());
         return;
     }
-
-    $response_body = wp_remote_retrieve_body($response);
-    $data = json_decode($response_body);
-
-    if (!$data || !$data->success) {
-        // Handle failure appropriately
-        error_log("Failed to create live input");
-        return;
-    }
-
-    // Optionally handle the successful creation response
 }
 
 function HSCF_enqueue_scripts_admin() {
@@ -595,32 +797,21 @@ function hscf_check_live_input_status()
 }
 add_action("wp_ajax_hscf_check_live_input_status", "hscf_check_live_input_status");
 
-function HSCF_get_live_input_outputs($input_id)
-{
-    $api_key = get_option("HSCF_cloudflare_api_key");
-    $account_id = get_option("HSCF_cloudflare_account_id");
-    $email = get_option("HSCF_cloudflare_email");
-
-    if (!$api_key || !$account_id || !$email) {
-        return "API Key, Account ID, and/or Email is missing.";
-    }
-
-    $url = "https://api.cloudflare.com/client/v4/accounts/$account_id/stream/live_inputs/$input_id/outputs";
-
-    $response = wp_remote_get($url, ["headers" => ["X-Auth-Key" => $api_key, "X-Auth-Email" => $email, "Content-Type" => "application/json"]]);
-
-    if (is_wp_error($response)) {
-        return "Error fetching outputs: " . $response->get_error_message();
-    }
-
-    $body = wp_remote_retrieve_body($response);
-    $data = json_decode($body);
-
-    if (!$data || !$data->success) {
+function HSCF_get_live_input_outputs($input_id) {
+    try {
+        $client = new \HS\CloudflareClient(\HS\Config::cloudflareAccountId());
+        // Use CloudflareClient's get for the outputs endpoint
+        $result = $client->get("stream/live_inputs/{$input_id}/outputs");
+        $data = json_decode($result['body'], true);
+        if ($result['success'] && ($data['success'] ?? false)) {
+            return $data['result'];
+        }
         return "Failed to fetch outputs.";
+    } catch (\HS\ConfigError $e) {
+        return "Cloudflare credentials not configured: " . $e->getMessage();
+    } catch (\Throwable $e) {
+        return "Error fetching outputs: " . $e->getMessage();
     }
-
-    return $data->result;
 }
 
 add_action("wp_ajax_hscf_delete_output", "hscf_delete_output");
@@ -635,20 +826,16 @@ function hscf_delete_output()
     }
     $output_id = sanitize_text_field($_POST["output_id"]);
     $input_id = sanitize_text_field($_POST["input_id"]);
-    $api_key = get_option("HSCF_cloudflare_api_key");
-    $account_id = get_option("HSCF_cloudflare_account_id");
-    $email = get_option("HSCF_cloudflare_email");
 
-    $url = "https://api.cloudflare.com/client/v4/accounts/$account_id/stream/live_inputs/$input_id/outputs/$output_id";
-
-    $response = wp_remote_request($url, ["method" => "DELETE", "headers" => ["X-Auth-Key" => $api_key, "X-Auth-Email" => $email, "Content-Type" => "application/json"]]);
-
-    if (is_wp_error($response)) {
-        wp_send_json_error("Error deleting output: " . $response->get_error_message());
-        return;
+    try {
+        $client = new \HS\CloudflareClient(\HS\Config::cloudflareAccountId());
+        $result = $client->delete("stream/live_inputs/{$input_id}/outputs/{$output_id}");
+        wp_send_json_success("Output deleted successfully.");
+    } catch (\HS\ConfigError $e) {
+        wp_send_json_error("Credentials not configured: " . $e->getMessage());
+    } catch (\Throwable $e) {
+        wp_send_json_error("Error deleting output: " . $e->getMessage());
     }
-
-    wp_send_json_success("Output deleted successfully.");
 }
 
 add_action("wp_ajax_hscf_create_output", "hscf_create_output");
@@ -662,33 +849,30 @@ function hscf_create_output()
         wp_send_json_error('forbidden', 403);
     }
     $streamKey = sanitize_text_field($_POST["stream_key"]);
-    $url = sanitize_text_field($_POST["stream_url"]); // Corrected from 'url' to 'stream_url'
+    $streamUrl = sanitize_text_field($_POST["stream_url"]);
     $input_id = sanitize_text_field($_POST["input_id"]);
-    $api_key = get_option("HSCF_cloudflare_api_key");
-    $account_id = get_option("HSCF_cloudflare_account_id");
-    $email = get_option("HSCF_cloudflare_email");
 
-    if (!$api_key || !$account_id || !$email || !$streamKey || !$url) {
+    if (!$streamKey || !$streamUrl || !$input_id) {
         wp_send_json_error("Missing required information");
         return;
     }
 
-    $api_url = "https://api.cloudflare.com/client/v4/accounts/$account_id/stream/live_inputs/$input_id/outputs";
-    $body = json_encode(["enabled" => true, "streamKey" => $streamKey, "url" => $url]);
+    try {
+        $client = new \HS\CloudflareClient(\HS\Config::cloudflareAccountId());
+        $result = $client->post("stream/live_inputs/{$input_id}/outputs", [
+            'body' => wp_json_encode(["enabled" => true, "streamKey" => $streamKey, "url" => $streamUrl]),
+        ]);
+        $response_body = json_decode($result['body'], true);
 
-    $response = wp_remote_post($api_url, ["headers" => ["X-Auth-Key" => $api_key, "X-Auth-Email" => $email, "Content-Type" => "application/json"], "body" => $body]);
-
-    if (is_wp_error($response)) {
-        wp_send_json_error("Error creating output: " . $response->get_error_message());
-        return;
-    }
-
-    $response_body = json_decode(wp_remote_retrieve_body($response), true);
-
-    if ($response_body && $response_body["success"]) {
-        wp_send_json_success("Output created successfully.");
-    } else {
-        wp_send_json_error("Failed to create output");
+        if ($result['success'] && ($response_body['success'] ?? false)) {
+            wp_send_json_success("Output created successfully.");
+        } else {
+            wp_send_json_error("Failed to create output");
+        }
+    } catch (\HS\ConfigError $e) {
+        wp_send_json_error("Credentials not configured: " . $e->getMessage());
+    } catch (\Throwable $e) {
+        wp_send_json_error("Error creating output: " . $e->getMessage());
     }
 }
 
@@ -705,80 +889,63 @@ function hscf_toggle_output()
     $output_id = sanitize_text_field($_POST["output_id"]);
     $input_id = sanitize_text_field($_POST["input_id"]);
     $enabled = filter_var($_POST["enabled"], FILTER_VALIDATE_BOOLEAN);
-    $api_key = get_option("HSCF_cloudflare_api_key");
-    $account_id = get_option("HSCF_cloudflare_account_id");
-    $email = get_option("HSCF_cloudflare_email");
 
-    if (!$api_key || !$account_id || !$email || !$output_id || $input_id === null) {
+    if (!$output_id || $input_id === null) {
         wp_send_json_error("Missing required information");
         return;
     }
 
-    $api_url = "https://api.cloudflare.com/client/v4/accounts/$account_id/stream/live_inputs/$input_id/outputs/$output_id";
-    $body = json_encode(["enabled" => $enabled]);
+    try {
+        $client = new \HS\CloudflareClient(\HS\Config::cloudflareAccountId());
+        $result = $client->put("stream/live_inputs/{$input_id}/outputs/{$output_id}", [
+            'body' => wp_json_encode(["enabled" => $enabled]),
+        ]);
+        $decoded_response = json_decode($result['body'], true);
 
-    $response = wp_remote_request($api_url, ["method" => "PUT", "headers" => ["X-Auth-Key" => $api_key, "X-Auth-Email" => $email, "Content-Type" => "application/json"], "body" => $body]);
-
-    if (is_wp_error($response)) {
-        wp_send_json_error("Error updating output: " . $response->get_error_message());
-        return;
-    }
-
-    $response_body = wp_remote_retrieve_body($response);
-    $decoded_response = json_decode($response_body, true);
-
-    if (!$decoded_response) {
-        wp_send_json_error("Failed to decode response body: " . $response_body);
-        return;
-    }
-
-    if (isset($decoded_response["success"]) && $decoded_response["success"]) {
-        wp_send_json_success("Output updated successfully.");
-    } else {
-        $error_message = isset($decoded_response["errors"]) ? json_encode($decoded_response["errors"]) : "Unknown error";
-        wp_send_json_error("Failed to update output: " . $error_message);
+        if ($result['success'] && ($decoded_response['success'] ?? false)) {
+            wp_send_json_success("Output updated successfully.");
+        } else {
+            $error_message = isset($decoded_response['errors']) ? json_encode($decoded_response['errors']) : 'Unknown error';
+            wp_send_json_error("Failed to update output: " . $error_message);
+        }
+    } catch (\HS\ConfigError $e) {
+        wp_send_json_error("Credentials not configured: " . $e->getMessage());
+    } catch (\Throwable $e) {
+        wp_send_json_error("Error updating output: " . $e->getMessage());
     }
 }
 
-function HSCF_get_videos_by_stream_name($stream_name)
-{
-    $api_key = get_option("HSCF_cloudflare_api_key");
-    $account_id = get_option("HSCF_cloudflare_account_id");
-    $email = get_option("HSCF_cloudflare_email");
+function HSCF_get_videos_by_stream_name($stream_name) {
+    try {
+        $account_id = \HS\Config::cloudflareAccountId();
+        $client = new \HS\CloudflareClient($account_id);
 
-    $url = "https://api.cloudflare.com/client/v4/accounts/$account_id/stream";
+        // Fetch all videos (paginated)
+        $videos = [];
+        $page = 1;
+        do {
+            $result = $client->listVideos(null, $page, 100);
+            $data = json_decode($result['body'], true);
+            if (!$result['success'] || !($data['success'] ?? false) || empty($data['result'])) {
+                break;
+            }
+            $videos = array_merge($videos, $data['result']);
+            $page++;
+        } while (!empty($data['result']));
 
-    $response = wp_remote_get($url, ["headers" => ["X-Auth-Key" => $api_key, "X-Auth-Email" => $email, "Content-Type" => "application/json"]]);
+        $filtered_videos = [];
+        foreach ($videos as $video) {
+            if (!isset($video['meta']['name']) || stripos($video['meta']['name'], $stream_name) === false) {
+                continue;
+            }
 
-    if (is_wp_error($response)) {
-        // Handle error
-        error_log("Error fetching videos: " . $response->get_error_message());
-        return;
-    }
-
-    $body = wp_remote_retrieve_body($response);
-    $data = json_decode($body, true);
-
-    if (!$data || !$data["success"]) {
-        // Handle failure to fetch videos
-        error_log("Failed to fetch videos");
-        return;
-    }
-
-    $filtered_videos = [];
-    foreach ($data["result"] as $video) {
-        if (isset($video["meta"]["name"]) && strpos(strtolower($video["meta"]["name"]), strtolower($stream_name)) !== false) {
-            $video_detail_url = "https://api.cloudflare.com/client/v4/accounts/$account_id/stream/{$video["uid"]}/downloads";
-            $detail_response = wp_remote_get($video_detail_url, ["headers" => ["X-Auth-Key" => $api_key, "X-Auth-Email" => $email, "Content-Type" => "application/json"]]);
-
-            if (!is_wp_error($detail_response)) {
-                $detail_body = wp_remote_retrieve_body($detail_response);
-                $detail_data = json_decode($detail_body, true);
-
-                if ($detail_data && $detail_data["success"]) {
-                    foreach ($detail_data["result"] as $download) {
-                        if (isset($download["url"]) && strpos($download["url"], ".mp4") !== false) {
-                            $video["mp4_download_url"] = $download["url"];
+            $detail_result = $client->get("stream/{$video['uid']}/downloads");
+            if ($detail_result['success']) {
+                $detail_data = json_decode($detail_result['body'], true);
+                if (($detail_data['success'] ?? false)) {
+                    foreach ($detail_data['result'] ?? [] as $download) {
+                        if (isset($download['url']) && strpos($download['url'], '.mp4') !== false) {
+                            $video['mp4_download_url'] = $download['url'];
                             break;
                         }
                     }
@@ -787,9 +954,15 @@ function HSCF_get_videos_by_stream_name($stream_name)
 
             $filtered_videos[] = $video;
         }
-    }
 
-    return $filtered_videos;
+        return $filtered_videos;
+    } catch (\HS\ConfigError $e) {
+        error_log("Video lookup failed: " . $e->getMessage());
+        return;
+    } catch (\Throwable $e) {
+        error_log("Error fetching videos by stream name: " . $e->getMessage());
+        return;
+    }
 }
 
 add_action("wp_ajax_hscf_create_download", "HSCF_create_download");
@@ -803,25 +976,21 @@ function HSCF_create_download()
         wp_send_json_error('forbidden', 403);
     }
     $video_id = sanitize_text_field($_POST["video_id"]);
-    $api_key = get_option("HSCF_cloudflare_api_key");
-    $account_id = get_option("HSCF_cloudflare_account_id");
-    $email = get_option("HSCF_cloudflare_email");
 
-    if (!$api_key || !$account_id || !$email || !$video_id) {
+    if (!$video_id) {
         wp_send_json_error("Missing required information");
         return;
     }
 
-    $api_url = "https://api.cloudflare.com/client/v4/accounts/$account_id/stream/$video_id/downloads";
-
-    $response = wp_remote_post($api_url, ["headers" => ["X-Auth-Key" => $api_key, "X-Auth-Email" => $email, "Content-Type" => "application/json"]]);
-
-    if (is_wp_error($response)) {
-        wp_send_json_error("Error creating download: " . $response->get_error_message());
-        return;
+    try {
+        $client = new \HS\CloudflareClient(\HS\Config::cloudflareAccountId());
+        $result = $client->post("stream/{$video_id}/downloads");
+        wp_send_json_success("Download created successfully.");
+    } catch (\HS\ConfigError $e) {
+        wp_send_json_error("Credentials not configured: " . $e->getMessage());
+    } catch (\Throwable $e) {
+        wp_send_json_error("Error creating download: " . $e->getMessage());
     }
-
-    wp_send_json_success("Download created successfully.");
 }
 
 add_action("wp_ajax_hscf_check_download_status", "hscf_check_download_status");
@@ -835,33 +1004,27 @@ function hscf_check_download_status()
         wp_send_json_error('forbidden', 403);
     }
     $video_id = sanitize_text_field($_POST["video_id"]);
-    $api_key = get_option("HSCF_cloudflare_api_key");
-    $account_id = get_option("HSCF_cloudflare_account_id");
-    $email = get_option("HSCF_cloudflare_email");
 
-    $api_url = "https://api.cloudflare.com/client/v4/accounts/$account_id/stream/$video_id/downloads";
+    try {
+        $client = new \HS\CloudflareClient(\HS\Config::cloudflareAccountId());
+        $result = $client->get("stream/{$video_id}/downloads");
+        $data = json_decode($result['body'], true);
 
-    $response = wp_remote_get($api_url, ["headers" => ["X-Auth-Key" => $api_key, "X-Auth-Email" => $email, "Content-Type" => "application/json"]]);
-
-    if (is_wp_error($response)) {
-        wp_send_json_error("Error checking download status: " . $response->get_error_message());
-        return;
-    }
-
-    $body = wp_remote_retrieve_body($response);
-    $data = json_decode($body, true);
-
-    // Check if there is an MP4 download URL
-    if (!empty($data["result"]) && is_array($data["result"])) {
-        foreach ($data["result"] as $download) {
-            if (isset($download["url"]) && strpos($download["url"], ".mp4") !== false) {
-                wp_send_json_success(["download_url" => $download["url"]]);
-                return;
+        if ($result['success'] && !empty($data['result'])) {
+            foreach ($data['result'] as $download) {
+                if (isset($download['url']) && strpos($download['url'], '.mp4') !== false) {
+                    wp_send_json_success(['download_url' => $download['url']]);
+                    return;
+                }
             }
         }
-    }
 
-    wp_send_json_error("MP4 download URL not available yet.");
+        wp_send_json_error("MP4 download URL not available yet.");
+    } catch (\HS\ConfigError $e) {
+        wp_send_json_error("Credentials not configured: " . $e->getMessage());
+    } catch (\Throwable $e) {
+        wp_send_json_error("Error checking download status: " . $e->getMessage());
+    }
 }
 
 function hscf_delete_recording()
@@ -873,29 +1036,22 @@ function hscf_delete_recording()
         wp_send_json_error('forbidden', 403);
     }
     $video_id = sanitize_text_field($_POST["video_id"]);
-    $api_key = get_option("HSCF_cloudflare_api_key");
-    $account_id = get_option("HSCF_cloudflare_account_id");
-    $email = get_option("HSCF_cloudflare_email");
 
-    if (!$api_key || !$account_id || !$email || !$video_id) {
+    if (!$video_id) {
         wp_send_json_error("Missing required information");
         return;
     }
 
-    $api_url = "https://api.cloudflare.com/client/v4/accounts/$account_id/stream/$video_id";
-
-    $response = wp_remote_request($api_url, ['method' => 'DELETE', 'headers' => ['X-Auth-Key' => $api_key, 'X-Auth-Email' => $email, 'Content-Type' => 'application/json']]);
-
-    if (is_wp_error($response)) {
-        wp_send_json_error('Error deleting recording: ' . $response->get_error_message());
-        return;
+    try {
+        $client = new \HS\CloudflareClient(\HS\Config::cloudflareAccountId());
+        $result = $client->delete("stream/{$video_id}");
+        $response_body = $result['body'];
+        wp_send_json_success(['response_code' => $result['status'], 'response_body' => $response_body]);
+    } catch (\HS\ConfigError $e) {
+        wp_send_json_error("Credentials not configured: " . $e->getMessage());
+    } catch (\Throwable $e) {
+        wp_send_json_error('Error deleting recording: ' . $e->getMessage());
     }
-
-    $response_code = wp_remote_retrieve_response_code($response);
-    $response_body = wp_remote_retrieve_body($response);
-
-    // Send the entire response for debugging
-    wp_send_json_success(['response_code' => $response_code, 'response_body' => $response_body]);
 }
 
 add_action('wp_ajax_hscf_delete_recording', 'hscf_delete_recording');
@@ -1174,6 +1330,18 @@ function HSCF_Admin()
         <form method="post" action="options.php">
             <?php
             settings_fields("HSCF_streamer_settings");
+            do_settings_sections("HitchStream_Cloudflare");
+            submit_button();
+            ?>
+        </form>
+    </div>
+
+    <!-- Alerts Settings -->
+    <h2>Alerts Settings</h2>
+    <div style="margin-bottom:30px;">
+        <form method="post" action="options.php">
+            <?php
+            settings_fields("HSCF_alert_settings");
             do_settings_sections("HitchStream_Cloudflare");
             submit_button();
             ?>

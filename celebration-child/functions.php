@@ -1,4 +1,11 @@
 <?php
+/**
+ * HitchStream Player — theme functions.
+ */
+
+if (!class_exists('HS\\CloudflareClient')) {
+    require_once WP_PLUGIN_DIR . '/HitchStream_Cloudflare/src/HS/CloudflareClient.php';
+}
 function get_status_ajax_callback() {
     global $post;
     $post_id = intval( $_POST['post_id'] );
@@ -606,41 +613,33 @@ function limit_debug_log_size() {
 add_action('init', 'limit_debug_log_size');
 
 function fetch_current_video_uid($live_input_id) {
-    $cloudflare_email = get_option('HSCF_cloudflare_email');
-    $cloudflare_api_key = get_option('HSCF_cloudflare_api_key');
-    $cloudflare_account_id = get_option('HSCF_cloudflare_account_id');
+    try {
+        $client = new \HS\CloudflareClient(\HS\Config::cloudflareAccountId());
+        $result = $client->get("stream/live_inputs/{$live_input_id}/videos");
+        $data = json_decode($result['body'], true);
 
-    $url = "https://api.cloudflare.com/client/v4/accounts/$cloudflare_account_id/stream/live_inputs/$live_input_id/videos";
-    $args = array(
-        'headers' => array(
-            'X-Auth-Email' => $cloudflare_email,
-            'X-Auth-Key' => $cloudflare_api_key,
-            'Content-Type' => 'application/json'
-        )
-    );
-
-    $response = wp_remote_get($url, $args);
-    $uid = ''; // Default to empty UID
-
-    if (!is_wp_error($response) && wp_remote_retrieve_response_code($response) == 200) {
-        $data = json_decode(wp_remote_retrieve_body($response), true);
+        if (!$result['success'] || !($data['success'] ?? false) || empty($data['result'])) {
+            return '';
+        }
 
         // First, check for a live-inprogress video
         foreach ($data['result'] as $video) {
-            if ($video['status']['state'] === 'live-inprogress') {
-                return $video['uid']; // Return immediately if a live video is found
+            if (($video['status']['state'] ?? '') === 'live-inprogress') {
+                return $video['uid'];
             }
         }
 
         // If no live video, then look for the most recent recording in a "ready" state
         foreach ($data['result'] as $video) {
-            if ($video['status']['state'] === 'ready') {
-                return $video['uid']; // Return the first "ready" video found
+            if (($video['status']['state'] ?? '') === 'ready') {
+                return $video['uid'];
             }
         }
+    } catch (\Throwable $e) {
+        // Credentials missing or API error — return empty
     }
 
-    return ''; // Return empty if no suitable video is found
+    return '';
 }
 
 // Expose UID fetching through AJAX for dynamic JavaScript access
@@ -721,101 +720,51 @@ function hs_compute_server_live_state($input_id) {
  * Returns a 'secret' in the response that must be stored for signature verification.
  */
 function hs_register_cf_webhook($callback_url, $secret) {
-    $email    = get_option('HSCF_cloudflare_email', '');
-    $api_key  = get_option('HSCF_cloudflare_api_key', '');
-    $account  = get_option('HSCF_cloudflare_account_id', '');
-
-    if (!$email || !$api_key || !$account) {
+    try {
+        $client = new \HS\CloudflareClient(\HS\Config::cloudflareAccountId());
+        $result = $client->registerWebhook($callback_url, $secret);
+        if (!$result['success']) {
+            return ['error' => 'Cloudflare API error', 'status' => $result['status'], 'response' => $result['body']];
+        }
+        return json_decode($result['body'], true);
+    } catch (\HS\ConfigError $e) {
         return ['error' => 'Cloudflare credentials not configured'];
+    } catch (\Throwable $e) {
+        return ['error' => $e->getMessage()];
     }
-
-    $ch = curl_init("https://api.cloudflare.com/client/v4/accounts/{$account}/stream/webhook");
-    curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'PUT');
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, [
-        "X-Auth-Email: {$email}",
-        "X-Auth-Key: {$api_key}",
-        "Content-Type: application/json",
-    ]);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
-        'notification_url' => $callback_url,
-        'notification_auth' => [
-            'strategy' => 'secret_header',
-            'secret'   => $secret,
-        ],
-    ]));
-    $resp = curl_exec($ch);
-    $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-
-    if ($http_code < 200 || $http_code >= 300) {
-        return ['error' => 'Cloudflare API error', 'status' => $http_code, 'response' => $resp];
-    }
-
-    return json_decode($resp, true);
 }
 
 /**
  * List currently registered Cloudflare Stream webhooks (account-level).
- * Cloudflare docs: GET /accounts/{account_id}/stream/webhook
  */
 function hs_list_cf_webhooks() {
-    $email    = get_option('HSCF_cloudflare_email', '');
-    $api_key  = get_option('HSCF_cloudflare_api_key', '');
-    $account  = get_option('HSCF_cloudflare_account_id', '');
-
-    if (!$email || !$api_key || !$account) {
+    try {
+        $client = new \HS\CloudflareClient(\HS\Config::cloudflareAccountId());
+        $result = $client->getWebhook();
+        if (!$result['success']) {
+            return ['error' => 'Cloudflare API error', 'status' => $result['status'], 'response' => $result['body']];
+        }
+        return json_decode($result['body'], true);
+    } catch (\HS\ConfigError $e) {
         return ['error' => 'Cloudflare credentials not configured'];
+    } catch (\Throwable $e) {
+        return ['error' => $e->getMessage()];
     }
-
-    $ch = curl_init("https://api.cloudflare.com/client/v4/accounts/{$account}/stream/webhook");
-    curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'GET');
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, [
-        "X-Auth-Email: {$email}",
-        "X-Auth-Key: {$api_key}",
-        "Content-Type: application/json",
-    ]);
-    $resp = curl_exec($ch);
-    $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-
-    if ($http_code < 200 || $http_code >= 300) {
-        return ['error' => 'Cloudflare API error', 'status' => $http_code, 'response' => $resp];
-    }
-
-    return json_decode($resp, true);
 }
 
 /**
  * Delete a Cloudflare Stream webhook (account-level).
- * Cloudflare docs: DELETE /accounts/{account_id}/stream/webhook
  */
 function hs_delete_cf_webhook() {
-    $email    = get_option('HSCF_cloudflare_email', '');
-    $api_key  = get_option('HSCF_cloudflare_api_key', '');
-    $account  = get_option('HSCF_cloudflare_account_id', '');
-
-    if (!$email || !$api_key || !$account) {
+    try {
+        $client = new \HS\CloudflareClient(\HS\Config::cloudflareAccountId());
+        $result = $client->deleteWebhook();
+        return ['status' => $result['status'], 'body' => json_decode($result['body'], true)];
+    } catch (\HS\ConfigError $e) {
         return ['error' => 'Cloudflare credentials not configured'];
+    } catch (\Throwable $e) {
+        return ['error' => $e->getMessage()];
     }
-
-    $ch = curl_init("https://api.cloudflare.com/client/v4/accounts/{$account}/stream/webhook");
-    curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'DELETE');
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, [
-        "X-Auth-Email: {$email}",
-        "X-Auth-Key: {$api_key}",
-        "Content-Type: application/json",
-    ]);
-    $resp = curl_exec($ch);
-    $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-
-    return ['status' => $http_code, 'body' => json_decode($resp, true)];
 }
 
 /**
@@ -828,28 +777,15 @@ function hs_delete_cf_webhook() {
  * @deprecated Use hs_delete_cf_webhook() instead.
  */
 function hs_unregister_cf_webhook($input_id, $webhook_uid) {
-    $email    = get_option('HSCF_cloudflare_email', '');
-    $api_key  = get_option('HSCF_cloudflare_api_key', '');
-    $account  = get_option('HSCF_cloudflare_account_id', '');
-
-    if (!$email || !$api_key || !$account) {
+    try {
+        $client = new \HS\CloudflareClient(\HS\Config::cloudflareAccountId());
+        $result = $client->delete("stream/live_inputs/{$input_id}/webhooks/{$webhook_uid}");
+        return ['status' => $result['status'], 'body' => json_decode($result['body'], true)];
+    } catch (\HS\ConfigError $e) {
         return ['error' => 'Cloudflare credentials not configured'];
+    } catch (\Throwable $e) {
+        return ['error' => $e->getMessage()];
     }
-
-    $ch = curl_init("https://api.cloudflare.com/client/v4/accounts/{$account}/stream/live_inputs/{$input_id}/webhooks/{$webhook_uid}");
-    curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'DELETE');
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, [
-        "X-Auth-Email: {$email}",
-        "X-Auth-Key: {$api_key}",
-        "Content-Type: application/json",
-    ]);
-    $resp = curl_exec($ch);
-    $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-
-    return ['status' => $http_code, 'body' => json_decode($resp, true)];
 }
 
 

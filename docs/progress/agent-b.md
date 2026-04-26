@@ -56,3 +56,27 @@
 | `220c50f` | B1.7   | Staging smoke-test plan — 10 scenarios |
 | `fa0c715` | B1.7   | Staging smoke-test plan — 10 runnable scenarios |
 | `08b5534` | B1.1+B1.2 | Align verifier with empirical format: shared-secret, not HMAC |
+
+## B3 Checklist
+
+- [x] **B3.1** CloudflareClient class created — `src/HS/CloudflareClient.php`
+  - Bearer token auth (preferred) with email/key fallback
+  - 3 retries on 5xx/network error (250ms / 750ms / 2s backoff)
+  - 10s connect / 15s total timeout
+  - Every call logged with correlation ID
+  - Methods: lifecycle(), listVideos(), getLiveInput(), createLiveInput(), deleteLiveInput(), registerWebhook(), deleteWebhook(), getWebhook()
+- [x] **B3.2** Migrated all direct API calls — zero `curl_init` or `wp_remote_*` to Cloudflare API remain in `HitchStream-Cloudflare.php` or `functions.php`
+- [x] **B3.3** Dual-auth fallback — Bearer preferred, email/key falls back with `trigger_error(E_USER_DEPRECATED)`
+- [x] **B3.4** Config class created — `src/HS/Config.php` with typed accessors, throws `HS\ConfigError` for missing required options
+- [x] **B3.5** Settings page extended:
+  - New `HSCF_cloudflare_api_token` field in Cloudflare section
+  - [Test] button on Cloudflare section → hits `/lifecycle`
+  - [Test] button on Streamer section → hits `/stream-state`
+  - [Rotate] button on webhook secret → deletes old + registers new
+  - New "Alerts" section with `HSCF_alert_email` and `HSCF_alert_codes` fields
+- [x] **B3.6** All options documented in `docs/configuration.md`
+
+## Commits on b/phase-B3
+
+| Commit | Phase | Description |
+|--------|------|-----|
