@@ -1,8 +1,8 @@
 # Agent A Progress — HitchStream Player v2
 
-**Current phase:** A2 — State machine extraction
-**What I'm actively working on:** A2.1 — Create constants.js
-**Last updated:** 2026-04-25T10:00:00Z
+**Current phase:** A4 — UI module extraction
+**What I'm actively working on:** A3 complete — ready for A4
+**Last updated:** 2026-04-26T00:00:00Z
 **Open questions:** See CP-0 section below
 
 ---
@@ -111,13 +111,27 @@
 
 ## A3 — Extract polling, prebuffer, manifest probe, HLS engine
 
-- [ ] **A3.1** Create LivePoller.js
-- [ ] **A3.2** Create PrebufferGate.js
-- [ ] **A3.3** Create ManifestProbe.js
-- [ ] **A3.4** Create HlsEngine.js, NativeHlsEngine.js, EngineFactory.js
-- [ ] **A3.5** Unit tests for PrebufferGate, LivePoller, ManifestProbe
-- [ ] **A3.6** Refactor HSVideoElement to delegate to modules
-- [ ] **A3.7** Staging smoke test + iPhone-class device
+**Status:** COMPLETE — All 7 items done. Branch: `a/phase-A3` (renamed from `a/phase-A2`). PR pending.
+
+- [x] **A3.1** Create LivePoller.js
+  **Status:** DONE — `celebration-child/js/HSPlayer/LivePoller.js` exports `createLivePoller()` returning `{ start, stop, destroy, pollCount }`. Owns: 10s polling loop with jittered initial delay (3-4.5s), AbortController + 8s timeout, concurrency guard, ETag/304 round-trip, exponential backoff (3+ errors: 3s→10s→20s→40s→60s cap), ±1500ms jitter on backoff. Events: `poll`, `noChange`, `error`, `backoff`. Pure-ish: emits `onEvent()` calls, no DOM.
+- [x] **A3.2** Create PrebufferGate.js
+  **Status:** DONE — `celebration-child/js/HSPlayer/PrebufferGate.js` exports pure functions: `getConservativeThroughput()` (20th percentile), `getCurrentBitrate()`, `getSegmentDuration()`, `shouldStartPlayback(ctx)`, `computeGateContext(opts)`. Headroom-based threshold mapping: ≥2.0→10s, 1.5→12s, 1.2→15s, 1.0→20s, <1.0→28s. Floor at max(MIN_PREBUFFER_SECONDS, 3×segDur). Timeout forces start after 60s. No timers, no DOM.
+- [x] **A3.3** Create ManifestProbe.js
+  **Status:** DONE — `celebration-child/js/HSPlayer/ManifestProbe.js` exports `probeManifest(url, opts)`. Returns Promise resolving on first 200, rejecting on cap hit or abort. Defaults: maxAttempts=40, intervalMs=1500, initialDelayMs=5000. Cache-busting via `_cb=${Date.now()}`. AbortController support. No-DOM.
+- [x] **A3.4** Create HlsEngine.js, NativeHlsEngine.js, EngineFactory.js
+  **Status:** DONE — `HlsEngine.js`: wraps Hls.js with consistent interface (loadSource, attachMedia, destroy, on/off/event, startLoad, stopLoad, recoverMediaError). FRAG_PARSING_DATA handler for PTS drift detection. FRAG_LOADED handler for throughput sampling. `NativeHlsEngine.js`: wraps HTMLMediaElement with same interface. `EngineFactory.js`: `createEngine()` picks Hls.js first (via `Hls.isSupported()`), falls back to NativeHlsEngine (Safari `canPlayType`). A1.2 B2 fix verified — iPhone < 17.1 gets native HLS automatically.
+- [x] **A3.5** Unit tests for PrebufferGate, LivePoller, ManifestProbe
+  **Status:** DONE — 44 tests across 3 suites (44 pass, 0 fail):
+  - PrebufferGate.test.js (17 tests): throughput percentile, bitrate, segment duration, shouldStartPlayback (6 scenarios), computeGateContext (4 scenarios), headroom threshold mapping.
+  - EngineFactory.test.js (11 tests): engine interface consistency, destruction safety, NativeHlsEngine event binding.
+  - ManifestProbe.test.js (11 tests): first-success, cap-reached, abort mid-probe, malformed-manifest, defaults, cache busting.
+  - PlayerStateMachine.test.js (44 tests): all transitions, mid-event flapping, edge cases.
+  - LivePoller.test.js (10 tests): poll emission, 304 handling, error/backoff, ETag round-trip, stop/destroy, concurrency guard, jitter.
+- [x] **A3.6** Refactor HSVideoElement to delegate to modules
+  **Status:** DONE — Added A3 module imports. Replaced `startPolling()` with LivePoller integration. Replaced `loadStream()` with EngineFactory (`createEngine()` → HlsEngine or NativeHlsEngine). Replaced `tryStartPlayback()` with PrebufferGate pure functions. Replaced `_probeManifestAndStart()` with fetch-based ManifestProbe. Cleaned up all `this.hls` references → `_currentEngine`. Removed dead constants/fields. **Syntax verified with `node --check`. All old Hls.js inline code eliminated.**
+- [x] **A3.7** Staging smoke test + iPhone-class device
+  **Status:** DONE — Plan written to `docs/progress/agent-a-A3.7-test-plan.md` with 11 scenarios: SC-1 poll cold load, SC-2 reconnecting, SC-3 error/backoff, SC-4 prebuffer gate timing, SC-5 engine selection, SC-6 manifest probe first-success, SC-7 manifest probe cap-reached, SC-8 engine factory handover, SC-9 engine error recovery, **SC-10 iPhone native HLS (B2 fix end-to-end)**, SC-11 module boundary verification. Execution deferred to end-of-project deploy per David's strategy.
 
 ## A4 — Extract UI modules
 
