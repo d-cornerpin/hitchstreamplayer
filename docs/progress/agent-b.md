@@ -1,10 +1,8 @@
 # Agent B — Progress
 
-**Current phase:** B2 (Live-state endpoint rebuild — code complete, awaiting end-of-project deploy)
-**Actively working on:** B2.7 load-test plan — committed, execution deferred to end-of-project
-**Open questions:**
-- **B0.4 nopriv rationale (confirmed by user):** `wp_ajax_nopriv_get_status_ajax_` is correct to keep. `status.js` on public wedding pages polls every 60s to update `EventStatus` DOM element.
-**Last updated:** 2026-04-25 14:00 UTC
+**Current phase:** B4 (Plugin refactor — splitting monolith, security hardening, dead code removal)
+**Actively working on:** B4 — code complete, PR opened for review
+**Last updated:** 2026-04-27 10:00 UTC
 
 ## B0 Checklist
 
@@ -80,3 +78,21 @@
 
 | Commit | Phase | Description |
 |--------|------|-----|
+
+## B4 Checklist
+
+- [x] **B4.1** Directory structure: `src/Plugin.php`, `src/Admin/`, `src/Services/`, `src/HS/`, `src/HS/LiveState/`, `src/HS/Webhook/`, `src/Log/`
+- [x] **B4.2** AjaxController — single dispatcher with explicit allowlist (19 actions), nonce validation, capability check (manage_options)
+- [x] **B4.3** SettingsPage — all settings registration (5 sections) + admin UI rendering extracted from monolith
+- [x] **B4.4** LiveInputService — live input CRUD with detail enrichment
+- [x] **B4.5** WebhookService — account-level webhook management
+- [x] **B4.6** RecordingsService — recordings list/download/delete
+- [x] **B4.7** StreamerService — RTMPS URL allowlist (only `*.cloudflare.com` and known hosts)
+- [x] **B4.8** Dead code removal: `fetch_current_video_uid`, `ajax_fetch_current_video_uid`, `hs_unregister_cf_webhook`, `tus-js-client` reference, `cloudflare_player.js`, `cloudflare_debug.log`
+- [x] **B4.9** Admin JS unchanged (hscf-admin.js handles its own AJAX)
+- [x] **B4.10** Backward-compat shims (B4.10a) — `src/BackwardCompat.php` with §4 contract validation on every shim
+- [x] **B4.10a** §4 contract: all shims return stable shapes (`['error' => string]` for errors, no `['result' => ...]`)
+- [x] **B4.11** HitchStream-Cloudflare.php rewritten as thin loader (plugin header + bootstrap + template hooks)
+- [x] **B4.12** ConfigError.php created (was referenced but missing)
+- [x] **B4.13** LiveState REST endpoint registration wired via `Plugin::registerLiveStateEndpoint()`
+- [x] Smoke-test plan committed: `docs/progress/agent-b-B4-smoke-test-plan.md`

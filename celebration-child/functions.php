@@ -612,47 +612,9 @@ function limit_debug_log_size() {
 }
 add_action('init', 'limit_debug_log_size');
 
-function fetch_current_video_uid($live_input_id) {
-    try {
-        $client = new \HS\CloudflareClient(\HS\Config::cloudflareAccountId());
-        $result = $client->get("stream/live_inputs/{$live_input_id}/videos");
-        $data = json_decode($result['body'], true);
-
-        if (!$result['success'] || !($data['success'] ?? false) || empty($data['result'])) {
-            return '';
-        }
-
-        // First, check for a live-inprogress video
-        foreach ($data['result'] as $video) {
-            if (($video['status']['state'] ?? '') === 'live-inprogress') {
-                return $video['uid'];
-            }
-        }
-
-        // If no live video, then look for the most recent recording in a "ready" state
-        foreach ($data['result'] as $video) {
-            if (($video['status']['state'] ?? '') === 'ready') {
-                return $video['uid'];
-            }
-        }
-    } catch (\Throwable $e) {
-        // Credentials missing or API error — return empty
-    }
-
-    return '';
-}
-
-// Expose UID fetching through AJAX for dynamic JavaScript access
-add_action('wp_ajax_fetch_video_uid', 'ajax_fetch_current_video_uid');
-
-function ajax_fetch_current_video_uid() {
-    if (!current_user_can('manage_options')) {
-        wp_die('forbidden', 403);
-    }
-    $live_input_id = isset($_POST['live_input_id']) ? sanitize_text_field($_POST['live_input_id']) : '';
-    echo fetch_current_video_uid($live_input_id);
-    wp_die(); // Properly end the execution of AJAX
-}
+// Dead code removed (§B4.8): fetch_current_video_uid + ajax_fetch_current_video_uid
+// These functions probed Cloudflare's per-input video list endpoint.
+// The new architecture uses RecordingsService::findByStreamName() instead.
 
 // ---------------------------------------------------------------------------
 // HitchStream Player — Webhook helpers
@@ -712,84 +674,7 @@ function hs_compute_server_live_state($input_id) {
     return in_array($data['state'], ['live', 'reconnected', 'new_configuration_accepted']);
 }
 
-/**
- * Register webhooks with Cloudflare (account-level).
- * Call during setup or from an admin UI.
- *
- * Cloudflare docs: PUT /accounts/{account_id}/stream/webhook
- * Returns a 'secret' in the response that must be stored for signature verification.
- */
-function hs_register_cf_webhook($callback_url, $secret) {
-    try {
-        $client = new \HS\CloudflareClient(\HS\Config::cloudflareAccountId());
-        $result = $client->registerWebhook($callback_url, $secret);
-        if (!$result['success']) {
-            return ['error' => 'Cloudflare API error', 'status' => $result['status'], 'response' => $result['body']];
-        }
-        return json_decode($result['body'], true);
-    } catch (\HS\ConfigError $e) {
-        return ['error' => 'Cloudflare credentials not configured'];
-    } catch (\Throwable $e) {
-        return ['error' => $e->getMessage()];
-    }
-}
+// ── Dead code removed (§B4.8): hs_register_cf_webhook, hs_list_cf_webhooks, hs_delete_cf_webhook, hs_unregister_cf_webhook ──
+// These functions are provided as backward-compat shims by the HitchStream_Cloudflare plugin
+// (src/BackwardCompat.php). The plugin loads first; shims provide these by default.
 
-/**
- * List currently registered Cloudflare Stream webhooks (account-level).
- */
-function hs_list_cf_webhooks() {
-    try {
-        $client = new \HS\CloudflareClient(\HS\Config::cloudflareAccountId());
-        $result = $client->getWebhook();
-        if (!$result['success']) {
-            return ['error' => 'Cloudflare API error', 'status' => $result['status'], 'response' => $result['body']];
-        }
-        return json_decode($result['body'], true);
-    } catch (\HS\ConfigError $e) {
-        return ['error' => 'Cloudflare credentials not configured'];
-    } catch (\Throwable $e) {
-        return ['error' => $e->getMessage()];
-    }
-}
-
-/**
- * Delete a Cloudflare Stream webhook (account-level).
- */
-function hs_delete_cf_webhook() {
-    try {
-        $client = new \HS\CloudflareClient(\HS\Config::cloudflareAccountId());
-        $result = $client->deleteWebhook();
-        return ['status' => $result['status'], 'body' => json_decode($result['body'], true)];
-    } catch (\HS\ConfigError $e) {
-        return ['error' => 'Cloudflare credentials not configured'];
-    } catch (\Throwable $e) {
-        return ['error' => $e->getMessage()];
-    }
-}
-
-/**
- * Remove a webhook from Cloudflare for a given live input.
- *
- * DEPRECATED: Cloudflare has migrated to account-level webhooks (PUT /accounts/{id}/stream/webhook).
- * This function targets the old per-input endpoint which may no longer work.
- * Use hs_delete_cf_webhook() from the admin plugin instead.
- *
- * @deprecated Use hs_delete_cf_webhook() instead.
- */
-function hs_unregister_cf_webhook($input_id, $webhook_uid) {
-    try {
-        $client = new \HS\CloudflareClient(\HS\Config::cloudflareAccountId());
-        $result = $client->delete("stream/live_inputs/{$input_id}/webhooks/{$webhook_uid}");
-        return ['status' => $result['status'], 'body' => json_decode($result['body'], true)];
-    } catch (\HS\ConfigError $e) {
-        return ['error' => 'Cloudflare credentials not configured'];
-    } catch (\Throwable $e) {
-        return ['error' => $e->getMessage()];
-    }
-}
-
-
-
-
-
-    
