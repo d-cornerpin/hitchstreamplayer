@@ -4,7 +4,8 @@
 import {
   transition, STATE, FATAL_TIMEOUT_MS, MAX_MEDIA_ERROR_RECOVERY_ATTEMPTS,
   MANIFEST_PROBE_MAX_ATTEMPTS, MIN_THROUGHPUT_SAMPLES, MAX_THROUGHPUT_SAMPLES, PREBUFFER_TIMEOUT_MS,
-  HLS_ORIGIN_ALLOWLIST_REGEX
+  HLS_ORIGIN_ALLOWLIST_REGEX, DEBUG_ERROR_MESSAGES,
+  RECONNECT_WATCHDOG_INTERVAL_MS, RECONNECT_WATCHDOG_BUFFER_THRESHOLD, RECONNECT_WATCHDOG_FATAL_TTL,
 } from './constants.js';
 import { createLivePoller, probeManifest, createEngine } from './EngineFactory.js';
 import { HlsEngine } from './HlsEngine.js';
@@ -37,7 +38,10 @@ export class HSVideoElement extends HTMLElement {
     this.throughputSamples = []; this.probeAttempts = 0;
     this.currentStreamUrl = null; this.ingestFalseCount = 0; this.hasPlayedOnce = false;
     this.pollCount = 0; this.liveStatus = null; this.videoUID = null;
+    this.currentVideoUID = null;
     this._networkErrorRecoveryAttempts = 0; this.fatalTimer = null;
+    this._reconnectWatchdogTimer = null; this._reconnectWatchdogActive = false;
+    this._drainingToIdle = false;
     this.mediaErrorRecoveryAttempts = 0; this.currentStatusType = null;
     this.fatalBufferLevel = null; this.fatalTimerStart = null;
     this.latestLiveHlsUrl = null; this.playerMode = null;
@@ -146,15 +150,20 @@ export class HSVideoElement extends HTMLElement {
         if (isLive && videoUID) {
           const url = (hlsUrl && HSVideoElement.isValidHlsUrl(hlsUrl)) ? hlsUrl
             : `https://customer-${this.posterMgr.customerCode}.cloudflarestream.com/${videoUID}/manifest/video.m3u8`;
-          this.latestLiveHlsUrl = url; this.ingestFalseCount = 0;
+          this.latestLiveHlsUrl = url; this.ingestFalseCount = 0; this.currentVideoUID = videoUID;
+          this._stopReconnectWatchdog();
           const r = transition({ currentState: this.playerState, event: { type:'poll', payload:{ state:'live', videoUID, hlsUrl:url, source } }, context: this._ctx() });
           this.playerState = r.nextState; this._dispatchEffects(r.sideEffects);
         } else {
           const ev = errorCode ? { type:'poll', payload:{ state:'error', errorCode, source } }
             : { type:'poll', payload:{ state:'idle', videoUID:null, hlsUrl:null } };
           this.ingestFalseCount = (this.ingestFalseCount||0)+1;
+          this._stopReconnectWatchdog();
           const r = transition({ currentState: this.playerState, event: ev, context: this._ctx() });
           this.playerState = r.nextState; this._dispatchEffects(r.sideEffects);
+        }
+        if (state === 'reconnecting' && this.playerState === STATE.PLAYING) {
+          this._startReconnectWatchdog();
         }
       }
       if (evt.type === 'error') this.debugError('Poller error:', evt.payload.error);
@@ -264,6 +273,7 @@ export class HSVideoElement extends HTMLElement {
 
   _enterFatal() {
     safe('enterFatal', () => {
+      this._stopReconnectWatchdog();
       this.timers.clearTimeout(this.fatalTimer); this.fatalTimer = null;
       this.stopPolling();
       if (this._currentEngine) { this._currentEngine.destroy(); this._currentEngine = null; }
@@ -274,12 +284,82 @@ export class HSVideoElement extends HTMLElement {
     });
   }
 
+  // ── Reconnect watchdog ──
+
+  _startReconnectWatchdog() {
+    safe('startReconnectWatchdog', () => {
+      this._stopReconnectWatchdog();
+      this._reconnectWatchdogActive = true;
+      this._reconnectWatchdogTimer = this.timers.setInterval(() => {
+        if (!this._reconnectWatchdogActive) return;
+        const v = this.videoEl;
+        if (!v?.buffered?.length) return;
+        const ahead = Math.max(0, (v.buffered.end(0)||0) - v.currentTime);
+        if (ahead < RECONNECT_WATCHDOG_BUFFER_THRESHOLD) {
+          this.timers.clearTimeout(this.fatalTimer); this.fatalTimer = null;
+          this.timers.setTimeout(() => this._enterFatal(), RECONNECT_WATCHDOG_FATAL_TTL);
+        }
+      }, RECONNECT_WATCHDOG_INTERVAL_MS);
+    });
+  }
+
+  _stopReconnectWatchdog() {
+    safe('stopReconnectWatchdog', () => {
+      this._reconnectWatchdogActive = false;
+      this.timers.clearInterval(this._reconnectWatchdogTimer); this._reconnectWatchdogTimer = null;
+    });
+  }
+
+  // ── Handover ──
+
+  _handover(newVideoUID) {
+    safe('handover', () => {
+      const newUrl = `https://customer-${this.posterMgr.customerCode}.cloudflarestream.com/${newVideoUID}/manifest/video.m3u8`;
+      if (this._currentEngine instanceof NativeHlsEngine) {
+        // Native HLS: no dual-engine. Reassign video.src.
+        this.videoEl.src = newUrl;
+        this.videoEl.load();
+        this.currentStreamUrl = newUrl;
+        this.latestLiveHlsUrl = newUrl;
+        this.currentVideoUID = newVideoUID;
+        return;
+      }
+      // HlsEngine: dual-engine handover.
+      const oldEngine = this._currentEngine;
+      const newEngine = createEngine({
+        audioDriftFrameThreshold: this.audioDriftFrameThreshold || 4,
+        debugLog: m => this.debugLog(m), debugError: m => this.debugError(m),
+        updateStatus: s => this.statusOverlay.updateStatus(s), currentStatusType: this.currentStatusType,
+        onAudioDrift: () => {}, onThroughputSample: () => {},
+      });
+      if (!newEngine) { this._enterFatal(); return; }
+      newEngine.on('error', (_e, d) => this._onEngineError(d));
+      newEngine.on('manifestParsed', () => {
+        if (this._destroyed) { newEngine.destroy(); return; }
+        // Swap engines.
+        this._currentEngine = newEngine;
+        this.currentStreamUrl = newUrl;
+        this.latestLiveHlsUrl = newUrl;
+        this.currentVideoUID = newVideoUID;
+        this._drainingToIdle = false;
+        this.pendingPlayRequest = true;
+        this.prebufferStartTs = Date.now();
+        this.playerState = STATE.PREPARING;
+        this.statusOverlay.updateStatus('preparing');
+        // Destroy old engine after 2s for audio cross-fade.
+        this.timers.setTimeout(() => { oldEngine.destroy(); }, 2000);
+      });
+      newEngine.attachMedia(this.videoEl);
+      newEngine.loadSource(newUrl);
+    });
+  }
+
   // ── Helpers ──
 
   _ctx() {
     const v = this.videoEl; let ba = 0;
     if (v?.buffered?.length) ba = Math.max(0, (v.buffered.end(0)||0) - v.currentTime);
-    return { hasPlayedOnce: !!this.hasPlayedOnce, userGestureUnlocked: !!this.gestureUnlock?.isUnlocked, bufferAhead: ba, hasBufferedContent: !!this.latestLiveHlsUrl, currentVideoUID: null };
+    return { hasPlayedOnce: !!this.hasPlayedOnce, userGestureUnlocked: !!this.gestureUnlock?.isUnlocked, bufferAhead: ba, hasBufferedContent: !!this.latestLiveHlsUrl, currentVideoUID: this.currentVideoUID };
   }
 
   _dispatchEffects(effects) { for (const fx of effects) safe('effects', () => {
@@ -289,6 +369,12 @@ export class HSVideoElement extends HTMLElement {
     if (fx.type === 'setPoster') { this.setPoster(fx.payload.which, fx.payload.url || this.posterMgr[fx.payload.which]); }
     if (fx.type === 'showStatus') { this.statusOverlay.updateStatus(fx.payload); }
     if (fx.type === 'startFatal') { this._enterFatal(); }
+    if (fx.type === 'drainToIdle') { this._drainingToIdle = true; }
+    if (fx.type === 'logError') {
+      const msg = fx.payload && DEBUG_ERROR_MESSAGES[fx.payload.errorCode];
+      if (msg) this.debugError(`[${fx.payload.errorCode}]`, msg);
+    }
+    if (fx.type === 'handover') { this._handover(fx.payload.newVideoUID); }
   }); }
 
   _updateDebugPanel(d) { safe('debugPanel', () => { if (this.debugPanelEl) this.debugPanel.update({ state: this.playerState, ...d }); }); }

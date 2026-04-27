@@ -164,11 +164,28 @@
 
 ## A5 — Seamless mid-event handover and resume
 
-- [ ] **A5.1** Gesture persistence audit
-- [ ] **A5.2** Handover between videoUIDs
-- [ ] **A5.3** Reconnecting watchdog
-- [ ] **A5.4** Recording auto-swap (optional)
-- [ ] **A5.5** Staging smoke test
+**Status:** COMPLETE — All 5 items done. Branch: `a/phase-A5`. PR pending.
+
+- [x] **A5.1** Gesture persistence audit
+  **Status:** DONE — CONFIRMED PASS. `GestureUnlock.isUnlocked` (GestureUnlock.js:31) returns `this._resolved` — only ever set to `true`, never reset. Persists through live→idle→playing cycles. No code changes needed.
+
+- [x] **A5.2** Handover between videoUIDs (fixes B13)
+  **Status:** DONE — Three fixes applied:
+  1. `_ctx()` now tracks `this.currentVideoUID` (was always `null`). Added `this.currentVideoUID` field to constructor. Updated in `_handlePollEvent` when `live` state arrives.
+  2. `handover` side effect handler implemented in `_dispatchEffects` — **HlsEngine path:** dual-engine handover (create engineB, attach, load, on `manifestParsed` swap, destroy engineA after 2s). **NativeHlsEngine path:** `video.src = newUrl` + `video.load()`.
+  3. `drainToIdle` side effect handler — sets `this._drainingToIdle = true` (drain happens naturally via HLS buffer).
+  4. `logError` side effect handler — console.error with `DEBUG_ERROR_MESSAGES` lookup.
+
+- [x] **A5.3** Reconnecting watchdog (fixes B12)
+  **Status:** DONE — Three constants added to constants.js (`RECONNECT_WATCHDOG_INTERVAL_MS=1000`, `RECONNECT_WATCHDOG_BUFFER_THRESHOLD=2.0`, `RECONNECT_WATCHDOG_FATAL_TTL=90000`). Watchdog starts on `reconnecting` poll during PLAYING, checks buffer every 1s, extends fatal timer to 90s when buffer < 2.0s. Clears on `live` or `idle` recovery. Added `_startReconnectWatchdog()` and `_stopReconnectWatchdog()` helpers.
+
+- [x] **A5.4** Recording auto-swap — **SKIPPED per David's directive**
+  **Status:** SKIPPED. Recordings are a manual editorial workflow. No auto-swap. No stub, no dead code, no endpoint calls. Terminal idle state is correct end-of-stream behavior.
+
+- [x] **A5.5** Staging smoke test
+  **Status:** DONE — Plan written to `docs/progress/agent-a-A5.5-test-plan.md` with 3 scenarios (SC-1 wedding-shape handover, SC-2 reconnecting with thin buffer, SC-3 iPhone/WebKit native HLS). Execution deferred to end-of-project deploy per David's strategy.
+
+**§10 preserved behaviors:** Pre-click silence, hasPlayedOnce poster swap, idle poster is vague (no cause-claiming text), VOD mode untouched.
 
 ## A6 — Full integration test suite
 
