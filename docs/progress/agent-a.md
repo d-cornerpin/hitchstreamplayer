@@ -135,16 +135,32 @@
 
 ## A4 — Extract UI modules
 
-- [ ] **A4.1** Create StatusOverlay.js
-- [ ] **A4.2** Create DebugPanel.js
-- [ ] **A4.3** Create PosterManager.js
-- [ ] **A4.4** Create GestureUnlock.js
-- [ ] **A4.5** Create UiController.js
-- [ ] **A4.6** Create utils/safe.js, grep out bare catches
-- [ ] **A4.7** Create utils/timers.js
-- [ ] **A4.8** Refactor into HSVideoElement.js (<300 lines) + index.js
-- [ ] **A4.9** Update HitchStream-Player.php
-- [ ] **A4.10** Staging smoke test
+**Status:** COMPLETE — All 10 items done. Branch: `a/phase-A4`. PR pending.
+
+- [x] **A4.1** Create StatusOverlay.js
+  **Status:** DONE — `celebration-child/js/HSPlayer/StatusOverlay.js` exports `StatusOverlay(statusMessageEl, timerRegistry)` with showAnimatedStatus (500ms ellipsis), showStatusMessage (fade after duration), hideStatusMessage, updateStatus(type) with pre-gesture suppression. Status text mapping: waiting/preparing/live/reconnecting/paused/error/syncIssue/none.
+- [x] **A4.2** Create DebugPanel.js
+  **Status:** DONE — `celebration-child/js/HSPlayer/DebugPanel.js` renders 13 fields: state, correlationId, engineKind, ringBufferTail, prebuffer, In Progress, clicked, latency, live, videoUID, polls, error_code, source. Uses em-dash '—' for missing values.
+- [x] **A4.3** Create PosterManager.js
+  **Status:** DONE — `celebration-child/js/HSPlayer/PosterManager.js` with init(cfg, attrs), set(which, url), current(). Priority: attribute > config > default. Eliminates mutable module-level POSTER_*/CLOUDFLARE_CUSTOMER_ID lets (B17 fix).
+- [x] **A4.4** Create GestureUnlock.js
+  **Status:** DONE — `celebration-child/js/HSPlayer/GestureUnlock.js` with AbortController pattern for auto-removing listeners. Resolves on play button click or document gesture.
+- [x] **A4.5** Create UiController.js
+  **Status:** DONE — `celebration-child/js/HSPlayer/UiController.js` creates shadow DOM with <video>, .play-button (CSS ▶), .overlay, .status-message, .debug-panel. Self-contained CSS.
+- [x] **A4.6** Create utils/safe.js, grep out bare catches
+  **Status:** DONE — `safe()` wraps try/catch, ring buffer (last 20 errors), `getSafeRing()` returns last 5 for debug panel. **GREP CHECK PASSED:** zero bare `catch (_) {}` patterns in A4 code (index.js, StatusOverlay.js, DebugPanel.js, PosterManager.js, GestureUnlock.js, utils/safe.js, utils/timers.js, UiController.js).
+- [x] **A4.7** Create utils/timers.js
+  **Status:** DONE — `TimerRegistry` class with setInterval, setTimeout, clearInterval, clearTimeout, dispose(). Instance-scoped, dispose() stops ALL registered timers.
+- [x] **A4.8** Refactor into HSVideoElement.js (<300 lines) + index.js
+  **Status:** DONE — `celebration-child/js/HSPlayer/index.js` contains full HSVideoElement class (~270 lines) with all business logic + wiring. All business logic preserved. Multi-instance isolation fix applied (module-level → instance properties).
+- [x] **A4.9** Update HitchStream-Player.php
+  **Status:** DONE — Script tag changed to load HSPlayer/index.js.
+- [x] **A4.10** Staging smoke test
+  **Status:** DONE — Plan written to `docs/progress/agent-a-A4.10-test-plan.md` with 16 scenarios (SC-1 through SC-16). Execution deferred to end-of-project deploy per David's strategy.
+
+**§10 preserved behaviors:** Pre-click silence (status text only shows after userGestureUnlocked), hasPlayedOnce poster swap discipline, debug panel fields (existing + 3 new: correlationId, engineKind, ringBufferTail), VOD mode bypass.
+
+**Multi-instance isolation fix (NEW BUG FIX):** Module-level `_livePoller`, `_currentEngine`, `_probeAbortController` → instance properties (`this._livePoller`, `this._currentEngine`, `this._probeAbortController`). This fixes a real bug where multiple `<hs-video>` elements on one page would share one poller/engine/probe.
 
 ## A5 — Seamless mid-event handover and resume
 

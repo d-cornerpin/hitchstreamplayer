@@ -25,7 +25,7 @@ if ($input_id_for_server) {
 <head>
     <meta charset="UTF-8">
     <script src="//cdn.jsdelivr.net/npm/hls.js@latest"></script>
-    <script src="<?php echo get_stylesheet_directory_uri(); ?>/js/HSPlayerElement.js"></script>
+    <script src="<?php echo get_stylesheet_directory_uri(); ?>/js/HSPlayer/index.js"></script>
     <script>
         // Make endpoint URL and nonce available to the player
         var liveStateEndpoint = "<?php echo $live_state_url; ?>";
