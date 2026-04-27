@@ -1,5 +1,17 @@
 <?php
 /* Template Name: HitchStream Player */
+
+// B5.4: Content-Security-Policy — restrict the player page to only what it needs.
+header("Content-Security-Policy: "
+    . "default-src 'none';"
+    . "script-src 'self' 'unsafe-inline';"
+    . "style-src 'self' 'unsafe-inline';"
+    . "frame-src https://hitchstream.com;"
+    . "connect-src https://*.cloudflarestream.com;"
+    . "media-src https://*.cloudflarestream.com;",
+    true
+);
+
 // Generate a short-lived nonce and endpoint URL for the client
 $hs_player_nonce  = wp_create_nonce('hs_player_action');
 $live_state_url   = esc_url(get_stylesheet_directory_uri() . '/endpoints/live-state.php');
@@ -24,7 +36,7 @@ if ($input_id_for_server) {
 
 <head>
     <meta charset="UTF-8">
-    <script src="//cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <script src="<?php echo get_stylesheet_directory_uri(); ?>/js/vendor/hls-1.6.16.min.js"></script>
     <script src="<?php echo get_stylesheet_directory_uri(); ?>/js/HSPlayerElement.js"></script>
     <script>
         // Make endpoint URL and nonce available to the player
