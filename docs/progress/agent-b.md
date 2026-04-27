@@ -96,3 +96,13 @@
 - [x] **B4.12** ConfigError.php created (was referenced but missing)
 - [x] **B4.13** LiveState REST endpoint registration wired via `Plugin::registerLiveStateEndpoint()`
 - [x] Smoke-test plan committed: `docs/progress/agent-b-B4-smoke-test-plan.md`
+
+## B5 Status
+
+- [ ] **B5.4** CSP header on player page + self-host Hls.js
+- [ ] **B5.5** Admin activity page (Tools → HitchStream Activity)
+- [ ] **B5.6** Critical-error email alerts from webhooks
+- [ ] **B5.6a** HSPlayerConfig.errorMessages alignment with settings
+- [x] **B5.7** SKIPPED per David's directive — recordings are manual editorial workflow, no recording-check endpoint needed
+- [x] **B5.1+B5.2+B5.3** SKIPPED per David's scope review — the 12 wedding templates exist for per-template customization; centralizing 5 lines of iframe HTML fights that design. The $$variable = $value pattern in Event Generic v2.php (line 603) remains as-is.
+
