@@ -13,6 +13,7 @@ namespace HS;
 
 require_once __DIR__ . '/Admin/AjaxController.php';
 require_once __DIR__ . '/Admin/SettingsPage.php';
+require_once __DIR__ . '/Admin/ActivityPage.php';
 require_once __DIR__ . '/BackwardCompat.php';
 
 class Plugin {
@@ -22,6 +23,7 @@ class Plugin {
         self::registerAutoloader();
         Admin\AjaxController::register();
         Admin\SettingsPage::registerMenu();
+        Admin\ActivityPage::register();
         add_action('admin_notices', [Admin\SettingsPage::class, 'showWebhookSecretNotice']);
     }
 

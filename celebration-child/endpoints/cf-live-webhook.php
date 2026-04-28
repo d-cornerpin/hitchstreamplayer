@@ -163,6 +163,54 @@ function hs_state_ttl($state) {
     }
 }
 
+// --- B5.6: Critical-error email alert ---
+
+/**
+ * B5.6: Send critical-error email if error_code matches configured alert codes.
+ *
+ * Reads HSCF_alert_email and HSCF_alert_codes from options.
+ * Default alert codes: ERR_STORAGE_QUOTA_EXHAUSTED,ERR_MISSING_SUBSCRIPTION.
+ */
+function self_send_error_alert(string $error_code, string $input_id, string $event_type, string $correlation_id): void {
+    $alert_email = get_option('HSCF_alert_email', '');
+    if (!$alert_email) {
+        return;
+    }
+
+    $codes_raw = get_option('HSCF_alert_codes', 'ERR_STORAGE_QUOTA_EXHAUSTED,ERR_MISSING_SUBSCRIPTION');
+    $alert_codes = array_map('trim', explode(',', $codes_raw));
+    if (empty($alert_codes)) {
+        return;
+    }
+
+    if (!in_array($error_code, $alert_codes, true)) {
+        return;
+    }
+
+    // Throttle: don't send more than one alert per input_id per 5 minutes.
+    $throttle_key = "hs_alert_throttle_{$error_code}_{$input_id}";
+    if (get_transient($throttle_key)) {
+        return;
+    }
+    set_transient($throttle_key, true, 300);
+
+    $subject = "[HitchStream] Critical Error: {$error_code}";
+    $body = sprintf(
+        "A critical error was detected during a live stream.\n\n"
+        . "Error Code: %s\n"
+        . "Input ID: %s\n"
+        . "Event Type: %s\n"
+        . "Correlation ID: %s\n\n"
+        . "Check the Activity page in WP Admin for full details.\n",
+        $error_code,
+        $input_id,
+        $event_type,
+        $correlation_id
+    );
+
+    wp_mail($alert_email, $subject, $body, ['Content-Type: text/plain; charset=utf-8']);
+    error_log("[HitchStream] B5.6: Critical alert sent to {$alert_email} for {$error_code} on {$input_id} (corr: {$correlation_id})");
+}
 // --- Main ---
 
 // Read the raw POST body for signature verification.
@@ -384,6 +432,10 @@ $log_data = [
 ];
 hs_webhook_log_insert($log_data);
 
+// B5.6: Critical-error email alert.
+if ($error_code) {
+    self_send_error_alert($error_code, $input_id, $event_type, $correlation_id);
+}
 // Log for debugging.
 error_log("[HitchStream] Webhook: input={$input_id} event={$event_type} state={$normalized} videoUID={$video_uid} corr={$correlation_id}");
 
