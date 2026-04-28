@@ -1,7 +1,10 @@
 // LivePoller.js — HitchStream Player v2
-// Polling loop with AbortController + timeout, ETag/304 handling, exponential backoff.
-// Pure-ish: emits events ({ type, payload }) — does not touch the DOM directly.
-// The element subscribes to events and feeds them to the state machine.
+// Polling loop with AbortController + per-request timeout, ETag/304 handling,
+// and exponential backoff on consecutive errors.
+//
+// Implementation note: uses a chained setTimeout pattern (not setInterval) so
+// that exponential backoff actually changes the wait between polls. setInterval
+// with a stale delay variable would never adjust the cadence.
 
 import {
   POLL_INITIAL_DELAY_MS,
@@ -26,25 +29,37 @@ const RECOVERED = 'recovered';
  * @param {function} opts.onEvent - Callback for events: { type, payload }
  * @param {function} [opts.debugLog] - Debug logger
  * @param {function} [opts.debugError] - Debug error logger
- * @param {string} [opts.hlsOriginAllowlistRegex] - Regex string for origin validation
  */
 export function createLivePoller(opts) {
   const { inputId, endpoint, onEvent, debugLog = () => {}, debugError = () => {} } = opts;
 
-  let _pollFn = null;
-  let _pollingInterval = null;
+  let _nextTimeoutId = null;
   let _pollTimeoutId = null;
   let _inFlight = false;
   let _consecutivePollErrors = 0;
   let _nextPollDelayMs = POLL_INTERVAL_MS;
   let _destroyed = false;
+  let _started = false;
   let _lastETag = null;
+  let _pollCount = 0;
 
-  // Validate input ID
   if (!inputId) {
     debugLog('LivePoller: missing inputId; polling not started.');
-    return { start: () => {}, stop: () => {} };
+    return { start: () => {}, stop: () => {}, destroy: () => {}, get pollCount() { return 0; } };
   }
+
+  /** Schedule the next poll. Reads _nextPollDelayMs each time so backoff actually applies. */
+  const scheduleNext = (delayMs) => {
+    if (_destroyed) return;
+    if (_nextTimeoutId) clearTimeout(_nextTimeoutId);
+    _nextTimeoutId = setTimeout(() => {
+      _nextTimeoutId = null;
+      poll().finally(() => {
+        // After each poll, schedule the next using the (possibly updated) delay.
+        if (!_destroyed) scheduleNext(_nextPollDelayMs);
+      });
+    }, delayMs);
+  };
 
   /** Make a single poll request */
   const poll = async () => {
@@ -55,19 +70,15 @@ export function createLivePoller(opts) {
     }
 
     _inFlight = true;
+    _pollCount++;
 
-    // AbortController + timeout per poll
     const controller = new AbortController();
-    clearTimeout(_pollTimeoutId);
+    if (_pollTimeoutId) clearTimeout(_pollTimeoutId);
     _pollTimeoutId = setTimeout(() => controller.abort(), POLL_TIMEOUT_MS);
 
     const lifecycleUrl = `${endpoint}?inputId=${encodeURIComponent(inputId)}`;
-
-    // Add ETag if we have one from the previous response
     const headers = {};
-    if (_lastETag) {
-      headers['If-None-Match'] = _lastETag;
-    }
+    if (_lastETag) headers['If-None-Match'] = _lastETag;
 
     try {
       const res = await fetch(lifecycleUrl, {
@@ -79,33 +90,34 @@ export function createLivePoller(opts) {
       });
 
       clearTimeout(_pollTimeoutId);
+      _pollTimeoutId = null;
 
       // 304 Not Modified per contract §4.1
       if (res.status === 304) {
         _inFlight = false;
-        _consecutivePollErrors = 0;
-        _nextPollDelayMs = POLL_INTERVAL_MS;
-        // Emit a "no change" event — element can skip state machine transition
+        if (_consecutivePollErrors > 0) {
+          _consecutivePollErrors = 0;
+          _nextPollDelayMs = POLL_INTERVAL_MS;
+          onEvent({ type: RECOVERED, payload: {} });
+        }
         onEvent({ type: 'noChange', payload: { pollCount: _pollCount } });
         return;
       }
 
-      // Update ETag for next poll
       const etag = res.headers.get('etag');
       if (etag) _lastETag = etag;
 
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
-      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
       const data = await res.json();
 
-      // Reset state
       _inFlight = false;
-      _consecutivePollErrors = 0;
-      _nextPollDelayMs = POLL_INTERVAL_MS;
+      if (_consecutivePollErrors > 0) {
+        _consecutivePollErrors = 0;
+        _nextPollDelayMs = POLL_INTERVAL_MS;
+        onEvent({ type: RECOVERED, payload: {} });
+      }
 
-      // Parse and emit poll event
       const rawState = data && data.state ? data.state : null;
       const liveStates = ['live', 'reconnected', 'new_configuration_accepted', 'reconnecting'];
       const isLive = liveStates.includes(rawState);
@@ -127,76 +139,57 @@ export function createLivePoller(opts) {
         },
       });
     } catch (err) {
-      clearTimeout(_pollTimeoutId);
+      if (_pollTimeoutId) { clearTimeout(_pollTimeoutId); _pollTimeoutId = null; }
       _inFlight = false;
-
-      // Exponential backoff after POLL_BACKOFF_AFTER_ERRORS consecutive errors
       _consecutivePollErrors++;
+
       if (_consecutivePollErrors >= POLL_BACKOFF_AFTER_ERRORS) {
+        // Exponential backoff. n=2 → 2x, n=3 → 4x, etc., capped at POLL_BACKOFF_MAX_MS.
         const backoffMs = Math.min(
-          POLL_INTERVAL_MS * Math.pow(2, _consecutivePollErrors - 2),
+          POLL_INTERVAL_MS * Math.pow(2, _consecutivePollErrors - 1),
           POLL_BACKOFF_MAX_MS
         );
         _nextPollDelayMs = backoffMs;
-        onEvent({ type: BACKOFF, payload: { error: _consecutivePollErrors, delay: backoffMs } });
+        onEvent({ type: BACKOFF, payload: { errorCount: _consecutivePollErrors, delay: backoffMs, error: err.message } });
       } else {
         onEvent({ type: ERROR, payload: { error: err.message } });
       }
     }
   };
 
-  let _pollCount = 0;
-  let _firstPoll = false;
-
-  /** Start polling */
+  /** Start polling. First poll fires immediately; subsequent polls chain via scheduleNext. */
   const start = () => {
-    if (_destroyed) return;
+    if (_destroyed || _started) return;
     if (!inputId) return;
+    _started = true;
 
-    // Clear any existing polling
-    if (_pollingInterval) clearInterval(_pollingInterval);
-
-    // Fire first poll immediately (production jitter added after first poll)
-    if (!_firstPoll) {
-      _firstPoll = true;
-      _pollingInterval = setInterval(poll, _nextPollDelayMs);
-      _pollCount++;
-      poll();
-      return;
-    }
-
-    // Add ±1500ms jitter to initial poll delay (fix B6)
+    // Initial poll has a small jittered delay to avoid thundering herd when
+    // many viewers load the page at once.
     const jitter = (Math.random() - 0.5) * 2 * POLL_BACKOFF_JITTER_MS;
-    const jitteredDelay = Math.max(1000, POLL_INITIAL_DELAY_MS + jitter);
+    const initialDelay = Math.max(0, POLL_INITIAL_DELAY_MS + jitter);
 
-    // Schedule first poll
     setTimeout(() => {
       if (_destroyed) return;
-      _pollingInterval = setInterval(poll, _nextPollDelayMs);
-      _pollCount++;
-      poll();
-    }, jitteredDelay);
+      poll().finally(() => {
+        if (!_destroyed) scheduleNext(_nextPollDelayMs);
+      });
+    }, initialDelay);
   };
 
-  /** Stop polling */
+  /** Stop polling (can be restarted with start). */
   const stop = () => {
-    if (_pollingInterval) {
-      clearInterval(_pollingInterval);
-      _pollingInterval = null;
-    }
-    if (_pollTimeoutId) {
-      clearTimeout(_pollTimeoutId);
-      _pollTimeoutId = null;
-    }
+    if (_nextTimeoutId) { clearTimeout(_nextTimeoutId); _nextTimeoutId = null; }
+    if (_pollTimeoutId) { clearTimeout(_pollTimeoutId); _pollTimeoutId = null; }
     _inFlight = false;
     _consecutivePollErrors = 0;
     _nextPollDelayMs = POLL_INTERVAL_MS;
+    _started = false;
   };
 
   /** Mark poller as destroyed (prevents future polling) */
   const destroy = () => {
-    stop();
     _destroyed = true;
+    stop();
   };
 
   return { start, stop, destroy, get pollCount() { return _pollCount; } };
