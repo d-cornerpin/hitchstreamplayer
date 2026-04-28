@@ -18,8 +18,11 @@ require_once __DIR__ . '/src/Plugin.php';
 \HS\Plugin::boot();
 \HS\Plugin::registerLiveStateEndpoint();
 
-require_once __DIR__ . '/src/Plugin.php';
-\HS\Plugin::boot();
+// Activation/deactivation: install the webhook log schema and (un)schedule
+// the trim cron. Plugin::boot() also installs idempotently on every load via
+// plugins_loaded so existing installs upgrade without reactivation.
+register_activation_hook(__FILE__, [\HS\Plugin::class, 'installSchema']);
+register_deactivation_hook(__FILE__, [\HS\Plugin::class, 'deactivate']);
 
 // ── Template loading (theme system hooks) ─────────────────────────
 

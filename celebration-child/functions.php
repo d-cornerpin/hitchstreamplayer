@@ -620,23 +620,10 @@ add_action('init', 'limit_debug_log_size');
 // HitchStream Player — Webhook helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Verify HMAC-SHA256 signature on incoming Cloudflare webhooks.
- * Returns true if valid; rejects (returns false) if the secret is not configured
- * or the signature does not match.
- */
-function hs_verify_webhook_signature($auth, $secret = '') {
-    $configured = get_option('HSCF_webhook_secret', '');
-    $secret = $secret ?: $configured;
-    if (!$secret) {
-        error_log('[HitchStream] CRITICAL: Webhook secret not configured. Rejecting webhook to prevent unauthorized state manipulation.');
-        return false;
-    }
-    if (!$auth) {
-        return false;
-    }
-    return hash_equals($secret, $auth);
-}
+// Dead code removed (§B4.8): hs_verify_webhook_signature was an unused
+// duplicate of hs_verify_webhook (defined in the cf-live-webhook endpoint
+// file). The endpoint uses its own copy; nothing in the codebase called the
+// theme-side helper. Deleted to remove the second auth surface.
 
 /**
  * Store a normalized live-state in a WordPress transient.

@@ -432,7 +432,10 @@ class SettingsPage {
                     } catch (\Exception $e) {
                         $formattedDate = $dateString;
                     }
-                    $videoUrl = "https://customer-juu1r5es4cbffqjf.cloudflarestream.com/" . esc_attr($video['uid'] ?? '') . "/watch";
+                    $cf_customer = get_option('HSCF_customer_id', '');
+                    $videoUrl = $cf_customer
+                        ? "https://customer-{$cf_customer}.cloudflarestream.com/" . esc_attr($video['uid'] ?? '') . "/watch"
+                        : '';
                     $iconUrl = isset($video['mp4_download_url']) ? "https://hitchstream.com/wp-content/uploads/2024/01/downloadmp4_finish.png" : "https://hitchstream.com/wp-content/uploads/2024/01/downloadmp4_start.png";
                     $downloadLink = $video['mp4_download_url'] ?? '#';
                     $deleteIconUrl = "https://hitchstream.com/wp-content/uploads/2024/01/delete_icon.png";
@@ -745,7 +748,10 @@ class SettingsPage {
                     $date->setTimezone(new DateTimeZone('MST'));
                     $formattedDate = $date->format('M d Y h:iA T');
                 } catch (Exception $e) { $formattedDate = $dateString; }
-                $videoUrl = 'https://customer-juu1r5es4cbffqjf.cloudflarestream.com/' . esc_attr($video['uid']) . '/watch';
+                $cf_customer = get_option('HSCF_customer_id', '');
+                $videoUrl = $cf_customer
+                    ? 'https://customer-' . $cf_customer . '.cloudflarestream.com/' . esc_attr($video['uid']) . '/watch'
+                    : '';
                 $iconUrl = isset($video['mp4_download_url']) ? 'https://hitchstream.com/wp-content/uploads/2024/01/downloadmp4_finish.png' : 'https://hitchstream.com/wp-content/uploads/2024/01/downloadmp4_start.png';
                 $downloadLink = isset($video['mp4_download_url']) ? $video['mp4_download_url'] : '#';
                 $deleteIconUrl = 'https://hitchstream.com/wp-content/uploads/2024/01/delete_icon.png';

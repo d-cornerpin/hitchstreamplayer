@@ -8,7 +8,11 @@
 
 namespace HS;
 
-class ConfigError extends \RuntimeException {}
+// ConfigError is declared in its own file at HS/ConfigError.php so the
+// autoloader can find it. We require it here so this file can be loaded
+// independently (e.g. via direct require_once during the bootstrap, before
+// the autoloader is registered).
+require_once __DIR__ . '/ConfigError.php';
 
 class Config {
 
