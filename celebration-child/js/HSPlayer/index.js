@@ -24,7 +24,7 @@ import { GestureUnlock } from './GestureUnlock.js';
 // Expose safe ring for debug panel
 if (typeof window !== 'undefined') window.getSafeRing = getSafeRing;
 
-// ─── HSPlayerElement class ───
+// ─── HSVideoElement class ───
 
 export class HSVideoElement extends HTMLElement {
   constructor() {
