@@ -38,10 +38,15 @@ const crypto = require('crypto');
 const path = require('path');
 
 const app = express();
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, If-None-Match');
+  next();
+});
 app.use(express.json());
 
 const PORT = process.env.MOCK_PORT || 3456;
-const STATE_FILE = path.join(__dirname, 'mock-state.json');
+const STATE_FILE = path.join(__dirname, 'mock-state-' + PORT + '.json');
 
 // ─── State helpers ──────────────────────────────────────────────
 
@@ -93,6 +98,7 @@ function buildManifest(videoUID) {
 
 // GET /live-state?inputId=...
 app.get('/live-state', (req, res) => {
+  console.log('[mock] live-state request from:', req.ip, 'inputId:', req.query.inputId);
   const inputId = req.query.inputId;
   if (!inputId || !/^[A-Za-z0-9_-]+$/.test(inputId)) {
     return res.status(400).json({ error: 'Missing or invalid inputId', code: 'invalid_input_id' });
@@ -108,12 +114,15 @@ app.get('/live-state', (req, res) => {
   const etag = `"${state.etag}"`;
   const ifNoneMatch = req.headers['if-none-match'];
   if (ifNoneMatch && ifNoneMatch === etag) {
+    console.log('[mock] live-state: 304 Not Modified, etag:', etag);
     return res.status(304).end();
   }
   res.set('ETag', etag);
 
   // Build response body
+  const liveStates = ['live', 'reconnected', 'new_configuration_accepted', 'reconnecting'];
   const body = {
+    live: liveStates.includes(state.state),
     state: state.state,
     videoUID: state.videoUID,
     hlsUrl: state.hlsUrl,
@@ -122,10 +131,31 @@ app.get('/live-state', (req, res) => {
     ts: state.ts,
   };
 
+  console.log('[mock] live-state: responding state=', state.state, 'videoUID=', state.videoUID, 'hlsUrl=', state.hlsUrl, 'errorCode=', state.errorCode, 'etag=', state.etag);
   res.json(body);
 });
 
 // ─── Mock HLS content ──────────────────────────────────────────
+
+// GET /customer-:c/stream/:videoUID/manifest/video.m3u8  (cloudflarestream URL pattern)
+app.get('/customer-:c/stream/:videoUID/manifest/video.m3u8', (req, res) => {
+  res.set('Content-Type', 'application/x-mpegURL');
+  res.send(buildManifest(req.params.videoUID));
+});
+
+// GET /*  — catch-all for any HLS path (segments, sublists, etc.)
+app.get('*', (req, res, next) => {
+  if (req.path.endsWith('.m3u8')) {
+    const videoUID = req.path.replace('.m3u8', '');
+    res.set('Content-Type', 'application/x-mpegURL');
+    res.send(buildManifest(videoUID));
+  } else if (req.path.endsWith('.ts')) {
+    res.set('Content-Type', 'video/mp2t');
+    res.send(makeTsSegment(0, 0));
+  } else {
+    next();
+  }
+});
 
 // GET /live/:inputId/:videoUID/manifest/video.m3u8
 app.get('/live/:inputId/:videoUID/manifest/video.m3u8', (req, res) => {
