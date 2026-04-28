@@ -133,9 +133,9 @@ step "Pulling server snapshot to ${BACKUP_DIR}/"
 if [[ $DRY_RUN -eq 0 ]]; then
     mkdir -p "$BACKUP_THEME" "$BACKUP_PLUGIN"
 
-    rsync -az --info=stats1 \
+    rsync -az --stats --exclude='.DS_Store' \
         "$SSH_ALIAS:${REMOTE_THEME}/" "${BACKUP_THEME}/"
-    rsync -az --info=stats1 \
+    rsync -az --stats --exclude='.DS_Store' \
         "$SSH_ALIAS:${REMOTE_PLUGIN}/" "${BACKUP_PLUGIN}/"
 
     THEME_FILES=$(find "$BACKUP_THEME" -type f 2>/dev/null | wc -l | tr -d ' ')
@@ -175,18 +175,18 @@ fi
 step "Uploading new files"
 
 if [[ $DRY_RUN -eq 1 ]]; then
-    rsync -azn --info=stats1 --itemize-changes \
+    rsync -azn --stats --itemize-changes --exclude='.DS_Store' \
         "$LOCAL_DEPLOY/themes/celebration-child/" \
         "$SSH_ALIAS:${REMOTE_THEME}/"
-    rsync -azn --info=stats1 --itemize-changes \
+    rsync -azn --stats --itemize-changes --exclude='.DS_Store' \
         "$LOCAL_DEPLOY/plugins/HitchStream_Cloudflare/" \
         "$SSH_ALIAS:${REMOTE_PLUGIN}/"
     note "$(color_yellow 'Dry-run: above is what WOULD be transferred.')"
 else
-    rsync -az --info=stats1 \
+    rsync -az --stats --exclude='.DS_Store' \
         "$LOCAL_DEPLOY/themes/celebration-child/" \
         "$SSH_ALIAS:${REMOTE_THEME}/"
-    rsync -az --info=stats1 \
+    rsync -az --stats --exclude='.DS_Store' \
         "$LOCAL_DEPLOY/plugins/HitchStream_Cloudflare/" \
         "$SSH_ALIAS:${REMOTE_PLUGIN}/"
     note "$(color_green '✓') Upload complete"

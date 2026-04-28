@@ -113,16 +113,16 @@ echo
 color_cyan "==> Restoring files"; echo
 
 if [[ $DRY_RUN -eq 1 ]]; then
-    rsync -azn --info=stats1 --itemize-changes \
+    rsync -azn --stats --itemize-changes --exclude='.DS_Store' \
         "${BACKUP_THEME}/" "$SSH_ALIAS:${REMOTE_THEME}/"
-    rsync -azn --info=stats1 --itemize-changes \
+    rsync -azn --stats --itemize-changes --exclude='.DS_Store' \
         "${BACKUP_PLUGIN}/" "$SSH_ALIAS:${REMOTE_PLUGIN}/"
     echo
     color_yellow "✓ DRY RUN complete. Re-run without --dry-run to actually roll back."
     echo
 else
-    rsync -az --info=stats1 "${BACKUP_THEME}/"  "$SSH_ALIAS:${REMOTE_THEME}/"
-    rsync -az --info=stats1 "${BACKUP_PLUGIN}/" "$SSH_ALIAS:${REMOTE_PLUGIN}/"
+    rsync -az --stats --exclude='.DS_Store' "${BACKUP_THEME}/"  "$SSH_ALIAS:${REMOTE_THEME}/"
+    rsync -az --stats --exclude='.DS_Store' "${BACKUP_PLUGIN}/" "$SSH_ALIAS:${REMOTE_PLUGIN}/"
     echo
     color_green "✓ ROLLBACK COMPLETE. Server is at the state from ${TIMESTAMP}."
     echo "    Verify the live site now."
