@@ -1,8 +1,8 @@
 # Agent B — Progress
 
-**Current phase:** B4 (Plugin refactor — splitting monolith, security hardening, dead code removal)
-**Actively working on:** B4 — code complete, PR opened for review
-**Last updated:** 2026-04-27 10:00 UTC
+**Current phase:** Done — awaiting end-of-project audit
+**Actively working on:** B-side rebuild complete. Awaiting end-of-project audit + deploy + CP-3/CP-4/CP-5 validation.
+**Last updated:** 2026-04-28 12:00 UTC
 
 ## B0 Checklist
 
@@ -99,10 +99,10 @@
 
 ## B5 Status
 
-- [ ] **B5.4** CSP header on player page + self-host Hls.js
-- [ ] **B5.5** Admin activity page (Tools → HitchStream Activity)
-- [ ] **B5.6** Critical-error email alerts from webhooks
-- [ ] **B5.6a** HSPlayerConfig.errorMessages alignment with settings
+- [x] **B5.4** CSP header on player page + self-host Hls.js
+- [x] **B5.5** Admin activity page (Tools → HitchStream Activity)
+- [x] **B5.6** Critical-error email alerts from webhooks
+- [x] **B5.6a** HSPlayerConfig.errorMessages alignment with settings
 - [x] **B5.7** SKIPPED per David's directive — recordings are manual editorial workflow, no recording-check endpoint needed
 - [x] **B5.1+B5.2+B5.3** SKIPPED per David's scope review — the 12 wedding templates exist for per-template customization; centralizing 5 lines of iframe HTML fights that design. The $$variable = $value pattern in Event Generic v2.php (line 603) remains as-is.
 
@@ -115,4 +115,4 @@
 | `f7a9fd1` | B5.4 | CSP header + self-host Hls.js 1.6.16 |
 | `dde36da` | B5.5+B5.6+B5.8 | Activity page, error alerts, runbook |
 
-**B5 Phase: COMPLETE.** PR #9 includes all B5 items.
+**B5 Phase: COMPLETE.** PR #11 — https://github.com/d-cornerpin/hitchstreamplayer/pull/11
