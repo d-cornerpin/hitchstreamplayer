@@ -12,7 +12,9 @@
       "Bash(python3 *)",
       "Bash(grep -l '\\\\$PlayerURL' '/Users/dcliff9/Documents/Claude Code Projects/HitchStream Player/celebration-child/')",
       "Bash(grep -rn '\\\\$PlayerURL\\\\s*=' '/Users/dcliff9/Documents/Claude Code Projects/HitchStream Player/')",
-      "Bash(grep -n '\\\\$PlayerURL' '/Users/dcliff9/Documents/Claude Code Projects/HitchStream Player/celebration-child/Big Modern CF.php')"
+      "Bash(grep -n '\\\\$PlayerURL' '/Users/dcliff9/Documents/Claude Code Projects/HitchStream Player/celebration-child/Big Modern CF.php')",
+      "Bash(git *)",
+      "WebSearch"
     ]
   }
 }
