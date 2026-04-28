@@ -106,3 +106,13 @@
 - [x] **B5.7** SKIPPED per David's directive — recordings are manual editorial workflow, no recording-check endpoint needed
 - [x] **B5.1+B5.2+B5.3** SKIPPED per David's scope review — the 12 wedding templates exist for per-template customization; centralizing 5 lines of iframe HTML fights that design. The $$variable = $value pattern in Event Generic v2.php (line 603) remains as-is.
 
+
+## B5 Commits on b/phase-B4
+
+| Commit | Phase | Description |
+|--------|------|-----|
+| `14b4def` | B5.1+B5.2+B5.3 | Skip per David's scope review |
+| `f7a9fd1` | B5.4 | CSP header + self-host Hls.js 1.6.16 |
+| `dde36da` | B5.5+B5.6+B5.8 | Activity page, error alerts, runbook |
+
+**B5 Phase: COMPLETE.** PR #9 includes all B5 items.
