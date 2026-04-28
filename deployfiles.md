@@ -1,10 +1,27 @@
 # Deploy Files Checklist
 
-Use this document as a checklist when uploading the v2 rebuild to your live site via FTP.
+Use this document as a checklist when uploading the v2 rebuild to your live site, either via the `deploy.sh` script or by hand over FTP.
 
-## How to use this
+## Two ways to deploy
 
-The `deploy/` directory in this repository mirrors the WordPress folder structure on your server. Inside `deploy/` you will find:
+### Option 1 (recommended) — automated: `./deploy.sh`
+
+After SSH key setup, run from the project root:
+
+```
+./deploy.sh --dry-run    # shows what would change, no transfers
+./deploy.sh              # makes a backup, then deploys
+```
+
+The script makes a timestamped backup under `backups/` before every deploy, prompts for confirmation, then rsyncs `deploy/` to the server and removes the two stale paths automatically. See top of `deploy.sh` for configuration. Rollback to any prior state with `./rollback.sh <timestamp>`.
+
+### Option 2 — manual FTP
+
+The tables below list every file. Upload each to the server path shown.
+
+## What's in `deploy/`
+
+The `deploy/` directory contains **only the files we changed during the rebuild** — 38 files total. Untouched files (the 12 wedding templates, fonts, images, CSS, supporting JS, etc.) are deliberately NOT in `deploy/` so this deploy can never overwrite them. Layout mirrors the WordPress structure:
 
 ```
 deploy/
@@ -15,9 +32,7 @@ deploy/
         └── HitchStream_Cloudflare/ ← upload contents to /wp-content/plugins/HitchStream_Cloudflare/
 ```
 
-**The simplest deploy:** upload everything inside `deploy/` to your server, preserving the directory structure. Your FTP client will overwrite existing files. Two minor things — described below — also require **deleting** a couple of stale files from the server.
-
-If you'd rather upload only the files that changed, use the tables below as a checklist. Every file listed needs to land on the server at the path shown.
+Whatever method you use, **the file paths under `deploy/wp-content/` map 1:1 to where they go on the server**. Drag-and-drop preserves the structure correctly.
 
 ---
 
@@ -170,15 +185,31 @@ These exist in the repository for development purposes but should never be on th
 
 ## 🔄 If `deploy/` ever gets out of sync with the live source
 
-The `deploy/` directory is a one-time snapshot built from `celebration-child/` and `HitchStream_Cloudflare/` at the time of this audit. If you make further code changes locally before deploy, rebuild `deploy/` with this command from the repo root:
+The `deploy/` directory is a snapshot of changed/added files only. If you (or an agent) makes further code changes after this audit, rebuild `deploy/` with this Python script from the repo root. It uses `git diff` to find files that changed since the rebuild started and copies only those into the deploy mirror:
 
 ```bash
 rm -rf deploy
-mkdir -p deploy/wp-content/themes deploy/wp-content/plugins
-rsync -a --exclude '__tests__' --exclude '*.spec.js' --exclude '.DS_Store' --exclude 'docs' \
-  celebration-child/ deploy/wp-content/themes/celebration-child/
-rsync -a --exclude '__tests__' --exclude 'tests' --exclude '*.test.php' --exclude '.DS_Store' --exclude 'docs' \
-  HitchStream_Cloudflare/ deploy/wp-content/plugins/HitchStream_Cloudflare/
+mkdir -p deploy/wp-content
+python3 <<'PYEOF'
+import os, shutil, subprocess
+out = subprocess.run(
+    ['git', 'diff', '--name-status', '41d35f0..HEAD', '--',
+     'celebration-child/', 'HitchStream_Cloudflare/'],
+    capture_output=True, text=True, check=True
+).stdout
+for line in out.strip().split('\n'):
+    if not line: continue
+    status, path = line.split('\t', 1)
+    if status == 'D' or '__tests__' in path or '/tests/' in path: continue
+    if path.startswith('celebration-child/'):
+        dst = 'deploy/wp-content/themes/' + path
+    elif path.startswith('HitchStream_Cloudflare/'):
+        dst = 'deploy/wp-content/plugins/' + path
+    else:
+        continue
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    shutil.copy2(path, dst)
+PYEOF
 ```
 
-That regenerates `deploy/` from whatever's in your working tree.
+That regenerates `deploy/` to contain exactly what changed since the rebuild began. The base ref `41d35f0` is the commit just before the v2 work started — keep it as is.
