@@ -75,7 +75,7 @@ export class HSVideoElement extends HTMLElement {
   }
 
   connectedCallback() {
-    console.log('[hs] connectedCallback');
+    this.debugLog('connectedCallback');
     safe('connectedCallback', () => {
       this.ui = new UiController();
       this.ui.createShadowRoot(this);
@@ -132,7 +132,7 @@ export class HSVideoElement extends HTMLElement {
   }
 
   setApiInfo({ inputId, isLive, autoplay=true, posterInitialURL, posterIdleURL, posterFatalURL }) {
-    console.log('[hs] setApiInfo called with:', { inputId, isLive });
+    this.debugLog('setApiInfo called with:', { inputId, isLive });
     if (this._destroyed) return;
     safe('setApiInfo', () => {
       if (!window?.HSPlayerConfig?.endpoints?.liveState) { this._enterFatal(); return; }
@@ -157,20 +157,20 @@ export class HSVideoElement extends HTMLElement {
   // ── Live path ──
 
   startPolling() {
-    console.log('[hs] startPolling inputId:', this.inputId, 'mode:', this.playerMode, 'endpoint:', window?.HSPlayerConfig?.endpoints?.liveState);
+    this.debugLog('startPolling inputId:', this.inputId, 'mode:', this.playerMode);
     safe('startPolling', () => {
-      if (!this.inputId) { console.log('[hs] startPolling: no inputId, aborting'); return; }
+      if (!this.inputId) { this.debugLog('startPolling: no inputId, aborting'); return; }
       if (!this.hasPlayedOnce) this.statusOverlay.updateStatus('waiting');
       if (!this._livePoller) {
         this._livePoller = createLivePoller({
           inputId: this.inputId,
           endpoint: window.HSPlayerConfig.endpoints.liveState,
-          onEvent: (e) => { console.log('[hs] poll event:', JSON.stringify(e)); this._handlePollEvent(e); },
+          onEvent: (e) => this._handlePollEvent(e),
+          debugLog: (...m) => this.debugLog(...m),
+          debugError: (...m) => this.debugError(...m),
         });
-        console.log('[hs] poller created');
       }
       this._livePoller.start();
-      console.log('[hs] poller started');
     });
   }
 
@@ -183,7 +183,7 @@ export class HSVideoElement extends HTMLElement {
       if (evt.type === 'noChange') return;
       if (evt.type === 'poll') {
         const { state, isLive, videoUID, hlsUrl, errorCode, source, pollCount } = evt.payload;
-        console.log('[hs] poll event:', { state, isLive, videoUID, hlsUrl: !!hlsUrl, errorCode, pollCount });
+        this.debugLog('poll event:', { state, isLive, videoUID, hlsUrl: !!hlsUrl, errorCode, pollCount });
         this.pollCount = pollCount; this.streamCurrentlyLive = isLive;
         this._updateDebugPanel({ liveStatus: isLive, videoUID, pollCount: this.pollCount, error_code: errorCode, source });
         if (isLive && videoUID) {

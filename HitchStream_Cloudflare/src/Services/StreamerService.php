@@ -57,7 +57,7 @@ class StreamerService {
     // ── Public API methods ──────────────────────────────────────────
 
     public function listVideos(): array {
-        return $this->post('/api/list-videos');
+        return $this->get('/api/list-videos');
     }
 
     public function startStreaming(string $video_file, string $rtmps_url, string $rtmps_key): array {

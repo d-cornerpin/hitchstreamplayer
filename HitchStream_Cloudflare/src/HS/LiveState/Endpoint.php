@@ -16,12 +16,27 @@ use HS\LiveState\StateWriter;
 class Endpoint
 {
     /**
-     * Register the REST route and hooks.
+     * Register the REST route and ensure the flat-state directory exists.
      */
     public static function register()
     {
         add_action('rest_api_init', [__CLASS__, 'register_route']);
-        add_action('admin_notices', [__CLASS__, 'admin_notices']);
+        // Lazy-create the flat-state directory once per process. is_dir is
+        // cheap and wp_mkdir_p is idempotent; skipping the work on subsequent
+        // calls in the same request via a static guard keeps it free.
+        add_action('init', [__CLASS__, 'ensureStateDir']);
+    }
+
+    /** Ensure the hs-state directory exists. Idempotent. */
+    public static function ensureStateDir()
+    {
+        static $checked = false;
+        if ($checked) return;
+        $checked = true;
+        $dir = WP_CONTENT_DIR . '/hs-state';
+        if (!is_dir($dir)) {
+            wp_mkdir_p($dir);
+        }
     }
 
     /**
@@ -303,15 +318,4 @@ class Endpoint
         return $response;
     }
 
-    /**
-     * Admin notices for B2.
-     */
-    public static function admin_notices()
-    {
-        // Ensure hs-state directory exists.
-        $dir = WP_CONTENT_DIR . '/hs-state';
-        if (!is_dir($dir)) {
-            wp_mkdir_p($dir);
-        }
-    }
 }

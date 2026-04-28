@@ -63,11 +63,17 @@ class ActivityPage {
         $input_id = isset($_GET['input_id']) ? sanitize_text_field($_GET['input_id']) : '';
         $rows = self::fetchRows($input_id);
 
-        // Count total
+        // Count total. wpdb requires prepare() for the placeholder; passing
+        // bind params as a second arg to get_var() is not supported.
         global $wpdb;
         $table = $wpdb->prefix . self::TABLE;
-        $where = $input_id ? "WHERE input_id = %s" : '';
-        $total = (int) $wpdb->get_var("SELECT COUNT(*) FROM $table $where", $input_id ? [$input_id] : []);
+        if ($input_id !== '') {
+            $total = (int) $wpdb->get_var(
+                $wpdb->prepare("SELECT COUNT(*) FROM {$table} WHERE input_id = %s", $input_id)
+            );
+        } else {
+            $total = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$table}");
+        }
     ?>
 <div class="wrap">
     <h1>HitchStream Activity</h1>
@@ -127,20 +133,25 @@ class ActivityPage {
     <?php
     }
 
-    /** Fetch rows from the webhook log table. */
+    /** Fetch rows from the webhook log table. PER_PAGE is a class constant
+     *  so it can be inlined; input_id must go through prepare(). */
     private static function fetchRows(string $input_id = ''): array {
         global $wpdb;
         $table = $wpdb->prefix . self::TABLE;
+        $limit = (int) self::PER_PAGE;
 
-        $where = $input_id ? "WHERE input_id = %s" : '';
-        $limit = "LIMIT " . self::PER_PAGE;
+        $columns = 'received_at, input_id, event_type, normalized_state, error_code, signature_ok, correlation_id';
 
-        $sql = "SELECT received_at, input_id, event_type, normalized_state, error_code, signature_ok, correlation_id
-                FROM $table $where ORDER BY received_at DESC $limit";
-
-        if ($input_id) {
-            return $wpdb->get_results($sql, ARRAY_A);
+        if ($input_id !== '') {
+            $sql = $wpdb->prepare(
+                "SELECT {$columns} FROM {$table} WHERE input_id = %s ORDER BY received_at DESC LIMIT {$limit}",
+                $input_id
+            );
+        } else {
+            $sql = "SELECT {$columns} FROM {$table} ORDER BY received_at DESC LIMIT {$limit}";
         }
-        return $wpdb->get_results($sql, ARRAY_A);
+
+        $results = $wpdb->get_results($sql, ARRAY_A);
+        return is_array($results) ? $results : [];
     }
 }
