@@ -89,6 +89,11 @@ export class StatusOverlay {
       this.currentStatusType = 'none';
       return;
     }
+    if (typeof type === 'object' && type !== null && type.text !== undefined) {
+      this.currentStatusType = type.type || this.currentStatusType;
+      this.showStatusMessage(type.text);
+      return;
+    }
     if (this.currentStatusType === type) return;
     this.currentStatusType = type;
 

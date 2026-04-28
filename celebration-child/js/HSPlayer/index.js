@@ -1,13 +1,16 @@
 // index.js — HitchStream Player v2 entry point
 // Wires all modules, defines HSVideoElement class, registers <hs-video>.
 
+import { transition } from './PlayerStateMachine.js';
 import {
-  transition, STATE, FATAL_TIMEOUT_MS, MAX_MEDIA_ERROR_RECOVERY_ATTEMPTS,
+  STATE, FATAL_TIMEOUT_MS, MAX_MEDIA_ERROR_RECOVERY_ATTEMPTS,
   MANIFEST_PROBE_MAX_ATTEMPTS, MIN_THROUGHPUT_SAMPLES, MAX_THROUGHPUT_SAMPLES, PREBUFFER_TIMEOUT_MS,
   HLS_ORIGIN_ALLOWLIST_REGEX, DEBUG_ERROR_MESSAGES,
   RECONNECT_WATCHDOG_INTERVAL_MS, RECONNECT_WATCHDOG_BUFFER_THRESHOLD, RECONNECT_WATCHDOG_FATAL_TTL,
 } from './constants.js';
-import { createLivePoller, probeManifest, createEngine } from './EngineFactory.js';
+import { createLivePoller } from './LivePoller.js';
+import { probeManifest } from './ManifestProbe.js';
+import { createEngine } from './EngineFactory.js';
 import { HlsEngine } from './HlsEngine.js';
 import { NativeHlsEngine } from './NativeHlsEngine.js';
 import { TimerRegistry } from './utils/timers.js';
@@ -72,9 +75,11 @@ export class HSVideoElement extends HTMLElement {
   }
 
   connectedCallback() {
+    console.log('[hs] connectedCallback');
     safe('connectedCallback', () => {
       this.ui = new UiController();
       this.ui.createShadowRoot(this);
+      this.ui.showPlayButton(true);
       [this.videoEl, this.overlayEl, this.statusMessageEl, this.debugPanelEl] =
         [this.ui.videoEl, this.ui.overlayEl, this.ui.statusMessageEl, this.ui.debugPanelEl];
       this.statusOverlay = new StatusOverlay(this.ui.statusMessageEl, this.timers);
@@ -87,8 +92,11 @@ export class HSVideoElement extends HTMLElement {
       this.posterMgr.init(window?.HSPlayerConfig, a);
       this.gestureUnlock = new GestureUnlock(this);
       this.gestureUnlock.start();
-      if (this.playerMode === 'live') this.startPolling();
-      else if (this.playerMode === 'vod') this.loadVideoDirectly();
+      this.gestureUnlock.promise.then(() => {
+        this.ui.hidePlayButton();
+        if (this.statusOverlay) this.statusOverlay.gestureUnlocked = true;
+      });
+      if (this.playerMode === 'vod' && this.inputId) this.loadVideoDirectly();
     });
   }
 
@@ -107,6 +115,7 @@ export class HSVideoElement extends HTMLElement {
   }
 
   setApiInfo({ inputId, isLive, autoplay=true, posterInitialURL, posterIdleURL, posterFatalURL }) {
+    console.log('[hs] setApiInfo called with:', { inputId, isLive });
     if (this._destroyed) return;
     safe('setApiInfo', () => {
       if (!window?.HSPlayerConfig?.endpoints?.liveState) { this._enterFatal(); return; }
@@ -116,23 +125,28 @@ export class HSVideoElement extends HTMLElement {
       if (posterInitialURL) this.posterMgr.initial = posterInitialURL;
       if (posterIdleURL) this.posterMgr.idle = posterIdleURL;
       if (posterFatalURL) this.posterMgr.fatal = posterFatalURL;
+      // Start polling only after inputId is set (may be set after connectedCallback)
+      if (this.playerMode === 'live') this.startPolling();
     });
   }
 
   // ── Live path ──
 
   startPolling() {
+    console.log('[hs] startPolling inputId:', this.inputId, 'mode:', this.playerMode, 'endpoint:', window?.HSPlayerConfig?.endpoints?.liveState);
     safe('startPolling', () => {
-      if (!this.inputId) return;
+      if (!this.inputId) { console.log('[hs] startPolling: no inputId, aborting'); return; }
       if (!this.hasPlayedOnce) this.statusOverlay.updateStatus('waiting');
       if (!this._livePoller) {
         this._livePoller = createLivePoller({
           inputId: this.inputId,
           endpoint: window.HSPlayerConfig.endpoints.liveState,
-          onEvent: (e) => this._handlePollEvent(e),
+          onEvent: (e) => { console.log('[hs] poll event:', JSON.stringify(e)); this._handlePollEvent(e); },
         });
+        console.log('[hs] poller created');
       }
       this._livePoller.start();
+      console.log('[hs] poller started');
     });
   }
 
@@ -145,6 +159,7 @@ export class HSVideoElement extends HTMLElement {
       if (evt.type === 'noChange') return;
       if (evt.type === 'poll') {
         const { state, isLive, videoUID, hlsUrl, errorCode, source, pollCount } = evt.payload;
+        console.log('[hs] poll event:', { state, isLive, videoUID, hlsUrl: !!hlsUrl, errorCode, pollCount });
         this.pollCount = pollCount; this.streamCurrentlyLive = isLive;
         this._updateDebugPanel({ liveStatus: isLive, videoUID, pollCount: this.pollCount, error_code: errorCode, source });
         if (isLive && videoUID) {
@@ -164,6 +179,7 @@ export class HSVideoElement extends HTMLElement {
         }
         if (state === 'reconnecting' && this.playerState === STATE.PLAYING) {
           this._startReconnectWatchdog();
+          this.statusOverlay.updateStatus('reconnecting');
         }
       }
       if (evt.type === 'error') this.debugError('Poller error:', evt.payload.error);
@@ -363,10 +379,14 @@ export class HSVideoElement extends HTMLElement {
   }
 
   _dispatchEffects(effects) { for (const fx of effects) safe('effects', () => {
-    if (fx.type === 'loadHls') { this.currentStreamUrl = fx.payload.url; this.latestLiveHlsUrl = fx.payload.url; this.loadStream(fx.payload.url); }
+    if (fx.type === 'loadHls') {
+      const url = fx.payload.url || `https://customer-${this.posterMgr.customerCode}.cloudflarestream.com/${fx.payload.videoUID}/manifest/video.m3u8`;
+      this.currentStreamUrl = url; this.latestLiveHlsUrl = url; this.loadStream(url);
+    }
     if (fx.type === 'destroyHls') { if (this._currentEngine) { this._currentEngine.destroy(); this._currentEngine = null; } this.videoEl?.pause(); this.currentStreamUrl = null; }
     if (fx.type === 'startPlayback') { this.videoEl?.play(); }
     if (fx.type === 'setPoster') { this.setPoster(fx.payload.which, fx.payload.url || this.posterMgr[fx.payload.which]); }
+    if (fx.type === 'setErrorPoster') { if (this.videoEl) this.videoEl.poster = this.posterMgr.fatal; }
     if (fx.type === 'showStatus') { this.statusOverlay.updateStatus(fx.payload); }
     if (fx.type === 'startFatal') { this._enterFatal(); }
     if (fx.type === 'drainToIdle') { this._drainingToIdle = true; }

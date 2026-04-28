@@ -1088,6 +1088,12 @@ class HSVideoElement extends HTMLElement {
         if (this._destroyed) return;
         try {
                 if (!type) type = 'none';
+                // Handle object payload from side effects
+                if (typeof type === 'object' && type !== null && type.text !== undefined) {
+                    // Direct text mode — render immediately
+                    this.showStatusMessage(type.text);
+                    return;
+                }
                 const previousType = this.currentStatusType;
                 const allowSyncStatus = !!(this.enableDebug || this.debugMode);
                 if (type === 'syncIssue' && !allowSyncStatus) {

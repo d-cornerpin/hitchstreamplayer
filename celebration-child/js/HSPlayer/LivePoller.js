@@ -106,10 +106,11 @@ export function createLivePoller(opts) {
       _nextPollDelayMs = POLL_INTERVAL_MS;
 
       // Parse and emit poll event
-      const isLive = data && typeof data.live === 'boolean' ? data.live : false;
-      const videoUID = data && typeof data.videoUID === 'string' ? data.videoUID : null;
       const rawState = data && data.state ? data.state : null;
-      const errorCode = data && data.error_code ? data.error_code : null;
+      const liveStates = ['live', 'reconnected', 'new_configuration_accepted', 'reconnecting'];
+      const isLive = liveStates.includes(rawState);
+      const videoUID = data && typeof data.videoUID === 'string' ? data.videoUID : null;
+      const errorCode = data && data.errorCode ? data.errorCode : null;
       const source = data && data.source ? data.source : null;
       const hlsUrl = data && data.hlsUrl ? data.hlsUrl : null;
 
@@ -145,6 +146,7 @@ export function createLivePoller(opts) {
   };
 
   let _pollCount = 0;
+  let _firstPoll = false;
 
   /** Start polling */
   const start = () => {
@@ -154,9 +156,18 @@ export function createLivePoller(opts) {
     // Clear any existing polling
     if (_pollingInterval) clearInterval(_pollingInterval);
 
+    // Fire first poll immediately (production jitter added after first poll)
+    if (!_firstPoll) {
+      _firstPoll = true;
+      _pollingInterval = setInterval(poll, _nextPollDelayMs);
+      _pollCount++;
+      poll();
+      return;
+    }
+
     // Add ±1500ms jitter to initial poll delay (fix B6)
     const jitter = (Math.random() - 0.5) * 2 * POLL_BACKOFF_JITTER_MS;
-    const jitteredDelay = POLL_INITIAL_DELAY_MS + jitter;
+    const jitteredDelay = Math.max(1000, POLL_INITIAL_DELAY_MS + jitter);
 
     // Schedule first poll
     setTimeout(() => {

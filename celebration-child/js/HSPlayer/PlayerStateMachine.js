@@ -17,13 +17,13 @@ function handleIdlePoll(payload) {
 
   switch (state) {
     case 'live':
-      if (videoUID && hlsUrl) {
+      if (videoUID) {
         return { nextState: STATE.PREPARING, sideEffects: [
-          { type: 'loadHls', payload: { url: hlsUrl } },
+          { type: 'loadHls', payload: { url: hlsUrl, videoUID } },
           { type: 'showStatus', payload: STATUS.PREPARING },
         ]};
       }
-      // Live but missing fields — treat as idle (contract §4.1).
+      // Live but missing videoUID — treat as idle (contract §4.1).
       return { nextState: STATE.IDLE, sideEffects: [] };
 
     case 'reconnecting':
@@ -34,8 +34,10 @@ function handleIdlePoll(payload) {
       return { nextState: STATE.IDLE, sideEffects: [] };
 
     case 'error':
-      // Error logged to debug panel; UX stays idle.
-      return { nextState: STATE.IDLE, sideEffects: [
+      // Error received — transition to FATAL to surface visible error UI.
+      return { nextState: STATE.FATAL, sideEffects: [
+        { type: 'setErrorPoster', payload: {} },
+        { type: 'showStatus', payload: { text: `Error: ${errorCode}` } },
         { type: 'logError', payload: { errorCode, source } },
       ]};
 
@@ -51,7 +53,7 @@ function handlePreparingPoll(payload, context) {
 
   switch (state) {
     case 'live':
-      if (videoUID && hlsUrl) {
+      if (videoUID) {
         // Already preparing — no state change.
         return { nextState: STATE.PREPARING, sideEffects: [] };
       }
