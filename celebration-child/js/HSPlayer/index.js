@@ -87,26 +87,43 @@ export class HSVideoElement extends HTMLElement {
       this.posterMgr = new PosterManager();
       const a = {};
       ['poster-initial','poster-idle','poster-fatal'].forEach(k => {
-        const t = k.replace('poster-',''); a[k] = this.getAttribute(k);
+        a[k] = this.getAttribute(k);
       });
       this.posterMgr.init(window?.HSPlayerConfig, a);
+      // Surface the initial poster on the <video> element immediately so the
+      // viewer sees the poster image before any state machine transition.
+      if (this.videoEl && this.posterMgr.initial) this.videoEl.poster = this.posterMgr.initial;
       this.gestureUnlock = new GestureUnlock(this);
+      // Hook the play button directly (shadow DOM target retargeting hides
+      // shadow internals from document-level listeners). Document fallback
+      // also runs so any user gesture anywhere counts.
+      this.gestureUnlock.attachPlayButton(this.ui.playButtonEl);
       this.gestureUnlock.start();
       this.gestureUnlock.promise.then(() => {
+        if (this._destroyed) return;
         this.ui.hidePlayButton();
         if (this.statusOverlay) this.statusOverlay.gestureUnlocked = true;
       });
-      if (this.playerMode === 'vod' && this.inputId) this.loadVideoDirectly();
+      // Set hasPlayedOnce the first time the video actually starts playing.
+      // The state machine reads this to flip from initial poster → idle poster
+      // (§10 preserved behavior #3).
+      if (this.videoEl) {
+        this.videoEl.addEventListener('playing', () => {
+          this.hasPlayedOnce = true;
+          this._clearFatalTimer();
+        }, { once: true });
+      }
     });
   }
 
   disconnectedCallback() {
     safe('disconnectedCallback', () => {
       this._destroyed = true;
+      this._clearFatalTimer();
       if (this._livePoller) { this._livePoller.stop(); this._livePoller = null; }
       if (this._probeAbortController) { this._probeAbortController.abort(); this._probeAbortController = null; }
       this.timers.dispose(); this.timers = new TimerRegistry();
-      if (this.gestureUnlock) this.gestureUnlock.abort();
+      if (this.gestureUnlock) this.gestureUnlock.resolve();
     });
   }
 
@@ -125,8 +142,15 @@ export class HSVideoElement extends HTMLElement {
       if (posterInitialURL) this.posterMgr.initial = posterInitialURL;
       if (posterIdleURL) this.posterMgr.idle = posterIdleURL;
       if (posterFatalURL) this.posterMgr.fatal = posterFatalURL;
-      // Start polling only after inputId is set (may be set after connectedCallback)
-      if (this.playerMode === 'live') this.startPolling();
+      // Branch on mode. Live mode starts polling; VOD mode loads the video
+      // directly. setApiInfo runs AFTER connectedCallback in the typical
+      // PHP-driven flow, so connectedCallback can't make this decision —
+      // it has to happen here.
+      if (this.playerMode === 'live') {
+        this.startPolling();
+      } else if (this.playerMode === 'vod' && this.inputId) {
+        this.loadVideoDirectly();
+      }
     });
   }
 
@@ -370,6 +394,29 @@ export class HSVideoElement extends HTMLElement {
     });
   }
 
+  // ── Fatal timer (PREPARING → FATAL on timeout) ──
+
+  _startFatalTimer() {
+    safe('startFatalTimer', () => {
+      if (this.fatalTimer) return; // already running
+      this.fatalTimerStart = Date.now();
+      this.fatalTimer = this.timers.setTimeout(() => {
+        this.fatalTimer = null;
+        if (this.playerState !== STATE.PLAYING && this.playerState !== STATE.FATAL) {
+          this.debugError('Fatal timer fired — stuck in', this.playerState, 'for', FATAL_TIMEOUT_MS, 'ms');
+          this._enterFatal();
+        }
+      }, FATAL_TIMEOUT_MS);
+    });
+  }
+
+  _clearFatalTimer() {
+    safe('clearFatalTimer', () => {
+      if (this.fatalTimer) { this.timers.clearTimeout(this.fatalTimer); this.fatalTimer = null; }
+      this.fatalTimerStart = null;
+    });
+  }
+
   // ── Helpers ──
 
   _ctx() {
@@ -382,9 +429,13 @@ export class HSVideoElement extends HTMLElement {
     if (fx.type === 'loadHls') {
       const url = fx.payload.url || `https://customer-${this.posterMgr.customerCode}.cloudflarestream.com/${fx.payload.videoUID}/manifest/video.m3u8`;
       this.currentStreamUrl = url; this.latestLiveHlsUrl = url; this.loadStream(url);
+      // Entering PREPARING — start fatal timer so the player can't sit forever
+      // on a stuck PREPARING (manifest 404 outside the probe window, dead
+      // network, etc.). The 'playing' event handler clears it on success.
+      this._startFatalTimer();
     }
-    if (fx.type === 'destroyHls') { if (this._currentEngine) { this._currentEngine.destroy(); this._currentEngine = null; } this.videoEl?.pause(); this.currentStreamUrl = null; }
-    if (fx.type === 'startPlayback') { this.videoEl?.play(); }
+    if (fx.type === 'destroyHls') { if (this._currentEngine) { this._currentEngine.destroy(); this._currentEngine = null; } this.videoEl?.pause(); this.currentStreamUrl = null; this._clearFatalTimer(); }
+    if (fx.type === 'startPlayback') { this.videoEl?.play(); this._clearFatalTimer(); }
     if (fx.type === 'setPoster') { this.setPoster(fx.payload.which, fx.payload.url || this.posterMgr[fx.payload.which]); }
     if (fx.type === 'setErrorPoster') { if (this.videoEl) this.videoEl.poster = this.posterMgr.fatal; }
     if (fx.type === 'showStatus') { this.statusOverlay.updateStatus(fx.payload); }

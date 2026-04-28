@@ -101,8 +101,17 @@ export class HlsEngine {
   on(event, fn) {
     if (!this._listeners[event]) this._listeners[event] = [];
     this._listeners[event].push(fn);
-    // Also forward to Hls.js
-    this._hls.on(this._Hls.Events[event.toUpperCase()], fn);
+    // Also forward to Hls.js. Convert camelCase ('manifestParsed') to the
+    // UPPER_SNAKE_CASE constant Hls.js exposes ('MANIFEST_PARSED'). A naive
+    // toUpperCase() yields 'MANIFESTPARSED' which is undefined and turns the
+    // listener registration into a silent no-op.
+    const hlsKey = event.replace(/([a-z])([A-Z])/g, '$1_$2').toUpperCase();
+    const hlsEvent = this._Hls?.Events?.[hlsKey];
+    if (hlsEvent !== undefined) {
+      this._hls.on(hlsEvent, fn);
+    } else {
+      this._debugError('[hs-video] HlsEngine.on: unknown event', event, '→', hlsKey);
+    }
   }
 
   /** Remove event listener */
@@ -114,8 +123,14 @@ export class HlsEngine {
   /** Start load from live edge */
   startLoad(startPosition) {
     if (this._destroyed) return;
-    try { this._hls.startLoad(startPosition); } catch (e) {
-      try { this._hls.startLoad(); } catch (_) {}
+    try {
+      this._hls.startLoad(startPosition);
+    } catch (e) {
+      try {
+        this._hls.startLoad();
+      } catch (e2) {
+        console.error('[hs-video] HlsEngine.startLoad failed:', e2);
+      }
     }
   }
 
