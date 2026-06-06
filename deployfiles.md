@@ -73,14 +73,14 @@ Upload destination: **`/wp-content/themes/celebration-child/`**
 |------|-------------|---|
 | `HitchStream-Player.php` | The iframe page that renders the player. Now uses `<script type="module">`, builds `window.HSPlayerConfig`, includes the corrected CSP header. | ☐ |
 | `functions.php` | Theme bootstrap and webhook helpers. Dead legacy functions removed. | ☐ |
-| `endpoints/cf-live-webhook.php` | Cloudflare webhook receiver. Shared-secret verification, test-ping handling, `/lifecycle` lookup. | ☐ |
 | `endpoints/CloudFlareEP.php` | Reduced to a 410 Gone stub. Legacy auth path removed. | ☐ |
-| `endpoints/live-state.php` | Now redirects to the new REST route at `/wp-json/hitchstream/v1/live-state`. | ☐ |
 
 ### New files (did not exist before)
 
 | Local path (in `deploy/wp-content/themes/celebration-child/`) | What it does | ☐ |
 |------|-------------|---|
+| `endpoints/cf-live-webhook.php` | Cloudflare webhook receiver. Shared-secret verification, test-ping handling, `/lifecycle` lookup. | ☐ |
+| `endpoints/live-state.php` | Now redirects to the new REST route at `/wp-json/hitchstream/v1/live-state`. | ☐ |
 | `js/HSPlayer/index.js` | Player entry point. Defines `<hs-video>` custom element. | ☐ |
 | `js/HSPlayer/constants.js` | Single source of truth for state names, timing constants, Hls.js config. | ☐ |
 | `js/HSPlayer/PlayerStateMachine.js` | Pure state-transition module (no DOM, no fetch, no timers). | ☐ |
