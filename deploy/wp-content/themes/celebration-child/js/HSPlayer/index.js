@@ -123,6 +123,11 @@ export class HSVideoElement extends HTMLElement {
       if (this.videoEl) {
         this.videoEl.addEventListener('playing', () => {
           this.hasPlayedOnce = true;
+          // Hand the viewer native controls (pause, volume/mute, scrubber,
+          // fullscreen) the moment playback actually starts — same as the
+          // original player. Toggled back off whenever we return to the poster
+          // (idle / fatal / teardown) so they don't show over the logo card.
+          if (this.videoEl) this.videoEl.controls = true;
           this._clearFatalTimer();
           // Ground-truth PREPARING → PLAYING. The state machine's prebufferReady
           // path is never dispatched anywhere, so the actual 'playing' media
@@ -373,7 +378,7 @@ export class HSVideoElement extends HTMLElement {
       if (bufferReady && this.gestureUnlock?.isUnlocked) {
         this.pendingPlayRequest = false;
         this._stopPrebufferGate();
-        v.play().catch(e => this.debugError('Play failed:', e));
+        this._playWithFallback(v);
       }
       this._updateDebugPanel({ bufferAhead, inProgress: ready, clicked: !!this.gestureUnlock?.isUnlocked });
     });
@@ -594,6 +599,7 @@ export class HSVideoElement extends HTMLElement {
       this._stopRevealMonitor();
       this._stopStallWatchdog();
       this._recovering = false;
+      if (this.videoEl) this.videoEl.controls = false;
       this.setPoster('fatal', this.posterMgr.fatal);
       this.ui.showPosterInstant(true);
       // Fatal uses the same logo card with a random "refresh" line — dots off,
@@ -626,6 +632,7 @@ export class HSVideoElement extends HTMLElement {
       this.pendingPlayRequest = false;
       if (this._currentEngine) { this._currentEngine.destroy(); this._currentEngine = null; }
       this.videoEl?.pause();
+      if (this.videoEl) this.videoEl.controls = false;
       this.playerState = STATE.IDLE;
       this.setPoster('idle', this.posterMgr.idle);
       this.ui.showPosterInstant(true);
@@ -761,7 +768,7 @@ export class HSVideoElement extends HTMLElement {
       // leaves the player waiting in PREPARING rather than instant-fataling.
       this._probeManifestAndStart(url);
     }
-    if (fx.type === 'destroyHls') { this._drainingToIdle = false; this._recovering = false; this._stopDrainToPoster(); this._stopRevealMonitor(); this._stopStallWatchdog(); if (this._currentEngine) { this._currentEngine.destroy(); this._currentEngine = null; } this.videoEl?.pause(); this.currentStreamUrl = null; this._clearFatalTimer(); this.ui.showPosterInstant(true); }
+    if (fx.type === 'destroyHls') { this._drainingToIdle = false; this._recovering = false; this._stopDrainToPoster(); this._stopRevealMonitor(); this._stopStallWatchdog(); if (this._currentEngine) { this._currentEngine.destroy(); this._currentEngine = null; } this.videoEl?.pause(); if (this.videoEl) this.videoEl.controls = false; this.currentStreamUrl = null; this._clearFatalTimer(); this.ui.showPosterInstant(true); }
     if (fx.type === 'startPlayback') { this.videoEl?.play(); this._clearFatalTimer(); }
     if (fx.type === 'setPoster') { this.setPoster(fx.payload.which, fx.payload.url || this.posterMgr[fx.payload.which]); }
     if (fx.type === 'setErrorPoster') { if (this.videoEl) this.videoEl.poster = this.posterMgr.fatal; }
@@ -777,7 +784,41 @@ export class HSVideoElement extends HTMLElement {
 
   _updateDebugPanel(d) { safe('debugPanel', () => { if (this.debugPanelEl) this.debugPanel.update({ state: this.playerState, ...d }); }); }
 
-  _attemptAutoplay() { safe('autoplay', () => { this.videoEl.play().catch(() => { safe('autoplay-retry', () => { this.videoEl.muted = true; this.videoEl.play(); }); }); }); }
+  _attemptAutoplay() { safe('autoplay', () => { this._playWithFallback(this.videoEl); }); }
+
+  // Start playback while surviving iOS autoplay rules. An unmuted play() that
+  // fires well after the tap (buffer-gated, or VOD autoplay with no tap) is
+  // routinely blocked on iOS. Fall back to MUTED — which iOS always allows for
+  // an inline (playsinline) video — so the stream still starts instead of
+  // freezing on the poster, then auto-unmute on the viewer's next gesture.
+  // Native controls (enabled on 'playing') also expose an unmute control.
+  _playWithFallback(v) {
+    safe('playWithFallback', () => {
+      if (!v) return;
+      const p = v.play();
+      if (p && p.catch) p.catch(() => {
+        safe('play-muted', () => {
+          v.muted = true;
+          const p2 = v.play();
+          if (p2 && p2.then) p2.then(() => this._armAutoUnmute()).catch(e => this.debugError('Muted play failed:', e));
+        });
+      });
+    });
+  }
+
+  // After a forced-muted start, restore sound on the viewer's next tap/click.
+  _armAutoUnmute() {
+    safe('armAutoUnmute', () => {
+      if (this._autoUnmuteArmed || this._destroyed) return;
+      this._autoUnmuteArmed = true;
+      const unmute = () => safe('autoUnmute', () => {
+        if (this.videoEl) this.videoEl.muted = false;
+        this._autoUnmuteArmed = false;
+      });
+      document.addEventListener('click', unmute, { once: true });
+      document.addEventListener('touchstart', unmute, { once: true, passive: true });
+    });
+  }
 
   static isValidHlsUrl(url) { return typeof url === 'string' && HLS_ORIGIN_ALLOWLIST_REGEX.test(url); }
 }
