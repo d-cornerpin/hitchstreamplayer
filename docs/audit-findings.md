@@ -73,10 +73,12 @@ WordPress (prod still runs the old monolith), so these only surfaced on executio
   only exists in admin context / on the `admin_menu` hook — so it fatals on every front-end
   and wp-cli request. **Fix:** hook it (`add_action('admin_menu', …)`) like the others.
   `src/Plugin.php`.
-- [ ] **P3 (note, not fixed) — Player-page CSP blocks Google Fonts.** Confirmed live: the
-  page's `Content-Security-Policy` is sent and is `style-src 'self'` with no `font-src`, so
-  Josefin Sans falls back to a system font. Fix when wiring fonts for real: add
-  `fonts.googleapis.com`/`fonts.gstatic.com` to the CSP, or self-host the font.
+- [x] **P3 — Player-page CSP blocks Google Fonts → messages fell back to a system font.**
+  The page's `Content-Security-Policy` (no `font-src`) blocked fonts, and the real player
+  template never loaded Josefin Sans anyway (only the test page did). **Fixed:** self-hosted
+  the Josefin Sans variable woff2 in the theme (`fonts/`), `@font-face` in the player page,
+  and `font-src 'self'` added to the CSP — no Google dependency. Verified in the mirror under
+  the real CSP (font serves `200 font/woff2`). Commit 6b77c3b.
 
 Everything else exercised cleanly: REST `live-state` (contract JSON + cached-state read),
 webhook signature accept/reject, test-ping, `disconnected`→state-write→REST chain, and the
