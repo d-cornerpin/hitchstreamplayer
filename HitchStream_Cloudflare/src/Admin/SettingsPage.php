@@ -238,11 +238,11 @@ class SettingsPage {
             $btn.prop("disabled", true).text("Testing...");
             $result.text("");
             $.ajax({
-                url: ajaxurl,
+                url: hscf_ajax.ajax_url,
                 type: "POST",
                 data: {
                     action: "' . $ajaxAction . '",
-                    nonce: $("#_wpnonce").val() || $("input[name=_wpnonce][value]").val()
+                    _wpnonce: hscf_ajax.nonce
                 },
                 success: function(resp) {
                     $btn.prop("disabled", false).text("' . esc_js($btnText) . '");

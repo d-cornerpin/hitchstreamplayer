@@ -41,7 +41,7 @@ function hs_install_webhook_log_table() {
         KEY idx_input_id (input_id),
         KEY idx_signature_ok (signature_ok)
     ) {$charset};";
-    require_once ABSPATH . 'wp-admin/upgrade-functions.php';
+    require_once ABSPATH . 'wp-admin/includes/upgrade.php';
     dbDelta($sql);
 }
 

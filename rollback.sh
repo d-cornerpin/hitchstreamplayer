@@ -121,10 +121,19 @@ if [[ $DRY_RUN -eq 1 ]]; then
     color_yellow "✓ DRY RUN complete. Re-run without --dry-run to actually roll back."
     echo
 else
+    # Safety: snapshot the CURRENT server state before overwriting it, so a
+    # rollback to the wrong timestamp is itself recoverable.
+    SNAP="${BACKUP_ROOT}/pre-rollback-$(date +%Y-%m-%d_%H%M%S)"
+    echo "    Snapshotting current server state to ${SNAP}/ first..."
+    mkdir -p "${SNAP}/wp-content/themes/celebration-child" "${SNAP}/wp-content/plugins/HitchStream_Cloudflare"
+    rsync -az --exclude='.DS_Store' "$SSH_ALIAS:${REMOTE_THEME}/"  "${SNAP}/wp-content/themes/celebration-child/"
+    rsync -az --exclude='.DS_Store' "$SSH_ALIAS:${REMOTE_PLUGIN}/" "${SNAP}/wp-content/plugins/HitchStream_Cloudflare/"
+
     rsync -az --stats --exclude='.DS_Store' "${BACKUP_THEME}/"  "$SSH_ALIAS:${REMOTE_THEME}/"
     rsync -az --stats --exclude='.DS_Store' "${BACKUP_PLUGIN}/" "$SSH_ALIAS:${REMOTE_PLUGIN}/"
     echo
     color_green "✓ ROLLBACK COMPLETE. Server is at the state from ${TIMESTAMP}."
+    echo "    (Pre-rollback snapshot of what was just overwritten: ${SNAP}/)"
     echo "    Verify the live site now."
     echo
 fi

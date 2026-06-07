@@ -4,7 +4,9 @@
 import { transition } from './PlayerStateMachine.js';
 import {
   STATE, FATAL_TIMEOUT_MS, MAX_MEDIA_ERROR_RECOVERY_ATTEMPTS,
-  MANIFEST_PROBE_MAX_ATTEMPTS, MIN_THROUGHPUT_SAMPLES, MAX_THROUGHPUT_SAMPLES, PREBUFFER_TIMEOUT_MS,
+  MANIFEST_PROBE_MAX_ATTEMPTS, MIN_THROUGHPUT_SAMPLES, MAX_THROUGHPUT_SAMPLES, PREBUFFER_TIMEOUT_MS, GATE_CHECK_INTERVAL_MS,
+  POSTER_CROSSFADE_MS, POSTER_FADEOUT_LEAD_SECONDS, POSTER_REVEAL_MIN_HEIGHT, POSTER_REVEAL_MAX_WAIT_MS, POSTER_MESSAGES, POSTER_MESSAGE_FADE_MS,
+  FAST_RECOVERY_PREBUFFER_SECONDS, FAST_RECOVERY_FADE_MS, STALL_RECOVERY_MS, RECOVERY_BUFFER_FLOOR_SECONDS,
   HLS_ORIGIN_ALLOWLIST_REGEX, DEBUG_ERROR_MESSAGES,
   RECONNECT_WATCHDOG_INTERVAL_MS, RECONNECT_WATCHDOG_BUFFER_THRESHOLD, RECONNECT_WATCHDOG_FATAL_TTL,
 } from './constants.js';
@@ -37,7 +39,9 @@ export class HSVideoElement extends HTMLElement {
     this.debugMode = false;
     this.videoEl = null; this.overlayEl = null; this.debugPanelEl = null;
     this.statusMessageEl = null;
-    this.pendingPlayRequest = false; this.prebufferStartTs = 0;
+    this.pendingPlayRequest = false; this.prebufferStartTs = 0; this._gateTimer = null; this._drainMonitorTimer = null; this._revealMonitorTimer = null; this._fastRecovery = false;
+    this._stallWatchdogTimer = null; this._lastBufferEnd = 0; this._lastBufferEndTs = 0; this._recovering = false;
+    this._currentMsgKey = null; this._currentMsgText = '';
     this.throughputSamples = []; this.probeAttempts = 0;
     this.currentStreamUrl = null; this.ingestFalseCount = 0; this.hasPlayedOnce = false;
     this.pollCount = 0; this.liveStatus = null; this.videoUID = null;
@@ -82,8 +86,12 @@ export class HSVideoElement extends HTMLElement {
       this.ui.showPlayButton(true);
       [this.videoEl, this.overlayEl, this.statusMessageEl, this.debugPanelEl] =
         [this.ui.videoEl, this.ui.overlayEl, this.ui.statusMessageEl, this.ui.debugPanelEl];
-      this.statusOverlay = new StatusOverlay(this.ui.statusMessageEl, this.timers);
+      // Top-left status text is retired — the under-logo poster message is now
+      // the single status surface. Passing null makes StatusOverlay a safe
+      // no-op (revert by restoring this.ui.statusMessageEl if you want it back).
+      this.statusOverlay = new StatusOverlay(null, this.timers);
       this.debugPanel = new DebugPanel(this.ui.debugPanelEl);
+      if (this.debugMode && this.debugPanelEl) this.debugPanelEl.style.display = 'block';
       this.posterMgr = new PosterManager();
       const a = {};
       ['poster-initial','poster-idle','poster-fatal'].forEach(k => {
@@ -92,7 +100,11 @@ export class HSVideoElement extends HTMLElement {
       this.posterMgr.init(window?.HSPlayerConfig, a);
       // Surface the initial poster on the <video> element immediately so the
       // viewer sees the poster image before any state machine transition.
-      if (this.videoEl && this.posterMgr.initial) this.videoEl.poster = this.posterMgr.initial;
+      // Note: we deliberately do NOT set the native <video poster> attribute.
+      // The poster overlay (logo card / poster-img layer) is the real poster;
+      // a native poster would bleed through behind it during crossfades when
+      // the <video> momentarily has no frame (e.g. on engine rebuild).
+      this.ui.setPosterImage(this.posterMgr.initial);
       this.gestureUnlock = new GestureUnlock(this);
       // Hook the play button directly (shadow DOM target retargeting hides
       // shadow internals from document-level listeners). Document fallback
@@ -103,6 +115,7 @@ export class HSVideoElement extends HTMLElement {
         if (this._destroyed) return;
         this.ui.hidePlayButton();
         if (this.statusOverlay) this.statusOverlay.gestureUnlocked = true;
+        this._updatePosterMessage();
       });
       // Set hasPlayedOnce the first time the video actually starts playing.
       // The state machine reads this to flip from initial poster → idle poster
@@ -111,7 +124,23 @@ export class HSVideoElement extends HTMLElement {
         this.videoEl.addEventListener('playing', () => {
           this.hasPlayedOnce = true;
           this._clearFatalTimer();
-        }, { once: true });
+          // Ground-truth PREPARING → PLAYING. The state machine's prebufferReady
+          // path is never dispatched anywhere, so the actual 'playing' media
+          // event is what promotes the player to PLAYING (otherwise it sticks
+          // in PREPARING forever even while the video plays).
+          if (this.playerState === STATE.PREPARING) {
+            this.playerState = STATE.PLAYING;
+            this.pendingPlayRequest = false;
+            this._stopPrebufferGate();
+            this._stopDrainToPoster();
+            // Keep the poster + "Preparing…" up until the picture ramps up to a
+            // sharp resolution, then crossfade in — hides the low-res warm-up.
+            this._revealWhenSharp();
+            this._startStallWatchdog();
+            this._recovering = false;
+          }
+          this._updatePosterMessage();
+        });
       }
     });
   }
@@ -128,7 +157,7 @@ export class HSVideoElement extends HTMLElement {
   }
 
   setPoster(which, url) {
-    safe('setPoster', () => { this.posterMgr.set(which, url); if (this.videoEl) this.videoEl.poster = url; });
+    safe('setPoster', () => { this.posterMgr.set(which, url); this.ui.setPosterImage(url); });
   }
 
   setApiInfo({ inputId, isLive, autoplay=true, posterInitialURL, posterIdleURL, posterFatalURL }) {
@@ -191,8 +220,25 @@ export class HSVideoElement extends HTMLElement {
             : `https://customer-${this.posterMgr.customerCode}.cloudflarestream.com/${videoUID}/manifest/video.m3u8`;
           this.latestLiveHlsUrl = url; this.ingestFalseCount = 0; this.currentVideoUID = videoUID;
           this._stopReconnectWatchdog();
-          const r = transition({ currentState: this.playerState, event: { type:'poll', payload:{ state:'live', videoUID, hlsUrl:url, source } }, context: this._ctx() });
-          this.playerState = r.nextState; this._dispatchEffects(r.sideEffects);
+          if (this._drainingToIdle) {
+            this._drainingToIdle = false;
+            this._stopDrainToPoster();
+            const vEl = this.videoEl;
+            const ahead = vEl?.buffered?.length ? Math.max(0, (vEl.buffered.end(0) || 0) - vEl.currentTime) : 0;
+            if (this._currentEngine && ahead > 2) {
+              // Stream returned while we still have buffer playing — keep the
+              // engine and buffer, just stop showing the poster. Hls.js resumes
+              // loading the new segments on its own; no rebuild, no re-prebuffer.
+              this.ui.fadePoster(0, FAST_RECOVERY_FADE_MS);
+            } else {
+              // Buffer ran dry / engine stalled — rebuild fast.
+              this.ui.showPosterInstant(true);
+              this._rebuildLiveStream(url);
+            }
+          } else {
+            const r = transition({ currentState: this.playerState, event: { type:'poll', payload:{ state:'live', videoUID, hlsUrl:url, source } }, context: this._ctx() });
+            this.playerState = r.nextState; this._dispatchEffects(r.sideEffects);
+          }
         } else {
           const ev = errorCode ? { type:'poll', payload:{ state:'error', errorCode, source } }
             : { type:'poll', payload:{ state:'idle', videoUID:null, hlsUrl:null } };
@@ -205,6 +251,10 @@ export class HSVideoElement extends HTMLElement {
           this._startReconnectWatchdog();
           this.statusOverlay.updateStatus('reconnecting');
         }
+        // Settled to idle (stream down) → cancel any in-flight recovery probe so
+        // it can't later cap out and FATAL.
+        if (this.playerState === STATE.IDLE) this._abortProbe();
+        this._updatePosterMessage();
       }
       if (evt.type === 'error') this.debugError('Poller error:', evt.payload.error);
       if (evt.type === 'backoff') this.debugLog('Poller backoff:', evt.payload.delay, 'ms');
@@ -225,9 +275,11 @@ export class HSVideoElement extends HTMLElement {
       const url = `https://customer-${this.posterMgr.customerCode}.cloudflarestream.com/${this.inputId}/manifest/video.m3u8`;
       this._createEngine(url);
       if (!this._currentEngine) { this._enterFatal(); return; }
-      if (this._currentEngine instanceof HlsEngine) {
-        this._currentEngine.on('manifestParsed', () => { this.autoplay && this._attemptAutoplay(); });
-      }
+      // Autoplay on manifestParsed for BOTH engines. NativeHlsEngine maps
+      // 'manifestParsed' → the video element's 'loadedmetadata', so Safari/iOS
+      // VOD autoplays too (this was previously gated to HlsEngine and never
+      // fired on native, leaving iPhone/Safari VOD dead).
+      this._currentEngine.on('manifestParsed', () => { this.autoplay && this._attemptAutoplay(); });
     });
   }
 
@@ -242,6 +294,22 @@ export class HSVideoElement extends HTMLElement {
       this._createEngine(streamUrl);
       if (!this._currentEngine) { this._enterFatal(); return; }
       this._currentEngine.on('error', (_e, d) => this._onEngineError(d));
+    });
+  }
+
+  // Rebuild the live stream from scratch on the current edge. Used when a
+  // stream returns after stopping: the old engine has stalled across the gap,
+  // so we destroy it and re-acquire (probe → load → prebuffer → reveal).
+  _rebuildLiveStream(url) {
+    safe('rebuildLiveStream', () => {
+      if (!HSVideoElement.isValidHlsUrl(url)) { this._enterFatal(); return; }
+      this._stopPrebufferGate();
+      this._stopStallWatchdog();
+      this.currentStreamUrl = url; this.latestLiveHlsUrl = url;
+      this.probeAttempts = 0; this._networkErrorRecoveryAttempts = 0; this.mediaErrorRecoveryAttempts = 0;
+      this._fastRecovery = true; // mid-stream "one sec" recovery → fast path
+      this.playerState = STATE.PREPARING;
+      this._probeManifestAndStart(url);
     });
   }
 
@@ -265,15 +333,15 @@ export class HSVideoElement extends HTMLElement {
       if (!d?.fatal) return;
       if (d.type === 'MEDIA_ERROR') {
         if (this.mediaErrorRecoveryAttempts < MAX_MEDIA_ERROR_RECOVERY_ATTEMPTS) { this._currentEngine?.recoverMediaError(); this.mediaErrorRecoveryAttempts++; }
-        else this._enterFatal();
+        else this._failOrIdle();
       } else if (d.type === 'NETWORK_ERROR') {
         const recov = ['manifestLoadError','manifestLoadTimeOut','levelLoadError','levelLoadTimeOut','fragLoadError','fragLoadTimeOut'];
         if (this._networkErrorRecoveryAttempts < 2 && recov.includes(d.details)) {
           const b = this._networkErrorRecoveryAttempts === 0 ? 2000 : 5000;
           this._networkErrorRecoveryAttempts++;
           this.timers.setTimeout(() => { this._currentEngine?.startLoad(-1); }, b);
-        } else this._enterFatal();
-      } else this._enterFatal();
+        } else this._failOrIdle();
+      } else this._failOrIdle();
     });
   }
 
@@ -290,22 +358,225 @@ export class HSVideoElement extends HTMLElement {
       if (this.throughputSamples.length >= MIN_THROUGHPUT_SAMPLES) headroom = this.throughputSamples[this.throughputSamples.length-1] / (this._currentEngine?.levels?.[this._currentEngine.currentLevel]?.bitrate || 1);
       thresholdSecs = headroom >= 2 ? Math.max(10,3*segDur) : headroom >= 1.5 ? Math.max(12,3*segDur) : headroom >= 1.2 ? Math.max(15,3*segDur) : headroom >= 1.0 ? Math.max(20,3*segDur) : Math.max(28,3*segDur);
       const segs = segDur > 0 ? bufferAhead / segDur : 0;
-      if (ready && bufferAhead >= thresholdSecs && segs >= 3 && (bufferAhead >= thresholdSecs || (this.prebufferStartTs > 0 && (Date.now() - this.prebufferStartTs >= PREBUFFER_TIMEOUT_MS))) && this.gestureUnlock?.isUnlocked) {
+      const prebufferTimedOut = this.prebufferStartTs > 0 && (Date.now() - this.prebufferStartTs >= PREBUFFER_TIMEOUT_MS);
+      // After the stream has played once, recover fast: a small buffer is enough
+      // to resume; Hls.js keeps filling toward the full buffer in the background.
+      const minBuf = this._fastRecovery ? FAST_RECOVERY_PREBUFFER_SECONDS : thresholdSecs;
+      const minSegs = this._fastRecovery ? 1 : 3;
+      // Stream is confirmed playable once we have enough buffer (or the prebuffer
+      // timeout elapsed with at least HAVE_FUTURE_DATA).
+      const bufferReady = ready && ((bufferAhead >= minBuf && segs >= minSegs) || prebufferTimedOut);
+      // Clear the stuck-in-PREPARING fatal timer as soon as the stream is
+      // confirmed playable — even while we wait on the user's gesture, so a
+      // viewer who is slow to click doesn't trip the fatal timeout.
+      if (bufferReady) this._clearFatalTimer();
+      if (bufferReady && this.gestureUnlock?.isUnlocked) {
         this.pendingPlayRequest = false;
+        this._stopPrebufferGate();
         v.play().catch(e => this.debugError('Play failed:', e));
       }
       this._updateDebugPanel({ bufferAhead, inProgress: ready, clicked: !!this.gestureUnlock?.isUnlocked });
     });
   }
 
+  // Periodic prebuffer-gate tick. tryStartPlayback() only acts once the buffer
+  // is ready AND the user has clicked, so it must be polled while we wait. The
+  // gate self-stops when pendingPlayRequest clears (playback started or aborted).
+  _startPrebufferGate() {
+    safe('startPrebufferGate', () => {
+      this._stopPrebufferGate();
+      this._gateTimer = this.timers.setInterval(() => {
+        if (!this.pendingPlayRequest) { this._stopPrebufferGate(); return; }
+        this.tryStartPlayback();
+      }, GATE_CHECK_INTERVAL_MS);
+    });
+  }
+
+  _stopPrebufferGate() {
+    safe('stopPrebufferGate', () => {
+      if (this._gateTimer) { this.timers.clearInterval(this._gateTimer); this._gateTimer = null; }
+    });
+  }
+
+  // ── Poster crossfade on stream stop ──
+  // When a live stream stops the player keeps draining its buffer. Once only
+  // POSTER_FADEOUT_LEAD_SECONDS of buffer remain, crossfade back to the poster
+  // so it fully covers the video before playback runs dry (no frozen frame).
+  _startDrainToPoster() {
+    safe('startDrainToPoster', () => {
+      this._stopRevealMonitor();
+      if (this._drainMonitorTimer) return;
+      this._drainMonitorTimer = this.timers.setInterval(() => {
+        const v = this.videoEl;
+        const ahead = (v?.buffered?.length) ? Math.max(0, (v.buffered.end(0) || 0) - v.currentTime) : 0;
+        if (ahead <= POSTER_FADEOUT_LEAD_SECONDS) {
+          this.ui.fadePoster(1, POSTER_CROSSFADE_MS);
+          this._stopDrainToPoster();
+        }
+      }, 500);
+    });
+  }
+
+  _stopDrainToPoster() {
+    safe('stopDrainToPoster', () => {
+      if (this._drainMonitorTimer) { this.timers.clearInterval(this._drainMonitorTimer); this._drainMonitorTimer = null; }
+    });
+  }
+
+  // Hold the poster after playback begins until the picture is sharp (the ABR
+  // ramp-up means the first couple of segments are low-res), then crossfade.
+  _revealWhenSharp() {
+    safe('revealWhenSharp', () => {
+      this._stopRevealMonitor();
+      const start = Date.now();
+      // On a reconnect (already played once) get back fast: short crossfade and
+      // don't wait for the HD ramp. The first-ever play still waits for sharp.
+      const fast = this._fastRecovery;
+      const fadeMs = fast ? FAST_RECOVERY_FADE_MS : POSTER_CROSSFADE_MS;
+      const reveal = () => {
+        this._stopRevealMonitor();
+        this.ui.fadePoster(0, fadeMs);
+        // Fade the under-logo message out a touch faster than the poster, so it
+        // dissolves gracefully as the video appears (instead of vanishing).
+        this.ui.fadePosterMessage(0, POSTER_MESSAGE_FADE_MS);
+        this.statusOverlay.updateStatus('live');
+      };
+      const check = () => {
+        if (this.playerState !== STATE.PLAYING) { this._stopRevealMonitor(); return; }
+        const h = this.videoEl?.videoHeight || 0;
+        if (fast || h >= POSTER_REVEAL_MIN_HEIGHT || (Date.now() - start) >= POSTER_REVEAL_MAX_WAIT_MS) reveal();
+      };
+      this._revealMonitorTimer = this.timers.setInterval(check, 250);
+      check();
+    });
+  }
+
+  _stopRevealMonitor() {
+    safe('stopRevealMonitor', () => {
+      if (this._revealMonitorTimer) { this.timers.clearInterval(this._revealMonitorTimer); this._revealMonitorTimer = null; }
+    });
+  }
+
+  // Stall watchdog: independent of the slow status poll, it watches the actual
+  // <video>. If playback stops advancing with an empty buffer while the stream
+  // is still live, the engine has stalled on a dead edge — rebuild fast.
+  _startStallWatchdog() {
+    safe('startStallWatchdog', () => {
+      this._stopStallWatchdog();
+      const v0 = this.videoEl;
+      this._lastBufferEnd = (v0?.buffered?.length) ? v0.buffered.end(v0.buffered.length - 1) : 0;
+      this._lastBufferEndTs = Date.now();
+      this._stallWatchdogTimer = this.timers.setInterval(() => {
+        const v = this.videoEl;
+        if (!v || this.playerState !== STATE.PLAYING) return;
+        const bEnd = v.buffered?.length ? v.buffered.end(v.buffered.length - 1) : 0;
+        if (bEnd > this._lastBufferEnd + 0.3) {
+          // The feed is still delivering new data — all good.
+          this._lastBufferEnd = bEnd; this._lastBufferEndTs = Date.now();
+          return;
+        }
+        // The feed's leading edge has stopped advancing (stalled). Keep playing
+        // the buffer we already have — show as much of the stream as possible —
+        // and only step in once it's nearly drained, covering the short gap with
+        // a "one sec" card while we rebuild on the live edge.
+        const ahead = Math.max(0, bEnd - v.currentTime);
+        if (ahead <= RECOVERY_BUFFER_FLOOR_SECONDS
+            && (Date.now() - this._lastBufferEndTs) >= STALL_RECOVERY_MS
+            && this.streamCurrentlyLive && this.latestLiveHlsUrl) {
+          this.debugLog('Stall watchdog: buffer nearly drained on a dead feed — recovering');
+          this._recovering = true;
+          this.ui.fadePoster(1, FAST_RECOVERY_FADE_MS);
+          this._rebuildLiveStream(this.latestLiveHlsUrl);
+          this._updatePosterMessage();
+        }
+      }, 1000);
+    });
+  }
+
+  _stopStallWatchdog() {
+    safe('stopStallWatchdog', () => {
+      if (this._stallWatchdogTimer) { this.timers.clearInterval(this._stallWatchdogTimer); this._stallWatchdogTimer = null; }
+    });
+  }
+
+  // Under-logo poster message. Shown only after the play button is pressed and
+  // only until the stream has played once — after that we can't know why a
+  // stream stopped, so we show nothing. (hasPlayedOnce resets on page refresh.)
+  /** Pick a random line from a POSTER_MESSAGES pool. */
+  _pickMessage(key) {
+    const arr = POSTER_MESSAGES[key];
+    if (!Array.isArray(arr) || arr.length === 0) return '';
+    return arr[Math.floor(Math.random() * arr.length)];
+  }
+
+  _updatePosterMessage() {
+    safe('updatePosterMessage', () => {
+      // Settling back to idle (e.g. stream truly ended) clears recovery state.
+      if (this.playerState === STATE.IDLE) this._recovering = false;
+      // PLAYING: the reveal crossfade owns the fade-out. FATAL: _enterFatal owns
+      // its own message. Don't disturb either here.
+      if (this.playerState === STATE.PLAYING || this.playerState === STATE.FATAL) return;
+      let key = null;
+      if (this._recovering) {
+        // Recovering from a mid-stream stall — shown even though hasPlayedOnce.
+        key = 'recovering';
+      } else if (this.gestureUnlock?.isUnlocked) {
+        // PREPARING means a stream is coming up / re-buffering (including the
+        // deep re-buffer after a long outage) → always say "starting shortly".
+        // The IDLE "waiting" message only shows before the first-ever play;
+        // after that, an idle stream is just the bare logo (no cause claimed).
+        if (this.playerState === STATE.PREPARING) key = 'preparing';
+        else if (this.playerState === STATE.IDLE && !this.hasPlayedOnce) key = 'idle';
+      }
+      // Pick a fresh random line only when the message key changes, so it holds
+      // steady while we're in a given state (no re-roll on every poll).
+      if (key !== this._currentMsgKey) {
+        this._currentMsgKey = key;
+        this._currentMsgText = key ? this._pickMessage(key) : '';
+      }
+      this.ui.setPosterMessage(this._currentMsgText);
+      this.ui.fadePosterMessage(this._currentMsgText ? 1 : 0, 0);
+    });
+  }
+
   _probeManifestAndStart(url) {
     safe('probeManifestAndStart', () => {
-      if (this._currentEngine === null || this.playerState === STATE.FATAL) return;
+      if (this.playerState === STATE.FATAL) return;
+      if (!HSVideoElement.isValidHlsUrl(url)) { this.debugError('Invalid HLS URL:', url); this._enterFatal(); return; }
       this.probeAttempts++;
-      if (this.probeAttempts > MANIFEST_PROBE_MAX_ATTEMPTS) { this._enterFatal(); return; }
-      probeManifest(url, { maxAttempts: MANIFEST_PROBE_MAX_ATTEMPTS - this.probeAttempts + 1, initialDelayMs: this.probeAttempts===1?5000:0, intervalMs: 1500, abortSignal: this._probeAbortController?.signal })
-        .then(() => { this.timers.setTimeout(() => { this._currentEngine?.startLoad(-1); this.pendingPlayRequest = true; this.prebufferStartTs = Date.now(); this.playerState = STATE.PREPARING; this.statusOverlay.updateStatus('preparing'); this.tryStartPlayback(); }, 2000); })
-        .catch(() => {});
+      if (this.probeAttempts > MANIFEST_PROBE_MAX_ATTEMPTS) { this._failOrIdle(); return; }
+      if (!this._probeAbortController) this._probeAbortController = new AbortController();
+      // Probe the manifest FIRST. The engine is not created until Cloudflare is
+      // actually serving a playlist — so a not-yet-live input (HTTP 204) leaves
+      // the player waiting in PREPARING instead of handing an empty manifest to
+      // Hls.js and instant-fataling. (Preserve-list: "CORS pre-probe before
+      // loadSource".)
+      probeManifest(url, { maxAttempts: MANIFEST_PROBE_MAX_ATTEMPTS - this.probeAttempts + 1, initialDelayMs: 0, intervalMs: 1500, abortSignal: this._probeAbortController?.signal })
+        .then(() => { this.timers.setTimeout(() => {
+          if (this._destroyed || this.playerState === STATE.FATAL || this.playerState === STATE.IDLE) return;
+          // Manifest confirmed ready — attach the engine, begin fragment
+          // loading (autoStartLoad is false), and run the prebuffer gate.
+          this.loadStream(url);
+          if (!this._currentEngine) return;
+          this._currentEngine.startLoad(-1);
+          this.pendingPlayRequest = true;
+          this.prebufferStartTs = Date.now();
+          this.playerState = STATE.PREPARING;
+          this.statusOverlay.updateStatus('preparing');
+          this._startPrebufferGate();
+          this.tryStartPlayback();
+          // Manifest is loading — now guard against getting stuck in PREPARING
+          // (fragments never buffer). Waiting for the manifest to first appear
+          // is handled by the probe's own cap, not this timer.
+          this._startFatalTimer();
+        }, 300); })
+        .catch((err) => {
+          if (this._destroyed) return;
+          if (err && /abort/i.test(err.message || '')) return;
+          // Manifest never came up in the probe window. In live operation this
+          // just means the stream is down → idle logo + keep polling, not FATAL.
+          this._failOrIdle();
+        });
     });
   }
 
@@ -314,13 +585,57 @@ export class HSVideoElement extends HTMLElement {
   _enterFatal() {
     safe('enterFatal', () => {
       this._stopReconnectWatchdog();
+      this._stopPrebufferGate();
       this.timers.clearTimeout(this.fatalTimer); this.fatalTimer = null;
       this.stopPolling();
       if (this._currentEngine) { this._currentEngine.destroy(); this._currentEngine = null; }
       this.videoEl?.pause();
+      this._stopDrainToPoster();
+      this._stopRevealMonitor();
+      this._stopStallWatchdog();
+      this._recovering = false;
       this.setPoster('fatal', this.posterMgr.fatal);
+      this.ui.showPosterInstant(true);
+      // Fatal uses the same logo card with a random "refresh" line — dots off,
+      // since it's an instruction, not a "working on it" state.
+      this.ui.setPosterMessage(this._pickMessage('fatal'), false);
+      this.ui.fadePosterMessage(1, 0);
       this.playerState = STATE.FATAL;
       this.statusOverlay.updateStatus('error');
+    });
+  }
+
+  // FATAL is terminal ("please refresh"). During live operation (already played
+  // once) most failures are just the stream being down — fall back to the idle
+  // logo and keep polling instead, so we re-acquire when it returns.
+  _failOrIdle() {
+    if (this.hasPlayedOnce) this._recoverToIdle();
+    else this._enterFatal();
+  }
+
+  _recoverToIdle() {
+    safe('recoverToIdle', () => {
+      this._stopReconnectWatchdog();
+      this._stopPrebufferGate();
+      this._stopStallWatchdog();
+      this._stopRevealMonitor();
+      this._stopDrainToPoster();
+      this._abortProbe();
+      this._clearFatalTimer();
+      this._recovering = false;
+      this.pendingPlayRequest = false;
+      if (this._currentEngine) { this._currentEngine.destroy(); this._currentEngine = null; }
+      this.videoEl?.pause();
+      this.playerState = STATE.IDLE;
+      this.setPoster('idle', this.posterMgr.idle);
+      this.ui.showPosterInstant(true);
+      this._updatePosterMessage();
+    });
+  }
+
+  _abortProbe() {
+    safe('abortProbe', () => {
+      if (this._probeAbortController) { this._probeAbortController.abort(); this._probeAbortController = null; }
     });
   }
 
@@ -337,7 +652,7 @@ export class HSVideoElement extends HTMLElement {
         const ahead = Math.max(0, (v.buffered.end(0)||0) - v.currentTime);
         if (ahead < RECONNECT_WATCHDOG_BUFFER_THRESHOLD) {
           this.timers.clearTimeout(this.fatalTimer); this.fatalTimer = null;
-          this.timers.setTimeout(() => this._enterFatal(), RECONNECT_WATCHDOG_FATAL_TTL);
+          this.timers.setTimeout(() => this._failOrIdle(), RECONNECT_WATCHDOG_FATAL_TTL);
         }
       }, RECONNECT_WATCHDOG_INTERVAL_MS);
     });
@@ -386,6 +701,11 @@ export class HSVideoElement extends HTMLElement {
         this.prebufferStartTs = Date.now();
         this.playerState = STATE.PREPARING;
         this.statusOverlay.updateStatus('preparing');
+        // Begin fragment loading on the swapped-in engine and run the gate
+        // (autoStartLoad is false, so the new engine needs an explicit start).
+        this._currentEngine.startLoad(-1);
+        this._startPrebufferGate();
+        this.tryStartPlayback();
         // Destroy old engine after 2s for audio cross-fade.
         this.timers.setTimeout(() => { oldEngine.destroy(); }, 2000);
       });
@@ -404,7 +724,7 @@ export class HSVideoElement extends HTMLElement {
         this.fatalTimer = null;
         if (this.playerState !== STATE.PLAYING && this.playerState !== STATE.FATAL) {
           this.debugError('Fatal timer fired — stuck in', this.playerState, 'for', FATAL_TIMEOUT_MS, 'ms');
-          this._enterFatal();
+          this._failOrIdle();
         }
       }, FATAL_TIMEOUT_MS);
     });
@@ -428,19 +748,26 @@ export class HSVideoElement extends HTMLElement {
   _dispatchEffects(effects) { for (const fx of effects) safe('effects', () => {
     if (fx.type === 'loadHls') {
       const url = fx.payload.url || `https://customer-${this.posterMgr.customerCode}.cloudflarestream.com/${fx.payload.videoUID}/manifest/video.m3u8`;
-      this.currentStreamUrl = url; this.latestLiveHlsUrl = url; this.loadStream(url);
-      // Entering PREPARING — start fatal timer so the player can't sit forever
-      // on a stuck PREPARING (manifest 404 outside the probe window, dead
-      // network, etc.). The 'playing' event handler clears it on success.
-      this._startFatalTimer();
+      this.currentStreamUrl = url; this.latestLiveHlsUrl = url;
+      this._drainingToIdle = false; this._stopDrainToPoster(); this._stopRevealMonitor(); this.ui.showPosterInstant(true);
+      this.probeAttempts = 0; this._networkErrorRecoveryAttempts = 0; this.mediaErrorRecoveryAttempts = 0;
+      // A (re)start from idle always uses the full, deep prebuffer — this covers
+      // both the first play and coming back from a long outage. Only the
+      // mid-stream "one sec" recovery (_rebuildLiveStream) uses the fast path.
+      this._fastRecovery = false;
+      // Probe the manifest first, then attach the engine + run the prebuffer
+      // gate (see _probeManifestAndStart). The engine is NOT created until the
+      // manifest is actually serving a playlist, so an unready / 204 manifest
+      // leaves the player waiting in PREPARING rather than instant-fataling.
+      this._probeManifestAndStart(url);
     }
-    if (fx.type === 'destroyHls') { if (this._currentEngine) { this._currentEngine.destroy(); this._currentEngine = null; } this.videoEl?.pause(); this.currentStreamUrl = null; this._clearFatalTimer(); }
+    if (fx.type === 'destroyHls') { this._drainingToIdle = false; this._recovering = false; this._stopDrainToPoster(); this._stopRevealMonitor(); this._stopStallWatchdog(); if (this._currentEngine) { this._currentEngine.destroy(); this._currentEngine = null; } this.videoEl?.pause(); this.currentStreamUrl = null; this._clearFatalTimer(); this.ui.showPosterInstant(true); }
     if (fx.type === 'startPlayback') { this.videoEl?.play(); this._clearFatalTimer(); }
     if (fx.type === 'setPoster') { this.setPoster(fx.payload.which, fx.payload.url || this.posterMgr[fx.payload.which]); }
     if (fx.type === 'setErrorPoster') { if (this.videoEl) this.videoEl.poster = this.posterMgr.fatal; }
     if (fx.type === 'showStatus') { this.statusOverlay.updateStatus(fx.payload); }
     if (fx.type === 'startFatal') { this._enterFatal(); }
-    if (fx.type === 'drainToIdle') { this._drainingToIdle = true; }
+    if (fx.type === 'drainToIdle') { this._drainingToIdle = true; this.ui.setPosterImage(this.posterMgr.idle); this._startDrainToPoster(); }
     if (fx.type === 'logError') {
       const msg = fx.payload && DEBUG_ERROR_MESSAGES[fx.payload.errorCode];
       if (msg) this.debugError(`[${fx.payload.errorCode}]`, msg);

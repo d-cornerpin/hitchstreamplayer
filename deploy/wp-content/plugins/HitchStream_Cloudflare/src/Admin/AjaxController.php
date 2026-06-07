@@ -62,9 +62,25 @@ class AjaxController {
 
     /** Register all wp_ajax_* hooks. */
     public static function register(): void {
-        $ctrl = new self();
         foreach (array_keys(self::ALLOWLIST) as $action) {
-            add_action("wp_ajax_{$action}", [$ctrl, 'dispatch']);
+            add_action("wp_ajax_{$action}", [self::class, 'dispatchStatic']);
+        }
+    }
+
+    /**
+     * Lazily construct the controller only when an admin AJAX action actually
+     * fires. Constructing at boot (the old `new self()` in register()) eagerly
+     * instantiated the service classes, whose constructors call
+     * Config::required('HSCF_cloudflare_account_id') and throw ConfigError if
+     * it is unset — which white-screened EVERY page (front-end and admin).
+     * Deferring construction to dispatch time confines any ConfigError to the
+     * AJAX response of an authenticated admin request.
+     */
+    public static function dispatchStatic(): void {
+        try {
+            (new self())->dispatch();
+        } catch (ConfigError $e) {
+            wp_send_json_error('HitchStream is not fully configured: ' . $e->getMessage(), 500);
         }
     }
 

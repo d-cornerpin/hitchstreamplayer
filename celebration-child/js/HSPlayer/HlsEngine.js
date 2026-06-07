@@ -101,6 +101,10 @@ export class HlsEngine {
   on(event, fn) {
     if (!this._listeners[event]) this._listeners[event] = [];
     this._listeners[event].push(fn);
+    // 'error' is already delivered to these listeners via _emit() in
+    // _setupListeners(). Registering it directly on Hls.js as well would fire
+    // every handler twice and double-count recovery attempts — so stop here.
+    if (event === 'error') return;
     // Also forward to Hls.js. Convert camelCase ('manifestParsed') to the
     // UPPER_SNAKE_CASE constant Hls.js exposes ('MANIFEST_PARSED'). A naive
     // toUpperCase() yields 'MANIFESTPARSED' which is undefined and turns the

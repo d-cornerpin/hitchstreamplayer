@@ -73,25 +73,13 @@ function hs_list_cf_webhooks(): array {
     return $result;
 }
 
-// ── Live-state shim ────────────────────────────────────────────────
-
-/**
- * @deprecated Use LiveInputService::listWithDetails() directly.
- * §4: returns bool (isLive = first input with 'connected' status).
- */
-function hs_compute_server_live_state(string $input_id): bool {
-    $svc = new LiveInputService();
-    $inputs = $svc->listWithDetails();
-    if (!is_array($inputs)) {
-        return false;
-    }
-    foreach ($inputs as $input) {
-        if (isset($input->uid) && $input->uid === $input_id && isset($input->status_details)) {
-            return strtolower($input->status_details) === 'connected';
-        }
-    }
-    return false;
-}
+// ── Live-state shim removed ────────────────────────────────────────
+// hs_compute_server_live_state() is defined in the child theme's
+// functions.php — it reads the cached webhook transient, which is the
+// lightweight path the player page uses. Defining it here as well caused a
+// fatal "Cannot redeclare" on every request (the plugin loads before the
+// theme). No external caller references this name (verified across the repo
+// and the live server's mu-plugins/plugins).
 
 // ── Live input shims ───────────────────────────────────────────────
 

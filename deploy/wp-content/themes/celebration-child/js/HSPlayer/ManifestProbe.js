@@ -55,10 +55,17 @@ export function probeManifest(url, opts = {}) {
         const probeUrl = `${url}${sep}_cb=${Date.now()}`;
         const res = await fetch(probeUrl, { method: 'GET', mode: 'cors', credentials: 'omit', cache: 'no-store' });
 
-        if (res.ok) {
-          if (probeInterval) clearInterval(probeInterval);
-          resolve(res);
-          return;
+        // Require a real playlist, not just any 2xx. Cloudflare returns 204
+        // (empty body) for a live input that is not broadcasting yet — that is
+        // NOT ready. Keep probing until we actually get an #EXTM3U manifest, so
+        // we never hand an empty manifest to Hls.js (which fatals on it).
+        if (res.status === 200) {
+          const body = await res.text();
+          if (body.includes('#EXTM3U')) {
+            if (probeInterval) clearInterval(probeInterval);
+            resolve(res);
+            return;
+          }
         }
       } catch (err) {
         // Not ready yet — continue probing

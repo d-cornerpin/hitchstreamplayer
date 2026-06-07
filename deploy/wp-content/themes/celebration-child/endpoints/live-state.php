@@ -7,6 +7,11 @@
  * Keep in place one release so any existing bookmarks/monitors don't 404.
  */
 
+// This file is hit directly over HTTP, so WordPress is not otherwise loaded.
+// Without this, rest_url()/wp_safe_redirect() are undefined → fatal 500 on
+// every poll. (Matches the sibling cf-live-webhook.php bootstrap.)
+require_once __DIR__ . '/../../../../wp-load.php';
+
 $input_id = isset($_GET['inputId']) ? trim($_GET['inputId']) : '';
 if ($input_id) {
     $redirect_url = rest_url('hitchstream/v1/live-state') . '?inputId=' . urlencode($input_id);

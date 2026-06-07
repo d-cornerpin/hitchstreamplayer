@@ -4,3 +4,9 @@
 # Local-only: deploy backups (one timestamped folder per ./deploy.sh run).
 # Each can be 50-100MB; keeping them in git would bloat the repo.
 backups/
+
+# Local-only manual test page (not for deploy)
+live-test.html
+live-state-mock.json
+test-server.py
+live-test-logo.svg

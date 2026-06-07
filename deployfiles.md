@@ -19,6 +19,8 @@ The script makes a timestamped backup under `backups/` before every deploy, prom
 
 The tables below list every file. Upload each to the server path shown.
 
+> **Upload the plugin (`HitchStream_Cloudflare/`) before the theme (`celebration-child/`).** The theme's `functions.php` references a plugin file, so plugin-first avoids a brief window where the site could error. (`deploy.sh` already does this automatically.)
+
 ## What's in `deploy/`
 
 The `deploy/` directory contains **only the files we changed during the rebuild** — 38 files total. Untouched files (the 12 wedding templates, fonts, images, CSS, supporting JS, etc.) are deliberately NOT in `deploy/` so this deploy can never overwrite them. Layout mirrors the WordPress structure:
@@ -143,6 +145,8 @@ Once files are uploaded, do these in the WordPress admin (no FTP, no code):
 | ☐ | Set the same string in the Cloudflare dashboard's webhook destination configuration | Cloudflare → Notifications → Destinations |
 | ☐ | Set `HSCF_customer_id` to your Cloudflare customer code (the `customer-XXXXX` value from your Stream URLs) | Settings → HS CloudFlare |
 | ☐ | Set `HSCF_cloudflare_api_token` to a Cloudflare API token with Stream read/write scopes | Settings → HS CloudFlare |
+| ☐ | **Verify `HSCF_cloudflare_account_id` is set** — required; likely already present from the old plugin. The plugin errors on every page if it is blank. | Settings → HS CloudFlare |
+| ☐ | **Confirm Cloudflare auth exists:** either `HSCF_cloudflare_api_token` (preferred) OR both `HSCF_cloudflare_email` + `HSCF_cloudflare_api_key` | Settings → HS CloudFlare |
 | ☐ | Rotate the streamer API key on `streamer1.hitchstream.com` | The streamer service admin |
 | ☐ | Set the new streamer API key in `HSCF_streamer_api_key` | Settings → HS CloudFlare |
 | ☐ | Verify alert email is set in `HSCF_alert_email` | Settings → HS CloudFlare |
@@ -159,6 +163,9 @@ After all of the above:
 | ☐ | Click the play button. If a stream is currently live, it should start within ~10 seconds. If idle, the player should show a "waiting" state without crashing. |
 | ☐ | Open Tools → HitchStream Activity. The page should load (it'll be empty until the first webhook arrives). |
 | ☐ | Trigger a Cloudflare test webhook. Confirm a row appears in the activity page within 5 seconds, with `signature_ok` = ✓. |
+| ☐ | Load the **wp-admin Dashboard** — confirm it renders (no white screen). Catches a missing-`account_id` fatal. |
+| ☐ | Open `/wp-content/themes/celebration-child/endpoints/live-state.php?inputId=test` in a browser — expect JSON (or a redirect to it), NOT an HTTP 500. |
+| ☐ | Confirm in Settings → HS CloudFlare that account id, webhook secret, customer id, and Cloudflare auth (token or email+key) are all present. |
 | ☐ | Test on an iPhone running iOS 15.x or 16.x (the native-HLS path / B2 fix verification). |
 | ☐ | Test on a modern iPhone (Hls.js path). |
 | ☐ | Test on Android Chrome. |

@@ -4,7 +4,13 @@
  */
 
 if (!class_exists('HS\\CloudflareClient')) {
-    require_once WP_PLUGIN_DIR . '/HitchStream_Cloudflare/src/HS/CloudflareClient.php';
+    // is_readable guard: during a deploy the theme may land a moment before the
+    // plugin, and a bare require_once on a not-yet-present file is fatal. Fail
+    // soft instead — the player page degrades rather than white-screening.
+    $hs_cf_client_file = WP_PLUGIN_DIR . '/HitchStream_Cloudflare/src/HS/CloudflareClient.php';
+    if (is_readable($hs_cf_client_file)) {
+        require_once $hs_cf_client_file;
+    }
 }
 function get_status_ajax_callback() {
     global $post;
@@ -655,10 +661,12 @@ function hs_update_live_state_transient($input_id, $state, $video_uid = '', $err
  * Determine if a live input is currently live based on cached webhook state.
  * Returns false if no cached state or state is not live.
  */
+if (!function_exists('hs_compute_server_live_state')) {
 function hs_compute_server_live_state($input_id) {
     $data = get_transient("hs_live_state_{$input_id}");
     if (!$data) return false;
     return in_array($data['state'], ['live', 'reconnected', 'new_configuration_accepted']);
+}
 }
 
 // ── Dead code removed (§B4.8): hs_register_cf_webhook, hs_list_cf_webhooks, hs_delete_cf_webhook, hs_unregister_cf_webhook ──

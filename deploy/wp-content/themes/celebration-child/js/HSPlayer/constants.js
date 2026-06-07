@@ -39,6 +39,89 @@ export const MANIFEST_PROBE_MAX_ATTEMPTS = 40;
 export const LATENCY_LOG_INTERVAL_MS = 15000;
 export const GATE_CHECK_INTERVAL_MS = 1000;
 
+// ─── Poster crossfade (UI polish) ───────────────────────────────────
+// Duration of the poster<->video crossfade, and how many seconds of buffer
+// must remain when a stream stops before we begin fading back to the poster
+// (so the fade completes while there is still video to play under it).
+export const POSTER_CROSSFADE_MS = 5000;
+export const POSTER_FADEOUT_LEAD_SECONDS = 10;
+// Hold the poster after playback starts until the picture ramps up to at least
+// this many vertical pixels (hides the low-res ABR warm-up), or until the
+// max-wait elapses (so a genuinely low-bandwidth viewer is still revealed).
+export const POSTER_REVEAL_MIN_HEIGHT = 720;
+export const POSTER_REVEAL_MAX_WAIT_MS = 10000;
+
+// Under-logo poster messages. Shown ONLY after the play button is pressed, and
+// ONLY until the stream has played once (after that we can't know why a stream
+// stopped, so we make no claim — no text). Cleared naturally on page refresh.
+// Each is a pool — the player picks one at random when it enters that state.
+export const POSTER_MESSAGES = {
+  idle: [
+    'Waiting for an incoming stream',
+    'The celebration is about to begin',
+    'Saving you a seat',
+    'The happy couple will be with you shortly',
+    'Getting ready for the big moment',
+    'Love is on its way',
+    'Almost time to celebrate',
+    'Your front-row seat is ready',
+    'Gathering everyone together',
+    'The moment is almost here',
+  ],
+  preparing: [
+    'Stream will begin in a moment',
+    'Setting the scene',
+    'Finding our place',
+    'Cueing things up',
+    'Getting the picture just right',
+    'Bringing you in',
+    'Almost ready',
+    'Here we go',
+    'Tuning in',
+    'Just a moment',
+  ],
+  recovering: [
+    'Sorry. One sec',
+    'Be right back',
+    'Pardon the interruption',
+    'Catching our breath',
+    'Hang tight',
+    'Back in a blink',
+    'Smoothing things out',
+    'Reconnecting',
+    "Don't go anywhere",
+    'Just a quick moment',
+  ],
+  fatal: [
+    "Something's not quite right — please refresh the page",
+    "Let's try that again — please refresh the page",
+    'We hit a snag — please refresh the page to reconnect',
+    'Lost the connection — please refresh the page to rejoin',
+    'A little hiccup — please refresh the page',
+    'Please refresh the page to rejoin the celebration',
+    'To get back to the love, please refresh the page',
+    'Looks like we stalled — please refresh the page',
+    'Our apologies — please refresh the page to continue',
+    'One quick fix: please refresh the page',
+  ],
+};
+// How long the under-logo message takes to fade out as the video reveals
+// (a bit shorter than the poster crossfade so the text clears first).
+export const POSTER_MESSAGE_FADE_MS = 3000;
+
+// Recovery after the stream has already played once: resume at a small buffer
+// with a quick fade, then let Hls.js refill the deep buffer in the background.
+export const FAST_RECOVERY_PREBUFFER_SECONDS = 5;
+export const FAST_RECOVERY_FADE_MS = 1000;
+// If the buffer's leading edge stops advancing while the stream is live, the
+// feed has stalled (dead edge) — recover after this long, without waiting for
+// the buffer to drain. Must exceed the segment interval to avoid false alarms.
+export const STALL_RECOVERY_MS = 6000;
+// Once the feed is confirmed stalled, keep playing the existing buffer down to
+// about this many seconds before showing the "one sec" card and rebuilding —
+// so the viewer sees as much of the stream as possible first.
+export const RECOVERY_BUFFER_FLOOR_SECONDS = 5;
+
 // ─── Prebuffer gate constants ───────────────────────────────────────
 export const MIN_PREBUFFER_SECONDS = 10;
 export const MIN_PREBUFFER_SEGMENTS = 3;

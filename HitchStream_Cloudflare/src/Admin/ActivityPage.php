@@ -27,6 +27,15 @@ class ActivityPage {
         add_action('admin_init', [__CLASS__, 'handleCsvExport']);
     }
 
+    /** Neutralize CSV/formula injection: prefix a leading =,+,-,@,tab,CR with '. */
+    private static function csvSafe($value): string {
+        $value = (string) $value;
+        if ($value !== '' && in_array($value[0], ['=', '+', '-', '@', "\t", "\r"], true)) {
+            return "'" . $value;
+        }
+        return $value;
+    }
+
     /** Handle CSV export submission. */
     public static function handleCsvExport(): void {
         if (!isset($_GET['hscf_export_csv']) || !current_user_can('manage_options')) {
@@ -46,12 +55,12 @@ class ActivityPage {
         foreach ($rows as $row) {
             fputcsv($fp, [
                 $row['received_at'],
-                $row['input_id'],
-                $row['event_type'],
-                $row['normalized_state'] ?? '',
-                $row['error_code'] ?? '',
+                self::csvSafe($row['input_id']),
+                self::csvSafe($row['event_type']),
+                self::csvSafe($row['normalized_state'] ?? ''),
+                self::csvSafe($row['error_code'] ?? ''),
                 $row['signature_ok'] ? 'yes' : 'no',
-                $row['correlation_id'],
+                self::csvSafe($row['correlation_id']),
             ]);
         }
         fclose($fp);

@@ -28,7 +28,7 @@ All configuration is stored as WordPress options. Managed via **Admin → HS Clo
 
 | Option | Required | Default | Purpose |
 |--------|----------|---------|---------|
-| `HSCF_customer_id` | No | `juu1r5es4cbffqjf` | Cloudflare Customer ID used to construct customer-specific URLs (`customer-{id}.cloudflarestream.com`). No longer hardcoded. |
+| `HSCF_customer_id` | **Yes** | — | Cloudflare Customer ID used to construct customer-specific URLs (`customer-{id}.cloudflarestream.com`). No built-in default (the old hardcoded fallback was removed). **If unset, the live player goes straight to its fatal/error state and never plays.** |
 | `HSCF_poster_initial` | No | Built-in default | Poster image shown when player loads before stream state is known. |
 | `HSCF_poster_idle` | No | Built-in default | Poster image shown when stream is idle (no active broadcast). |
 | `HSCF_poster_fatal` | No | Built-in default | Poster image shown when stream encounters a fatal error. |

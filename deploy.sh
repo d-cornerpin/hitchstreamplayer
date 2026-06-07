@@ -174,21 +174,25 @@ fi
 
 step "Uploading new files"
 
+# Upload the PLUGIN FIRST, then the theme. The theme's functions.php requires a
+# plugin file (src/HS/CloudflareClient.php); if the theme lands first there is a
+# window where it references a not-yet-present plugin file. Plugin-first closes
+# that window. (functions.php also has an is_readable guard as a backstop.)
 if [[ $DRY_RUN -eq 1 ]]; then
-    rsync -azn --stats --itemize-changes --exclude='.DS_Store' \
-        "$LOCAL_DEPLOY/themes/celebration-child/" \
-        "$SSH_ALIAS:${REMOTE_THEME}/"
     rsync -azn --stats --itemize-changes --exclude='.DS_Store' \
         "$LOCAL_DEPLOY/plugins/HitchStream_Cloudflare/" \
         "$SSH_ALIAS:${REMOTE_PLUGIN}/"
+    rsync -azn --stats --itemize-changes --exclude='.DS_Store' \
+        "$LOCAL_DEPLOY/themes/celebration-child/" \
+        "$SSH_ALIAS:${REMOTE_THEME}/"
     note "$(color_yellow 'Dry-run: above is what WOULD be transferred.')"
 else
     rsync -az --stats --exclude='.DS_Store' \
-        "$LOCAL_DEPLOY/themes/celebration-child/" \
-        "$SSH_ALIAS:${REMOTE_THEME}/"
-    rsync -az --stats --exclude='.DS_Store' \
         "$LOCAL_DEPLOY/plugins/HitchStream_Cloudflare/" \
         "$SSH_ALIAS:${REMOTE_PLUGIN}/"
+    rsync -az --stats --exclude='.DS_Store' \
+        "$LOCAL_DEPLOY/themes/celebration-child/" \
+        "$SSH_ALIAS:${REMOTE_THEME}/"
     note "$(color_green '✓') Upload complete"
 fi
 
