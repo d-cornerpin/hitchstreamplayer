@@ -156,6 +156,7 @@ export class HSVideoElement extends HTMLElement {
       this._clearFatalTimer();
       if (this._livePoller) { this._livePoller.stop(); this._livePoller = null; }
       if (this._probeAbortController) { this._probeAbortController.abort(); this._probeAbortController = null; }
+      if (this._autoUnmuteCtrl) { this._autoUnmuteCtrl.abort(); this._autoUnmuteCtrl = null; }
       this.timers.dispose(); this.timers = new TimerRegistry();
       if (this.gestureUnlock) this.gestureUnlock.resolve();
     });
@@ -234,6 +235,9 @@ export class HSVideoElement extends HTMLElement {
               // Stream returned while we still have buffer playing — keep the
               // engine and buffer, just stop showing the poster. Hls.js resumes
               // loading the new segments on its own; no rebuild, no re-prebuffer.
+              // The video never paused, so no 'playing' fires — restore controls
+              // explicitly as we reveal it.
+              if (this.videoEl) this.videoEl.controls = true;
               this.ui.fadePoster(0, FAST_RECOVERY_FADE_MS);
             } else {
               // Buffer ran dry / engine stalled — rebuild fast.
@@ -310,6 +314,10 @@ export class HSVideoElement extends HTMLElement {
       if (!HSVideoElement.isValidHlsUrl(url)) { this._enterFatal(); return; }
       this._stopPrebufferGate();
       this._stopStallWatchdog();
+      // The recovery ("one sec…") poster is up while we rebuild — hide native
+      // controls so the control bar doesn't float over the card. Re-enabled on
+      // the next 'playing'.
+      if (this.videoEl) this.videoEl.controls = false;
       this.currentStreamUrl = url; this.latestLiveHlsUrl = url;
       this.probeAttempts = 0; this._networkErrorRecoveryAttempts = 0; this.mediaErrorRecoveryAttempts = 0;
       this._fastRecovery = true; // mid-stream "one sec" recovery → fast path
@@ -774,7 +782,7 @@ export class HSVideoElement extends HTMLElement {
     if (fx.type === 'setErrorPoster') { if (this.videoEl) this.videoEl.poster = this.posterMgr.fatal; }
     if (fx.type === 'showStatus') { this.statusOverlay.updateStatus(fx.payload); }
     if (fx.type === 'startFatal') { this._enterFatal(); }
-    if (fx.type === 'drainToIdle') { this._drainingToIdle = true; this.ui.setPosterImage(this.posterMgr.idle); this._startDrainToPoster(); }
+    if (fx.type === 'drainToIdle') { this._drainingToIdle = true; if (this.videoEl) this.videoEl.controls = false; this.ui.setPosterImage(this.posterMgr.idle); this._startDrainToPoster(); }
     if (fx.type === 'logError') {
       const msg = fx.payload && DEBUG_ERROR_MESSAGES[fx.payload.errorCode];
       if (msg) this.debugError(`[${fx.payload.errorCode}]`, msg);
@@ -807,16 +815,23 @@ export class HSVideoElement extends HTMLElement {
   }
 
   // After a forced-muted start, restore sound on the viewer's next tap/click.
+  // Both listeners share one AbortController so the first gesture tears down
+  // BOTH — otherwise the unfired one lingers and would silently un-mute the
+  // viewer again later (e.g. right after they deliberately muted via controls).
   _armAutoUnmute() {
     safe('armAutoUnmute', () => {
       if (this._autoUnmuteArmed || this._destroyed) return;
       this._autoUnmuteArmed = true;
+      const ctrl = new AbortController();
+      this._autoUnmuteCtrl = ctrl;
       const unmute = () => safe('autoUnmute', () => {
         if (this.videoEl) this.videoEl.muted = false;
         this._autoUnmuteArmed = false;
+        ctrl.abort();                 // removes both listeners at once
+        this._autoUnmuteCtrl = null;
       });
-      document.addEventListener('click', unmute, { once: true });
-      document.addEventListener('touchstart', unmute, { once: true, passive: true });
+      document.addEventListener('click', unmute, { signal: ctrl.signal });
+      document.addEventListener('touchstart', unmute, { signal: ctrl.signal, passive: true });
     });
   }
 
