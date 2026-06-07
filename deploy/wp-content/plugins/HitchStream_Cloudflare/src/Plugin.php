@@ -22,7 +22,10 @@ class Plugin {
     public static function boot(): void {
         self::registerAutoloader();
         Admin\AjaxController::register();
-        Admin\SettingsPage::registerMenu();
+        // registerMenu() calls add_menu_page(), which only exists in admin
+        // context and must run on admin_menu — hook it, don't call it inline
+        // (calling it at load fatals on every non-admin / wp-cli request).
+        add_action('admin_menu', [Admin\SettingsPage::class, 'registerMenu']);
         Admin\SettingsPage::register();
         Admin\ActivityPage::register();
         add_action('admin_notices', [Admin\SettingsPage::class, 'showWebhookSecretNotice']);
@@ -93,10 +96,15 @@ class Plugin {
             if (strpos($class, 'HS\\') !== 0) {
                 return;
             }
-            $relative = str_replace('HS\\', '', $class);
-            $file = __DIR__ . '/' . str_replace('\\', '/', $relative) . '.php';
-            if (file_exists($file)) {
-                require_once $file;
+            // The src/ tree is split: HS\Admin\* and HS\Services\* live directly
+            // under src/, while HS\Config, HS\LiveState\*, HS\Webhook\* live under
+            // src/HS/. Try both so every HS\ class resolves regardless of layout.
+            $rel = str_replace('\\', '/', substr($class, 3)); // drop leading "HS\"
+            foreach ([__DIR__ . '/' . $rel . '.php', __DIR__ . '/HS/' . $rel . '.php'] as $file) {
+                if (file_exists($file)) {
+                    require_once $file;
+                    return;
+                }
             }
         });
     }

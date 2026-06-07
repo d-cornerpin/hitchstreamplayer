@@ -56,6 +56,32 @@ Webhook signature verification (timing-safe, rejects on missing secret); every A
 
 ---
 
+## 🔴 Found by the local WordPress mirror (2026-06-07) — plugin fatals lint couldn't see
+
+A Docker WP mirror (`local-wp/`, gitignored — matches prod: WP 6.1.1 / PHP 8.2) ran the
+real theme + plugin for the first time. The v2 plugin had **never** been activated in a real
+WordPress (prod still runs the old monolith), so these only surfaced on execution:
+
+- [x] **P1 — Plugin activation fatal: `Class "HS\LiveState\Endpoint" not found`.** The `src/`
+  tree is split — `HS\Admin\*` / `HS\Services\*` live under `src/`, but `HS\Config`,
+  `HS\LiveState\*`, `HS\Webhook\*` live under `src/HS/`. The autoloader only looked under
+  `src/`, so the never-explicitly-required `Endpoint` couldn't load. **Fix:** autoloader now
+  tries both `src/` and `src/HS/`. `src/Plugin.php`. (The earlier audit *read* the autoloader
+  and cleared it — only running it caught this.)
+- [x] **P2 — Plugin load fatal: `Call to undefined function HS\Admin\add_menu_page()`.**
+  `boot()` called `SettingsPage::registerMenu()` inline; it calls `add_menu_page()`, which
+  only exists in admin context / on the `admin_menu` hook — so it fatals on every front-end
+  and wp-cli request. **Fix:** hook it (`add_action('admin_menu', …)`) like the others.
+  `src/Plugin.php`.
+- [ ] **P3 (note, not fixed) — Player-page CSP blocks Google Fonts.** Confirmed live: the
+  page's `Content-Security-Policy` is sent and is `style-src 'self'` with no `font-src`, so
+  Josefin Sans falls back to a system font. Fix when wiring fonts for real: add
+  `fonts.googleapis.com`/`fonts.gstatic.com` to the CSP, or self-host the font.
+
+Everything else exercised cleanly: REST `live-state` (contract JSON + cached-state read),
+webhook signature accept/reject, test-ping, `disconnected`→state-write→REST chain, and the
+real player template render. Drive it with `local-wp/set-live.sh` and `simulate-webhook.sh`.
+
 ## 🚦 Still required before this is deploy-ready (NOT code — process)
 
 1. **Validate against a real Cloudflare live stream on a throwaway/staging page.** Confirm: poster + play button pre-click → click → stream reaches PLAYING within ~10s; idle shows the idle poster without crashing; a mid-event `videoUID` change (handover) keeps playing. This is the test that was deferred and never run — the B1 fix specifically needs it.
