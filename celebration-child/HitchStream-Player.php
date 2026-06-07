@@ -4,17 +4,21 @@
 // B5.4: Content-Security-Policy — restrict the player page to only what it needs.
 // 'self' is required on connect-src so the player can poll its own live-state
 // endpoint on hitchstream.com. img-src is explicit so default-src 'none' does
-// not block poster images. media-src includes 'self' for self-hosted fallback
-// assets.
+// not block poster images. media-src needs blob: because Hls.js plays through
+// MediaSource Extensions, which assigns the <video> a blob: source — without it
+// the stream is CSP-blocked and never plays. worker-src needs blob: too, since
+// Hls.js demuxes in a Web Worker created from a blob: URL (else it's blocked and
+// silently degrades to the main thread).
 header("Content-Security-Policy: "
     . "default-src 'none';"
     . "script-src 'self' 'unsafe-inline';"
+    . "worker-src 'self' blob:;"
     . "style-src 'self' 'unsafe-inline';"
     . "font-src 'self';"
     . "img-src 'self' https:;"
     . "frame-src https://hitchstream.com;"
     . "connect-src 'self' https://*.cloudflarestream.com;"
-    . "media-src 'self' https://*.cloudflarestream.com;",
+    . "media-src 'self' blob: https://*.cloudflarestream.com;",
     true
 );
 
@@ -91,12 +95,65 @@ if ($input_id_for_server && function_exists('hs_compute_server_live_state')) {
             width: 100%;
             overflow: hidden;
         }
+
+        /* Slotted poster card — authored in the page (light DOM) so page CSS +
+           the self-hosted font apply, even though the player uses shadow DOM.
+           The logo is used as a mask (same-origin → allowed by img-src 'self')
+           so a soft sheen can sweep across its actual shape. This replaces the
+           default poster IMAGE: once the player sees slotted content it hides
+           its image-poster layer, so the old Poster_*.png never shows. */
+        .logo-shimmer {
+            width: min(90%, 860px);
+            aspect-ratio: 642.53 / 135.5;
+            background-color: #fff;
+            position: relative;
+            -webkit-mask: url('<?php echo get_stylesheet_directory_uri(); ?>/img/hitchstream-logo-white.svg') no-repeat center / contain;
+            mask: url('<?php echo get_stylesheet_directory_uri(); ?>/img/hitchstream-logo-white.svg') no-repeat center / contain;
+            /* Slow, gentle "breath" in and out — a calm sign of life on the
+               poster instead of the sliding sheen. */
+            animation: hs-breathe 18s ease-in-out infinite;
+        }
+        @keyframes hs-breathe {
+            0%, 100% { transform: scale(1); }
+            50%      { transform: scale(1.045); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .logo-shimmer { animation: none; }
+        }
     </style>
 </head>
 
 <body>
 
-    <hs-video id="video" autoplay></hs-video>
+    <hs-video id="video" autoplay>
+        <div slot="poster" class="logo-shimmer" role="img" aria-label="HitchStream"></div>
+    </hs-video>
+
+    <?php if (isset($_GET['debug'])): ?>
+    <!-- Debug-only status bar (rendered solely when ?debug=1). Never ships to
+         a normal viewer — the markup isn't emitted without the query flag. -->
+    <div id="hs-debug-bar" style="position:fixed;bottom:0;left:0;right:0;z-index:9999;
+         font:12px/1.4 monospace;color:#9f9;background:rgba(0,0,0,.7);padding:6px 10px;">debug…</div>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            var hsVideo = document.getElementById('video');
+            var bar = document.getElementById('hs-debug-bar');
+            setInterval(function () {
+                if (!hsVideo || !bar) return;
+                var v = hsVideo.shadowRoot && hsVideo.shadowRoot.querySelector('video');
+                var buf = 0;
+                if (v && v.buffered && v.buffered.length) buf = (v.buffered.end(v.buffered.length - 1) - v.currentTime).toFixed(1);
+                var eng = (window.Hls && Hls.isSupported && Hls.isSupported()) ? 'hls.js' : 'native';
+                bar.textContent = 'state=' + hsVideo.playerState
+                    + '  buf=' + buf + 's'
+                    + '  rdy=' + (v ? v.readyState : '-')
+                    + '  paused=' + (v ? v.paused : '-')
+                    + '  muted=' + (v ? v.muted : '-')
+                    + '  eng=' + eng;
+            }, 1000);
+        });
+    </script>
+    <?php endif; ?>
 
     <script>
         document.addEventListener('DOMContentLoaded', function() {
