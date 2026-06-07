@@ -99,6 +99,7 @@ Upload destination: **`/wp-content/themes/celebration-child/`**
 | `js/HSPlayer/utils/safe.js` | try/catch wrapper with ring buffer + always-on console.error. | ☐ |
 | `js/HSPlayer/utils/timers.js` | TimerRegistry — every timer disposed on disconnect. | ☐ |
 | `js/vendor/hls-1.6.16.min.js` | Self-hosted Hls.js (replaces the `cdn.jsdelivr.net` reference). | ☐ |
+| `fonts/josefin-sans-latin.woff2` | Self-hosted Josefin Sans (variable, latin) for the player's under-logo messages — keeps the CSP off Google Fonts. | ☐ |
 
 ---
 

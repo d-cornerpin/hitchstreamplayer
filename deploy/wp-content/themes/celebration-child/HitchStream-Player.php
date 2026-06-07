@@ -10,6 +10,7 @@ header("Content-Security-Policy: "
     . "default-src 'none';"
     . "script-src 'self' 'unsafe-inline';"
     . "style-src 'self' 'unsafe-inline';"
+    . "font-src 'self';"
     . "img-src 'self' https:;"
     . "frame-src https://hitchstream.com;"
     . "connect-src 'self' https://*.cloudflarestream.com;"
@@ -72,6 +73,16 @@ if ($input_id_for_server && function_exists('hs_compute_server_live_state')) {
     </script>
 
     <style>
+        /* Self-hosted Josefin Sans (variable, latin) — served from the theme so
+           the strict CSP only needs font-src 'self'. Used by the player's
+           under-logo messages (font-family declared in the shadow DOM). */
+        @font-face {
+            font-family: 'Josefin Sans';
+            font-style: normal;
+            font-weight: 100 700;
+            font-display: swap;
+            src: url('<?php echo get_stylesheet_directory_uri(); ?>/fonts/josefin-sans-latin.woff2') format('woff2');
+        }
         html,
         body {
             margin: 0;
