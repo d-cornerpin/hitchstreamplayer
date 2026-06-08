@@ -121,31 +121,9 @@ if ($input_id_for_server && function_exists('hs_compute_server_live_state')) {
         <div slot="poster" class="logo-shimmer" role="img" aria-label="HitchStream"></div>
     </hs-video>
 
-    <?php if (isset($_GET['debug'])): ?>
-    <!-- Debug-only status bar (rendered solely when ?debug=1). Never ships to
-         a normal viewer — the markup isn't emitted without the query flag. -->
-    <div id="hs-debug-bar" style="position:fixed;bottom:0;left:0;right:0;z-index:9999;
-         font:12px/1.4 monospace;color:#9f9;background:rgba(0,0,0,.7);padding:6px 10px;">debug…</div>
-    <script>
-        document.addEventListener('DOMContentLoaded', function () {
-            var hsVideo = document.getElementById('video');
-            var bar = document.getElementById('hs-debug-bar');
-            setInterval(function () {
-                if (!hsVideo || !bar) return;
-                var v = hsVideo.shadowRoot && hsVideo.shadowRoot.querySelector('video');
-                var buf = 0;
-                if (v && v.buffered && v.buffered.length) buf = (v.buffered.end(v.buffered.length - 1) - v.currentTime).toFixed(1);
-                var eng = (window.Hls && Hls.isSupported && Hls.isSupported()) ? 'hls.js' : 'native';
-                bar.textContent = 'state=' + hsVideo.playerState
-                    + '  buf=' + buf + 's'
-                    + '  rdy=' + (v ? v.readyState : '-')
-                    + '  paused=' + (v ? v.paused : '-')
-                    + '  muted=' + (v ? v.muted : '-')
-                    + '  eng=' + eng;
-            }, 1000);
-        });
-    </script>
-    <?php endif; ?>
+    <!-- The debug overlay is the single top-right panel inside the <hs-video>
+         shadow DOM (see DebugPanel.js), shown only with ?debug=1. The old fixed
+         bottom bar was removed — its useful fields now live in that one panel. -->
 
     <script>
         document.addEventListener('DOMContentLoaded', function() {

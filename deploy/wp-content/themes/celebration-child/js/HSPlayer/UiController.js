@@ -168,7 +168,13 @@ export class UiController {
         .play-button svg { display: block; height: 100%; width: auto; filter: drop-shadow(20px 10px 16px rgba(0, 0, 0, 1)); }
         .status-message { position: absolute; top: 12px; left: 12px; z-index: 15; background: rgba(0,0,0,0.6); color: #fff; padding: 6px 12px; border-radius: 4px; font-family: sans-serif; font-size: 14px; display: none; opacity: 1; transition: opacity 0.5s ease; }
         .status-message.fade-out { opacity: 0; }
-        .debug-panel { position: absolute; top: 12px; right: 12px; z-index: 15; background: rgba(0,0,0,0.75); color: #0f0; padding: 8px; border-radius: 4px; font-family: monospace; font-size: 11px; display: none; white-space: pre; }
+        .debug-panel { position: absolute; top: 12px; right: 12px; z-index: 15; background: rgba(0,0,0,0.84); color: #c34d5f; padding: 10px 12px; border-radius: 6px; font-family: -apple-system, 'Segoe UI', Roboto, system-ui, sans-serif; font-size: 11px; line-height: 1.5; display: none; max-width: 250px; box-shadow: 0 2px 14px rgba(0,0,0,0.45); }
+        .debug-panel h4 { margin: 0 0 3px; font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.09em; opacity: 0.65; }
+        .debug-panel .row { display: flex; justify-content: space-between; gap: 12px; }
+        .debug-panel .row .k { opacity: 0.7; white-space: nowrap; }
+        .debug-panel .row .v { text-align: right; font-weight: 600; }
+        .debug-panel .sep { height: 7px; }
+        .debug-panel .tech { opacity: 0.6; font-size: 10px; }
       </style>
       <video playsinline></video>
       <div class="poster">
