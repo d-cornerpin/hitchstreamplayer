@@ -320,7 +320,13 @@
 
             var countdownfinished = false;
             var cd = $(this);
-            var s = cd.data('init-seconds');
+            // Anchor to an absolute target moment, computed ONCE from the wall
+            // clock. Every tick recomputes the remaining time from this anchor
+            // (see output() and the scheduler below) instead of decrementing a
+            // counter — so the countdown can't drift and a backgrounded tab no
+            // longer falls behind: on return it shows the correct time instantly.
+            var endAt = Date.now() + (cd.data('init-seconds') * 1000);
+            var s;
 
             var seconds_arr = ['', ''];
             var seconds_arr_prev = ['', ''];
@@ -346,8 +352,8 @@
             }
 
             var output = function () {
-                s = s - 1;
-                if (s < 0) {
+                s = Math.round((endAt - Date.now()) / 1000);
+                if (s <= 0) {
                     s = 0;
                     countdownfinished = true;
                 }
@@ -433,11 +439,23 @@
 
             }
 
-            output();
-
-            setInterval(function () {
+            // Drift-free scheduler: each tick re-reads the clock (output() above)
+            // and aligns to the next whole second, stopping once finished. Because
+            // the value is derived from the wall clock, a throttled or paused timer
+            // in a background tab can no longer make the countdown inaccurate.
+            var loop = function () {
                 output();
-            }, 1000);
+                if (!countdownfinished) {
+                    setTimeout(loop, 1000 - (Date.now() % 1000));
+                }
+            };
+            loop();
+
+            // Snap to the correct time the moment the tab is refocused, instead of
+            // waiting for the next (just-unthrottled) tick.
+            document.addEventListener('visibilitychange', function () {
+                if (!document.hidden && !countdownfinished) { output(); }
+            });
         });
 
         // Video
