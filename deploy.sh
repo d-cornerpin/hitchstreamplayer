@@ -119,6 +119,59 @@ else
     note "Mode: LIVE deploy"
 fi
 
+# ── Pre-flight: deploy/ freshness ────────────────────────────────────────────
+# The #1 way to ship a broken site is a STALE deploy/ — old file contents, or a
+# new file (e.g. a new css) that was never copied in. This refuses to deploy
+# unless deploy/ exactly matches the current source. Rebuild deploy/ (and commit
+# new files first — the rebuild only includes committed/tracked changes) if this
+# fails. See deployfiles.md "If deploy/ ever gets out of sync".
+
+step "Verifying deploy/ matches current source"
+
+FRESH_ISSUES=0
+
+# (a) Files in deploy/ whose contents differ from the repo source.
+while IFS= read -r df; do
+    case "$df" in
+        */plugins/HitchStream_Cloudflare/*) repo="HitchStream_Cloudflare/${df##*/plugins/HitchStream_Cloudflare/}" ;;
+        */themes/celebration-child/*)        repo="celebration-child/${df##*/themes/celebration-child/}" ;;
+        *) continue ;;
+    esac
+    if [[ ! -f "$repo" ]] || ! cmp -s "$df" "$repo"; then
+        note "$(color_red '✗') out of date in deploy/: ${repo}"
+        FRESH_ISSUES=1
+    fi
+done < <(find "$LOCAL_DEPLOY" -type f ! -name '.DS_Store')
+
+# (b) Source files changed/added since the baseline that are MISSING from deploy/.
+if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1 && git cat-file -e 41d35f0 2>/dev/null; then
+    while IFS= read -r src; do
+        [[ -z "$src" || ! -f "$src" ]] && continue
+        # Match the rebuild script's exclusions: tests never ship.
+        [[ "$src" == *"__tests__"* || "$src" == *"/tests/"* ]] && continue
+        case "$src" in
+            HitchStream_Cloudflare/*) dpath="${LOCAL_DEPLOY}/plugins/${src}" ;;
+            celebration-child/*)      dpath="${LOCAL_DEPLOY}/themes/${src}" ;;
+            *) continue ;;
+        esac
+        if [[ ! -f "$dpath" ]]; then
+            note "$(color_red '✗') missing from deploy/: ${src}"
+            FRESH_ISSUES=1
+        fi
+    done < <( { git diff --name-only 41d35f0 -- celebration-child/ HitchStream_Cloudflare/ 2>/dev/null
+                git ls-files --others --exclude-standard -- celebration-child/ HitchStream_Cloudflare/ 2>/dev/null; } | sort -u )
+
+    # Loud-but-not-fatal warning if the working tree has uncommitted changes.
+    if [[ -n "$(git status --porcelain -- celebration-child/ HitchStream_Cloudflare/ 2>/dev/null)" ]]; then
+        note "$(color_yellow '!') You have uncommitted changes in the deployed dirs — deploy ships committed code only via deploy/. Commit + rebuild deploy/ if you meant to include them."
+    fi
+fi
+
+if [[ $FRESH_ISSUES -eq 1 ]]; then
+    abort "deploy/ is out of sync with your source (see ✗ above). Rebuild deploy/ (deployfiles.md), commit any new files first, then re-run."
+fi
+note "$(color_green '✓') deploy/ matches current source"
+
 # ── Timestamp & backup paths ─────────────────────────────────────────────────
 
 TIMESTAMP="$(date +%Y-%m-%d_%H%M%S)"
