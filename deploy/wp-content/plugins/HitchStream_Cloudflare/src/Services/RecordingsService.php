@@ -21,17 +21,7 @@ class RecordingsService {
      * Paginates through all Cloudflare videos.
      */
     public function findByStreamName(string $stream_name): array {
-        $all_videos = [];
-        $page = 1;
-        do {
-            $result = $this->client->listVideos(null, $page, 100);
-            $data = json_decode($result['body'], true);
-            if (!$result['success'] || !($data['success'] ?? false) || empty($data['result'])) {
-                break;
-            }
-            $all_videos = array_merge($all_videos, $data['result']);
-            $page++;
-        } while (!empty($data['result']));
+        $all_videos = $this->listAll();
 
         $filtered = [];
         foreach ($all_videos as $video) {
@@ -58,6 +48,36 @@ class RecordingsService {
         return $filtered;
     }
 
+    /** List all uploaded/recorded videos, as associative arrays. Pagination is
+     *  defensive: Cloudflare's /stream endpoint ignores ?page, so we dedup by
+     *  uid and stop as soon as a page adds nothing new (or returns a short
+     *  page), with a hard cap to guarantee termination. */
+    public function listAll(): array {
+        $all = [];
+        $seen = [];
+        for ($page = 1; $page <= 50; $page++) {
+            $result = $this->client->listVideos(null, $page, 100);
+            $data = json_decode($result['body'], true);
+            $batch = ($result['success'] && ($data['success'] ?? false)) ? ($data['result'] ?? []) : [];
+            if (empty($batch)) {
+                break;
+            }
+            $added = 0;
+            foreach ($batch as $v) {
+                $uid = $v['uid'] ?? null;
+                if ($uid !== null && !isset($seen[$uid])) {
+                    $seen[$uid] = true;
+                    $all[] = $v;
+                    $added++;
+                }
+            }
+            if ($added === 0 || count($batch) < 100) {
+                break;
+            }
+        }
+        return $all;
+    }
+
     /** Create a download for a recording by UID. */
     public function createDownload(string $video_id): array {
         return $this->client->post("stream/{$video_id}/downloads");
@@ -70,12 +90,20 @@ class RecordingsService {
 
         if ($result['success'] && !empty($data['result'])) {
             foreach ($data['result'] as $download) {
-                if (isset($download['url']) && strpos($download['url'], '.mp4') !== false) {
-                    return ['success' => true, 'download_url' => $download['url']];
+                if (!is_array($download) || empty($download['url'])) {
+                    continue;
                 }
+                $status  = $download['status'] ?? '';
+                $percent = isset($download['percentComplete']) && is_numeric($download['percentComplete'])
+                    ? (float) $download['percentComplete'] : null;
+                // Cloudflare keeps the .mp4 URL stable; only trust it once ready.
+                if ($status === 'ready' && strpos($download['url'], '.mp4') !== false) {
+                    return ['success' => true, 'download_url' => $download['url'], 'status' => 'ready', 'percent' => 100.0];
+                }
+                return ['success' => false, 'status' => $status ?: 'inprogress', 'percent' => $percent];
             }
         }
-        return ['success' => false];
+        return ['success' => false, 'status' => 'unknown', 'percent' => null];
     }
 
     /** Delete a recording by UID. */

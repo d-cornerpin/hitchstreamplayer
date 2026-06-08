@@ -28,7 +28,7 @@ class Plugin {
         add_action('admin_menu', [Admin\SettingsPage::class, 'registerMenu']);
         Admin\SettingsPage::register();
         Admin\ActivityPage::register();
-        add_action('admin_notices', [Admin\SettingsPage::class, 'showWebhookSecretNotice']);
+        add_action('admin_notices', [Admin\SettingsPage::class, 'showConfigNotices']);
         // Idempotently ensure the webhook log table exists. dbDelta no-ops
         // when the schema already matches. This covers the existing-install
         // upgrade path where register_activation_hook never fires.

@@ -1,0 +1,195 @@
+/* HitchStream CloudFlare — admin console styles.
+   Built on the native WordPress admin design language (colors, buttons,
+   dashicons) so it feels at home in wp-admin. */
+
+.hscf-admin { max-width: 1100px; }
+.hscf-admin .hscf-title-icon { font-size: 26px; width: 26px; height: 26px; vertical-align: text-bottom; color: #2271b1; }
+
+/* ── Tabs ── */
+.hscf-tabs { margin-top: 12px; }
+.hscf-tabs .nav-tab { display: inline-flex; align-items: center; gap: 6px; }
+.hscf-tabs .nav-tab .dashicons { font-size: 17px; width: 17px; height: 17px; }
+
+.hscf-lead { color: #646970; max-width: 640px; margin: 14px 0 18px; }
+.hscf-section-title { display: flex; align-items: center; gap: 8px; margin: 26px 0 10px; }
+.hscf-section-title .dashicons { color: #2271b1; }
+
+/* ── Collapsible setting cards (native <details>) ── */
+.hscf-settings { margin-top: 16px; }
+.hscf-card { background: #fff; border: 1px solid #dcdcde; border-radius: 6px; margin-bottom: 14px; box-shadow: 0 1px 1px rgba(0,0,0,.04); }
+.hscf-card__head { list-style: none; cursor: pointer; user-select: none; display: flex; align-items: center; gap: 10px; padding: 14px 16px; font-size: 14px; font-weight: 600; color: #1d2327; }
+.hscf-card__head::-webkit-details-marker { display: none; }
+.hscf-card__head::before { content: ""; flex: 0 0 auto; border-left: 6px solid #787c82; border-top: 5px solid transparent; border-bottom: 5px solid transparent; transition: transform .15s ease; }
+.hscf-card[open] > .hscf-card__head::before { transform: rotate(90deg); }
+.hscf-card__head .dashicons { color: #50575e; font-size: 18px; width: 18px; height: 18px; }
+.hscf-card__head:hover { background: #f6f7f7; border-radius: 6px 6px 0 0; }
+.hscf-card__hint { margin-left: auto; font-weight: 400; font-size: 12px; }
+.hscf-card__body { padding: 4px 16px 16px; border-top: 1px solid #f0f0f1; }
+.hscf-card__body .form-table th { padding-left: 0; }
+.hscf-ok { color: #008a20; font-weight: 600; }
+.hscf-ok::before { content: "\f147"; font-family: dashicons; vertical-align: middle; margin-right: 2px; }
+.hscf-warn { color: #b26200; font-weight: 600; }
+.hscf-warn::before { content: "\f534"; font-family: dashicons; vertical-align: middle; margin-right: 2px; }
+
+@media (prefers-reduced-motion: reduce) { .hscf-card__head::before { transition: none; } }
+
+/* ── Buttons / rows ── */
+.hscf-admin .button .dashicons { font-size: 16px; width: 16px; height: 16px; vertical-align: text-top; margin-right: 2px; }
+.hscf-btn-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.hscf-btn-row .button-link-delete { margin-left: auto; }
+.hscf-status-box { margin-top: 12px; padding: 10px 12px; background: #f6f7f7; border: 1px solid #dcdcde; border-left: 4px solid #2271b1; border-radius: 3px; }
+/* Green "Saved!" flash on the submit button after a save redirect. */
+.hscf-admin .button-primary.hscf-saved-flash { background: #008a20 !important; border-color: #008a20 !important; color: #fff !important; box-shadow: none !important; transition: background .2s ease; }
+/* Green "Copied!" flash on copy buttons. */
+.hscf-admin .button.hscf-copied { background: #008a20 !important; border-color: #008a20 !important; color: #fff !important; box-shadow: none !important; }
+.hscf-admin .button.hscf-copied .dashicons { color: #fff; }
+
+/* ── Streams toolbar ── */
+.hscf-toolbar { display: flex; flex-wrap: wrap; gap: 16px; justify-content: space-between; align-items: center; margin: 18px 0 22px; padding: 14px 16px; background: #fff; border: 1px solid #dcdcde; border-radius: 6px; }
+.hscf-toolbar__group { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; }
+.hscf-create { display: flex; gap: 6px; align-items: center; }
+.hscf-ll { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 600; color: #50575e; white-space: nowrap; cursor: pointer; }
+.hscf-ll input { margin: 0; }
+.hscf-create input[type=text] { min-width: 200px; }
+.hscf-placeholder { display: inline-flex; align-items: center; gap: 6px; color: #646970; font-size: 13px; }
+.hscf-toolbar__links { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* ── Live stream card ── */
+.hscf-stream { background: #fff; border: 1px solid #dcdcde; border-radius: 6px; margin-bottom: 18px; box-shadow: 0 1px 1px rgba(0,0,0,.04); overflow: hidden; }
+.hscf-stream__head { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: #f6f7f7; border-bottom: 1px solid #dcdcde; }
+.hscf-stream__chevron { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; padding: 0; margin: 0 -4px 0 0; background: none; border: none; cursor: pointer; color: #50575e; }
+.hscf-stream__chevron:hover { color: #1d2327; }
+.hscf-stream__chevron .dashicons { font-size: 20px; width: 20px; height: 20px; transition: transform .15s ease; }
+.hscf-stream.is-collapsed .hscf-stream__chevron .dashicons { transform: rotate(-90deg); }
+.hscf-stream.is-collapsed .hscf-stream__head { border-bottom: none; }
+.hscf-stream.is-collapsed .hscf-stream__grid { display: none; }
+@media (prefers-reduced-motion: reduce) { .hscf-stream__chevron .dashicons { transition: none; } }
+.hscf-stream__delete { margin-left: auto; flex: 0 0 auto; display: inline-flex; align-items: center; color: #b32d2e; text-decoration: none; }
+.hscf-stream__delete:hover { color: #d63638; }
+.hscf-stream__delete .dashicons { font-size: 18px; width: 18px; height: 18px; }
+.hscf-stream__name { font-size: 15px; }
+.hscf-stream__substatus { color: #646970; font-size: 12px; }
+.hscf-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+.hscf-badge .dashicons { font-size: 14px; width: 14px; height: 14px; }
+.hscf-badge--live { background: #edfaef; color: #008a20; }
+.hscf-badge--off { background: #fcf0f1; color: #d63638; }
+.hscf-badge--unknown { background: #f0f0f1; color: #646970; }
+.hscf-stream__grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; padding: 16px; }
+.hscf-stream__col h4 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: #646970; }
+.hscf-stream__col h4:not(:first-child) { margin-top: 16px; }
+.hscf-stream__col .button { margin: 0 4px 4px 0; }
+.hscf-stream__toggle { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
+/* Placeholder stream row: dropdown · play · stop · status (left→right) */
+.hscf-ph-row { display: flex; align-items: center; flex-wrap: nowrap; gap: 8px; margin-top: 14px; }
+.hscf-ph-row select { flex: 1 1 auto; min-width: 0; max-width: 190px; }
+.hscf-ph-status { flex: 0 0 auto; font-size: 12px; font-weight: 600; white-space: nowrap; }
+/* One button that cycles: green play → spinner → red stop → spinner → play.
+   Nudged down 1px so its center lines up with the select. */
+.hscf-ph-btn.button { position: relative; top: 2px; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; min-width: 36px; min-height: 30px; padding: 0 9px; box-shadow: none; }
+.hscf-ph-btn .dashicons { width: 18px; height: 18px; font-size: 18px; }
+.hscf-ph-btn.is-idle { background: #008a20; border-color: #00761b; color: #fff; }
+.hscf-ph-btn.is-idle:hover { background: #0a7d22; border-color: #00761b; color: #fff; }
+.hscf-ph-btn.is-running { background: #d63638; border-color: #b32d2e; color: #fff; }
+.hscf-ph-btn.is-running:hover { background: #c12f31; border-color: #b32d2e; color: #fff; }
+.hscf-ph-btn.is-busy { background: #f0f0f1; border-color: #c3c4c7; color: #646970; cursor: default; }
+.hscf-ph-btn.is-busy:disabled { opacity: 1; }
+.hscf-stop-sq { display: inline-block; width: 11px; height: 11px; background: #fff; border-radius: 1px; }
+.hscf-spin { animation: hscf-spin .9s linear infinite; }
+@keyframes hscf-spin { 100% { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .hscf-spin { animation: none; } }
+.hscf-delete-link { display: inline-flex; align-items: center; gap: 3px; margin-top: 14px; color: #b32d2e; text-decoration: none; font-size: 13px; }
+.hscf-delete-link:hover { color: #d63638; }
+.hscf-delete-link .dashicons { font-size: 15px; width: 15px; height: 15px; }
+.hscf-stream__preview iframe { border-radius: 4px; }
+.hscf-preview-pop { display: flex; justify-content: center; margin-top: 8px; color: #2271b1; text-decoration: none; }
+.hscf-preview-pop:hover { color: #135e96; }
+.hscf-preview-pop .dashicons { font-size: 18px; width: 18px; height: 18px; }
+
+.hscf-output-form { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.hscf-output { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 1px solid #f0f0f1; font-size: 13px; }
+.hscf-output span { flex: 1; word-break: break-all; }
+.hscf-output .delete-output-link { color: #b32d2e; }
+.hscf-recording { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 0; border-bottom: 1px solid #f0f0f1; font-size: 13px; }
+.hscf-recording__actions { display: inline-flex; gap: 10px; align-items: center; }
+/* Shared action icons — used by stream recordings AND the Video Library grid. */
+.hscf-icon-btn { display: inline-flex; text-decoration: none; }
+.hscf-icon-btn .dashicons { width: 18px; height: 18px; font-size: 18px; color: #50575e; transition: color .15s ease; }
+.hscf-icon-download .dashicons { color: #2271b1; }
+.hscf-icon-download .dashicons:hover, .hscf-icon-embed .dashicons:hover { color: #135e96; }
+.hscf-icon-delete .dashicons:hover { color: #d63638; }
+
+@media (max-width: 1100px) { .hscf-stream__grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 640px) { .hscf-stream__grid { grid-template-columns: 1fr; } .hscf-toolbar { flex-direction: column; align-items: stretch; } }
+
+/* ── Video library ── */
+.hscf-panel { background: #fff; border: 1px solid #dcdcde; border-radius: 6px; padding: 16px; margin-top: 16px; }
+.hscf-panel__title { display: flex; align-items: center; gap: 8px; margin: 0 0 4px; }
+.hscf-panel__title .dashicons { color: #2271b1; }
+.hscf-upload { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+.hscf-upload__pct { color: #646970; font-size: 13px; }
+.hscf-progress { width: 100%; max-width: 400px; height: 16px; background: #f0f0f1; border-radius: 8px; overflow: hidden; margin-top: 8px; }
+#progress-bar { height: 100%; width: 0; background: #2271b1; transition: width .2s ease; }
+.hscf-video-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
+.hscf-video-card { background: #fff; border: 1px solid #dcdcde; border-radius: 6px; padding: 10px; display: flex; flex-direction: column; }
+.video-name { font-weight: 600; text-align: center; min-height: 34px; margin: 0 0 8px; line-height: 1.3; word-break: break-word; }
+.video-buttons { display: flex; justify-content: center; gap: 14px; margin-top: 10px; }
+.video-buttons img { width: 22px; height: 22px; }
+
+/* ── Empty / error states ── */
+.hscf-empty { text-align: center; padding: 48px 24px; background: #fff; border: 1px dashed #c3c4c7; border-radius: 6px; color: #646970; }
+.hscf-empty .dashicons { font-size: 40px; width: 40px; height: 40px; color: #a7aaad; }
+.hscf-empty p { margin: 10px 0 0; font-size: 14px; }
+.hscf-empty--warn { border-color: #f0c33c; background: #fcf9e8; color: #674e00; }
+.hscf-empty--warn .dashicons { color: #dba617; }
+
+/* ── Toggle switch (preserved for the placeholder/output toggles) ── */
+.switch { position: relative; display: inline-block; width: 34px; height: 18px; flex: 0 0 auto; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.slider { position: absolute; cursor: pointer; inset: 0; background: #c3c4c7; transition: .3s; }
+.slider:before { position: absolute; content: ""; height: 14px; width: 14px; left: 2px; bottom: 2px; background: #fff; transition: .3s; }
+.slider.round { border-radius: 18px; }
+.slider.round:before { border-radius: 50%; }
+input:checked + .slider { background: #2271b1; }
+input:focus + .slider { box-shadow: 0 0 0 2px #2271b1; }
+input:checked + .slider:before { transform: translateX(16px); }
+
+/* ── Copy/embed modal (preserved) ── */
+.cfmodal { display: none; position: fixed; z-index: 100000; inset: 0; overflow: auto; background: rgba(0,0,0,.45); }
+.cfmodalbox { background: #fff; margin: 12% auto; padding: 22px; border-radius: 8px; width: 380px; max-width: 90%; box-shadow: 0 10px 40px rgba(0,0,0,.25); }
+.cfmodal-content { overflow-wrap: break-word; padding-top: 10px; }
+.cfmodal .close { color: #787c82; float: right; font-size: 26px; font-weight: 700; line-height: 1; cursor: pointer; }
+.cfmodal .close:hover { color: #1d2327; }
+
+/* SRT generator modal form */
+.cfmodal .hscf-modal-title { margin: 0 0 14px; font-size: 17px; }
+.hscf-srt-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 14px; margin-bottom: 18px; }
+.hscf-srt-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 600; color: #50575e; }
+.hscf-srt-grid input { width: 100%; }
+.hscf-srt-out { display: flex; flex-direction: column; gap: 12px; }
+.hscf-srt-label { font-size: 12px; font-weight: 600; color: #50575e; margin-bottom: 4px; }
+.hscf-srt-row { display: flex; align-items: center; gap: 8px; }
+.hscf-srt-row .modalcontentbox { flex: 1; min-width: 0; }
+.hscf-srt-row .srt-copy { flex: 0 0 auto; }
+.cfmodal .modalcontentbox { background: #f6f7f7; border: 1px solid #dcdcde; color: #1d2327; padding: 7px 9px; border-radius: 3px; font-family: Menlo, Consolas, monospace; font-size: 12px; word-break: break-all; line-height: 1.5; }
+
+/* ── Streamer placeholder-video manager ── */
+.hscf-sv-list { margin-bottom: 12px; }
+.hscf-sv-ul { margin: 0; padding: 0; list-style: none; max-width: 600px; }
+.hscf-sv-ul li { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border: 1px solid #dcdcde; border-radius: 4px; background: #fff; margin-bottom: 6px; }
+.hscf-sv-ul .dashicons { color: #2271b1; font-size: 18px; width: 18px; height: 18px; }
+.hscf-sv-name { flex: 1; word-break: break-all; }
+.hscf-sv-del { color: #b32d2e; text-decoration: none; font-size: 13px; }
+.hscf-sv-del:hover { color: #d63638; }
+.hscf-sv-upload { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.hscf-sv-upload .button .dashicons { vertical-align: text-top; }
+.hscf-sv-msg { font-size: 13px; }
+.hscf-sv-play { text-decoration: none; cursor: pointer; }
+.hscf-sv-play:hover { text-decoration: underline; }
+
+/* Preview modal */
+.hscf-sv-modal { position: fixed; inset: 0; z-index: 100001; background: rgba(0,0,0,.6); align-items: center; justify-content: center; }
+.hscf-sv-modal-box { position: relative; background: #fff; border-radius: 8px; padding: 16px; width: 520px; max-width: 92vw; box-shadow: 0 12px 48px rgba(0,0,0,.35); }
+.hscf-sv-modal-close { position: absolute; top: 6px; right: 12px; font-size: 26px; line-height: 1; font-weight: 700; color: #787c82; cursor: pointer; }
+.hscf-sv-modal-close:hover { color: #1d2327; }
+.hscf-sv-modal-title { margin: 0 28px 12px 0; font-size: 15px; word-break: break-all; }
+.hscf-sv-video { width: 100%; max-height: 60vh; border-radius: 4px; background: #000; display: block; }

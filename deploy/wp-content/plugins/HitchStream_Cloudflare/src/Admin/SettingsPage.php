@@ -28,13 +28,59 @@ class SettingsPage {
     }
 
     /** Show admin notice when webhook secret is not configured. */
-    public static function showWebhookSecretNotice(): void {
+    /**
+     * Surface missing/incomplete configuration as admin notices on every admin
+     * page. ERRORS (red) = something is broken; WARNINGS (yellow) = an optional
+     * feature is off. All checks are cheap get_option() reads — no HTTP — so
+     * this is safe to run on every page load.
+     */
+    public static function showConfigNotices(): void {
         if (!current_user_can('manage_options')) {
             return;
         }
-        $secret = get_option('HSCF_webhook_secret', '');
-        if (empty($secret)) {
-            echo '<div class="notice notice-error" style="border-left-color:#d63638;"><p><strong style="color:#d63638">&#9888; HitchStream:</strong> <strong style="color:#d63638">Webhook secret is NOT configured!</strong> All incoming webhooks are being rejected. Your weddings are not receiving stream state updates. <a href="' . admin_url('admin.php?page=HitchStream_Cloudflare') . '">Configure it here</a>.</p></div>';
+
+        $settings_url = admin_url('admin.php?page=HitchStream_Cloudflare&tab=settings');
+        $errors   = [];
+        $warnings = [];
+
+        // ── Cloudflare API credentials: account ID + an auth method ──
+        $account_id = (string) get_option('HSCF_cloudflare_account_id', '');
+        $has_token  = (string) get_option('HSCF_cloudflare_api_token', '') !== '';
+        $has_legacy = (string) get_option('HSCF_cloudflare_api_key', '') !== ''
+                   && (string) get_option('HSCF_cloudflare_email', '') !== '';
+        if ($account_id === '' || (!$has_token && !$has_legacy)) {
+            $errors[] = '<strong>Cloudflare API credentials are incomplete.</strong> Stream and video management can\'t reach Cloudflare. Add your Account ID and an API token (or email + API key) in Settings.';
+        }
+
+        // ── Customer ID — the player builds every stream URL from this ──
+        if ((string) get_option('HSCF_customer_id', '') === '') {
+            $errors[] = '<strong>Cloudflare Customer ID is not set.</strong> The player cannot build stream URLs — live and VOD playback will not work.';
+        }
+
+        // ── Webhook secret (the original, kept prominent) ──
+        if ((string) get_option('HSCF_webhook_secret', '') === '') {
+            $errors[] = '<strong>Webhook secret is NOT configured.</strong> Incoming Cloudflare webhooks are being rejected, so live state updates fall back to slower polling. Register the webhook in the Webhook panel.';
+        }
+
+        // ── Streamer service key (optional — degraded, not broken) ──
+        if ((string) get_option('HSCF_streamer_api_key', '') === '') {
+            $warnings[] = '<strong>Streamer service key is not set.</strong> Placeholder / holding streams and video management won\'t work until you add it.';
+        }
+
+        if ($errors) {
+            echo '<div class="notice notice-error" style="border-left-color:#d63638;"><p><strong style="color:#d63638">&#9888; HitchStream — needs attention:</strong></p><ul style="list-style:disc;margin:6px 0 10px 22px;">';
+            foreach ($errors as $e) {
+                echo '<li style="margin-bottom:4px;">' . $e . '</li>';
+            }
+            echo '</ul><p><a href="' . esc_url($settings_url) . '" class="button button-primary button-small">Open HitchStream Settings</a></p></div>';
+        }
+
+        if ($warnings) {
+            echo '<div class="notice notice-warning"><p><strong>&#9888; HitchStream — optional features not configured:</strong></p><ul style="list-style:disc;margin:6px 0 10px 22px;">';
+            foreach ($warnings as $w) {
+                echo '<li style="margin-bottom:4px;">' . $w . '</li>';
+            }
+            echo '</ul><p><a href="' . esc_url($settings_url) . '" class="button button-small">Open HitchStream Settings</a></p></div>';
         }
     }
 
@@ -65,26 +111,35 @@ class SettingsPage {
     }
 
     public static function registerPlayerSettings(): void {
-        register_setting('HSCF_player_settings', 'HSCF_customer_id');
-        register_setting('HSCF_player_settings', 'HSCF_poster_initial');
-        register_setting('HSCF_player_settings', 'HSCF_poster_idle');
-        register_setting('HSCF_player_settings', 'HSCF_poster_fatal');
+        register_setting('HSCF_player_settings', 'HSCF_customer_id', [
+            'sanitize_callback' => [__CLASS__, 'sanitize_customer_id'],
+        ]);
 
         add_settings_section('HSCF_player_settings_section', 'Player Settings', [__CLASS__, 'player_section_desc'], 'HitchStream_Cloudflare');
         add_settings_field('HSCF_customer_id_field', 'Cloudflare Customer ID', [__CLASS__, 'customer_id_field'], 'HitchStream_Cloudflare', 'HSCF_player_settings_section');
-        add_settings_field('HSCF_poster_initial_field', 'Poster Initial URL', [__CLASS__, 'poster_initial_field'], 'HitchStream_Cloudflare', 'HSCF_player_settings_section');
-        add_settings_field('HSCF_poster_idle_field', 'Poster Idle URL', [__CLASS__, 'poster_idle_field'], 'HitchStream_Cloudflare', 'HSCF_player_settings_section');
-        add_settings_field('HSCF_poster_fatal_field', 'Poster Fatal URL', [__CLASS__, 'poster_fatal_field'], 'HitchStream_Cloudflare', 'HSCF_player_settings_section');
+    }
+
+    /**
+     * Store the BARE customer code. The player builds URLs as
+     * customer-{code}.cloudflarestream.com, so a pasted "customer-XXXX" would
+     * double-prefix and break every stream URL site-wide. Strip it defensively.
+     */
+    public static function sanitize_customer_id($value): string {
+        $value = is_string($value) ? strtolower(trim($value)) : '';
+        return preg_replace('/^customer-/', '', $value);
     }
 
     public static function registerStreamerSettings(): void {
         register_setting('HSCF_streamer_settings', 'HSCF_streamer_api_url');
-        register_setting('HSCF_streamer_settings', 'HSCF_streamer_api_key');
+        register_setting('HSCF_streamer_settings', 'HSCF_streamer_api_key', [
+            'sanitize_callback' => [__CLASS__, 'sanitize_streamer_api_key'],
+        ]);
 
         add_settings_section('HSCF_streamer_settings_section', 'Streamer Service', [__CLASS__, 'streamer_section_desc'], 'HitchStream_Cloudflare');
         add_settings_field('HSCF_streamer_api_url_field', 'Streamer API URL', [__CLASS__, 'streamer_api_url_field'], 'HitchStream_Cloudflare', 'HSCF_streamer_settings_section');
         add_settings_field('HSCF_streamer_api_key_field', 'Streamer API Key', [__CLASS__, 'streamer_api_key_field'], 'HitchStream_Cloudflare', 'HSCF_streamer_settings_section');
         add_settings_field('hscf_streamer_test_field', null, [__CLASS__, 'streamer_test_field'], 'HitchStream_Cloudflare', 'HSCF_streamer_settings_section');
+        add_settings_field('hscf_streamer_videos_field', 'Placeholder Videos', [__CLASS__, 'streamer_videos_field'], 'HitchStream_Cloudflare', 'HSCF_streamer_settings_section');
     }
 
     public static function registerAlertSettings(): void {
@@ -150,22 +205,8 @@ class SettingsPage {
 
     public static function customer_id_field(): void {
         $val = get_option('HSCF_customer_id', '');
-        echo '<input type="text" name="HSCF_customer_id" value="' . esc_attr($val) . '" style="width:100%;max-width:600px;" />';
-    }
-
-    public static function poster_initial_field(): void {
-        $val = get_option('HSCF_poster_initial', '');
-        echo '<input type="url" name="HSCF_poster_initial" value="' . esc_attr($val) . '" style="width:100%;max-width:600px;" placeholder="https://..." />';
-    }
-
-    public static function poster_idle_field(): void {
-        $val = get_option('HSCF_poster_idle', '');
-        echo '<input type="url" name="HSCF_poster_idle" value="' . esc_attr($val) . '" style="width:100%;max-width:600px;" placeholder="https://..." />';
-    }
-
-    public static function poster_fatal_field(): void {
-        $val = get_option('HSCF_poster_fatal', '');
-        echo '<input type="url" name="HSCF_poster_fatal" value="' . esc_attr($val) . '" style="width:100%;max-width:600px;" placeholder="https://..." />';
+        echo '<input type="text" name="HSCF_customer_id" value="' . esc_attr($val) . '" class="regular-text" placeholder="e.g. f33zs165nr7gyfy4 — bare code, no customer- prefix" />';
+        echo '<p class="description">The customer code from your Cloudflare Stream URLs — the part <strong>after</strong> <code>customer-</code> in <code>customer-XXXX.cloudflarestream.com</code>. Enter just the <code>XXXX</code> (a leading <code>customer-</code> is stripped automatically). Required — the player builds every stream URL from this.</p>';
     }
 
     public static function streamer_section_desc(): void {
@@ -186,9 +227,130 @@ class SettingsPage {
         }
     }
 
+    /**
+     * Sanitize the streamer API key on save. The field renders a MASKED value
+     * and promises "leave blank to keep current key" — so a blank submission or
+     * a re-submitted mask must NOT overwrite the stored key (that bug erased /
+     * corrupted the key). Only a genuinely new value is written.
+     */
+    public static function sanitize_streamer_api_key($value): string {
+        $value    = is_string($value) ? trim($value) : '';
+        $existing = (string) get_option('HSCF_streamer_api_key', '');
+
+        // Blank = keep current key.
+        if ($value === '') {
+            return $existing;
+        }
+        // The masked placeholder we render (e.g. "**********6577") came back
+        // unchanged — keep the current key rather than saving asterisks.
+        if ($existing !== '' && strpos($value, '*') !== false) {
+            return $existing;
+        }
+        return sanitize_text_field($value);
+    }
+
     public static function streamer_test_field(): void {
-        echo '<p><button type="button" class="button" id="hscf-streamer-test-btn">Test Streamer Service</button> <span id="hscf-streamer-test-result" class="hscf-test-result"></span></p>';
-        echo self::testButtonScript('hscf-streamer-test-btn', 'hscf-streamer-test-result', 'hscf_test_streamer', 'Test Streamer Service');
+        echo '<p><button type="button" class="button button-primary" id="hscf-streamer-test-btn">Save and Test Streamer Service</button> <span id="hscf-streamer-test-result" class="hscf-test-result"></span></p>';
+        echo '<p class="description">Saves the key/URL above, then tests the connection — no separate Save needed.</p>';
+        // Send whatever is typed in the key/URL boxes so the handler can persist
+        // it before testing. A masked value (contains "*") is sent blank so the
+        // already-stored key is kept.
+        $extra = '_data.api_url = ($("input[name=HSCF_streamer_api_url]").val() || "");'
+               . 'var _k = ($("input[name=HSCF_streamer_api_key]").val() || "");'
+               . '_data.api_key = (_k.indexOf("*") > -1 ? "" : _k);';
+        echo self::testButtonScript('hscf-streamer-test-btn', 'hscf-streamer-test-result', 'hscf_test_streamer', 'Save and Test Streamer Service', $extra);
+    }
+
+    public static function streamer_videos_field(): void {
+        ?>
+        <div class="hscf-sv">
+            <div id="hscf-sv-modal" class="hscf-sv-modal" style="display:none;">
+                <div class="hscf-sv-modal-box">
+                    <span class="hscf-sv-modal-close" title="Close">&times;</span>
+                    <h3 class="hscf-sv-modal-title"></h3>
+                    <video class="hscf-sv-video" controls preload="metadata" playsinline></video>
+                </div>
+            </div>
+            <div id="hscf-sv-list" class="hscf-sv-list">Loading…</div>
+            <div class="hscf-sv-upload">
+                <input type="file" id="hscf-sv-file" accept=".mp4,.mov" />
+                <button type="button" class="button button-secondary" id="hscf-sv-upload-btn"><span class="dashicons dashicons-upload"></span> Upload Video</button>
+                <span id="hscf-sv-msg" class="hscf-sv-msg"></span>
+            </div>
+            <p class="description">Holding-loop videos the streamer can broadcast (.mp4 or .mov). Max file size: <strong><?= esc_html(self::getFormattedMaxUploadSize()) ?></strong></p>
+        </div>
+        <script>
+        jQuery(function($){
+            var ajax = hscf_ajax.ajax_url, nonce = hscf_ajax.nonce;
+            function esc(s){ return $('<div>').text(s == null ? '' : s).html(); }
+            function msg(t, ok){ $('#hscf-sv-msg').html('<span style="color:' + (ok ? 'green' : '#b32d2e') + '">' + esc(t) + '</span>'); }
+            function load(){
+                var $l = $('#hscf-sv-list').html('Loading…');
+                $.post(ajax, { action: 'hscf_streamer_list_videos', _wpnonce: nonce }, function(resp){
+                    if (!resp || !resp.success) { $l.html('<span style="color:#b32d2e">' + esc((resp && resp.data) || 'Could not load videos') + '</span>'); return; }
+                    var vids = (resp.data && resp.data.videos) || [];
+                    if (!vids.length) { $l.html('<em>No videos on the streamer yet.</em>'); return; }
+                    var html = '<ul class="hscf-sv-ul">';
+                    vids.forEach(function(v){
+                        html += '<li><span class="dashicons dashicons-format-video"></span> <a href="#" class="hscf-sv-play" data-file="' + esc(v) + '" title="Play preview">' + esc(v) + '</a> <a href="#" class="hscf-sv-del" data-file="' + esc(v) + '">Delete</a></li>';
+                    });
+                    $l.html(html + '</ul>');
+                }).fail(function(){ $l.html('<span style="color:#b32d2e">Request failed</span>'); });
+            }
+            $(document).on('click', '#hscf-sv-upload-btn', function(){
+                var input = $('#hscf-sv-file')[0];
+                var f = input && input.files[0];
+                if (!f) { msg('Choose a file first.', false); return; }
+                if (!/\.(mp4|mov)$/i.test(f.name)) { msg('Only .mp4 or .mov allowed.', false); return; }
+                var fd = new FormData();
+                fd.append('action', 'hscf_streamer_upload_video');
+                fd.append('_wpnonce', nonce);
+                fd.append('file', f);
+                var $b = $(this).prop('disabled', true).html('Uploading…');
+                msg('Uploading ' + f.name + '…', true);
+                $.ajax({ url: ajax, type: 'POST', data: fd, processData: false, contentType: false })
+                  .done(function(resp){
+                      if (resp && resp.success) { msg(resp.data || 'Uploaded', true); $('#hscf-sv-file').val(''); load(); }
+                      else { msg((resp && resp.data) || 'Upload failed', false); }
+                  })
+                  .fail(function(){ msg('Upload request failed (file may exceed the server upload limit).', false); })
+                  .always(function(){ $b.prop('disabled', false).html('<span class="dashicons dashicons-upload"></span> Upload Video'); });
+            });
+            $(document).on('click', '.hscf-sv-del', function(e){
+                e.preventDefault();
+                var file = $(this).data('file');
+                if (!window.confirm('Delete "' + file + '" from the streamer?')) return;
+                $.post(ajax, { action: 'hscf_streamer_delete_video', _wpnonce: nonce, file: file }, function(resp){
+                    if (resp && resp.success) { msg(resp.data || 'Deleted', true); load(); }
+                    else { msg((resp && resp.data) || 'Delete failed', false); }
+                }).fail(function(){ msg('Delete request failed', false); });
+            });
+
+            // ── Preview modal ──
+            function videoUrl(name){
+                return ajax + '?action=hscf_streamer_get_video&_wpnonce=' + encodeURIComponent(nonce) + '&file=' + encodeURIComponent(name);
+            }
+            function openPlayer(name){
+                var $m = $('#hscf-sv-modal');
+                $m.find('.hscf-sv-modal-title').text(name);
+                var v = $m.find('.hscf-sv-video')[0];
+                v.src = videoUrl(name);
+                $m.css('display', 'flex');
+                v.play().catch(function(){});
+            }
+            function closePlayer(){
+                var v = $('#hscf-sv-modal').find('.hscf-sv-video')[0];
+                try { v.pause(); v.removeAttribute('src'); v.load(); } catch(e){}
+                $('#hscf-sv-modal').hide();
+            }
+            $(document).on('click', '.hscf-sv-play', function(e){ e.preventDefault(); openPlayer($(this).data('file')); });
+            $(document).on('click', '#hscf-sv-modal, .hscf-sv-modal-close', function(e){ if (e.target === this) closePlayer(); });
+            $(document).on('keydown', function(e){ if (e.key === 'Escape' && $('#hscf-sv-modal').is(':visible')) closePlayer(); });
+
+            load();
+        });
+        </script>
+        <?php
     }
 
     public static function alert_section_desc(): void {
@@ -207,18 +369,6 @@ class SettingsPage {
         echo '<p class="description">Default: <code>ERR_STORAGE_QUOTA_EXHAUSTED,ERR_MISSING_SUBSCRIPTION</code>. These codes are also reflected in the player error messages.</p>';
     }
 
-    // ── Admin notice ───────────────────────────────────────────────
-
-    public static function adminNotices(): void {
-        if (!current_user_can('manage_options')) {
-            return;
-        }
-        $secret = get_option('HSCF_webhook_secret', '');
-        if (empty($secret)) {
-            echo '<div class="notice notice-error" style="border-left-color:#d63638;"><p><strong style="color:#d63638">&#9888; HitchStream:</strong> <strong style="color:#d63638">Webhook secret is NOT configured!</strong> All incoming webhooks are being rejected. Your weddings are not receiving stream state updates. <a href="' . admin_url('admin.php?page=HitchStream_Cloudflare') . '">Configure it here</a>.</p></div>';
-        }
-    }
-
     // ── Admin page rendering ───────────────────────────────────────
     // Dead-code removed (post-audit cleanup): renderAdmin() and
     // renderStreams() were a 280-line never-called duplicate of
@@ -228,7 +378,7 @@ class SettingsPage {
 
     // ── Internal helper ────────────────────────────────────────────
 
-    private static function testButtonScript(string $btnId, string $resultId, string $ajaxAction, string $btnText): string {
+    private static function testButtonScript(string $btnId, string $resultId, string $ajaxAction, string $btnText, string $extraDataJs = ''): string {
         $scriptId = sanitize_key(str_replace('-', '_', $ajaxAction));
         return '<script>
     (function($) {
@@ -237,19 +387,23 @@ class SettingsPage {
             var $result = $("#' . $resultId . '");
             $btn.prop("disabled", true).text("Testing...");
             $result.text("");
+            var _data = {
+                action: "' . $ajaxAction . '",
+                _wpnonce: hscf_ajax.nonce
+            };
+            ' . $extraDataJs . '
             $.ajax({
                 url: hscf_ajax.ajax_url,
                 type: "POST",
-                data: {
-                    action: "' . $ajaxAction . '",
-                    _wpnonce: hscf_ajax.nonce
-                },
+                data: _data,
                 success: function(resp) {
                     $btn.prop("disabled", false).text("' . esc_js($btnText) . '");
+                    var d = resp && resp.data;
+                    if (d && typeof d === "object") { d = d.message || JSON.stringify(d); }
                     if (resp.success) {
-                        $result.html("<span style=\\"color:green\\">&#10004; " + (resp.data || "' . esc_js($btnText . ' OK') . '") + "</span>");
+                        $result.html("<span style=\\"color:green\\">&#10004; " + (d || "' . esc_js($btnText . ' OK') . '") + "</span>");
                     } else {
-                        $result.html("<span style=\\"color:red\\">&#10008; " + (resp.data || "' . esc_js($btnText . ' failed') . '") + "</span>");
+                        $result.html("<span style=\\"color:red\\">&#10008; " + (d || "' . esc_js($btnText . ' failed') . '") + "</span>");
                     }
                 },
                 error: function() {
@@ -266,294 +420,377 @@ class SettingsPage {
 
     /** Render the full admin page. Extracted from old HSCF_Admin(). */
     public static function renderAdminUI(): void {
-        $live_inputs = self::getLiveInputs();
-        $videos = self::listCloudflareVideos();
-
-        // Process form submissions.
-        if (isset($_GET['delete_input']) && isset($_GET['confirm_delete']) && $_GET['confirm_delete'] === 'yes') {
-            $input_id = sanitize_text_field($_GET['delete_input']);
-            $svc = new \HS\Services\LiveInputService();
-            $svc->delete($input_id);
+        // ── Process operations (hardened — a Cloudflare/config failure must
+        //    never fatal the admin page) ──
+        if (isset($_GET['delete_input'], $_GET['confirm_delete']) && $_GET['confirm_delete'] === 'yes') {
+            try { (new \HS\Services\LiveInputService())->delete(sanitize_text_field($_GET['delete_input'])); } catch (\Throwable $e) {}
         }
         if (isset($_POST['create_stream']) && !empty($_POST['stream_name'])) {
-            $svc = new \HS\Services\LiveInputService();
-            $svc->create(sanitize_text_field($_POST['stream_name']));
+            try { (new \HS\Services\LiveInputService())->create(sanitize_text_field($_POST['stream_name']), !empty($_POST['low_latency'])); } catch (\Throwable $e) {}
         }
 
-        $max_upload = self::getFormattedMaxUploadSize();
-        $max_exec = self::getMaxExecutionTime();
+        $tab = isset($_GET['tab']) ? sanitize_key($_GET['tab']) : 'streams';
+        if (!in_array($tab, ['streams', 'videos', 'settings'], true)) { $tab = 'streams'; }
+        $base       = admin_url('admin.php?page=HitchStream_Cloudflare');
+        $account_id = get_option('HSCF_cloudflare_account_id', '');
+        $cf_dash    = $account_id
+            ? 'https://dash.cloudflare.com/' . rawurlencode($account_id) . '/stream/videos'
+            : 'https://dash.cloudflare.com/';
+        // Preview player on THIS site (so the mirror previews the local player and
+        // production previews the production player) — page lives at /player/.
+        $player_base = home_url('/player/');
+        // Streaming ingest host for the streamer-facing RTMP/SRT URLs. This is a
+        // fixed Cloudflare custom-ingest domain (live.hitchstream.com), NOT derived
+        // from the WP site URL — it doesn't change when the site domain does.
+        // (The placeholder-stream push uses Cloudflare's own rtmp_details->url.)
+        $ingest_host = 'live.hitchstream.com';
         ?>
-<div class="wrap">
-    <h1>HitchStream CloudFlare Setup</h1>
+<div class="wrap hscf-admin">
+    <h1 class="wp-heading-inline"><span class="dashicons dashicons-video-alt2 hscf-title-icon"></span> HitchStream CloudFlare</h1>
+    <hr class="wp-header-end">
 
-    <div class="top-container">
-        <div class="form-container">
-            <h2>Create Stream</h2>
-            <form method="post" action="">
-                <input type="text" name="stream_name" placeholder="Enter stream name" required>
-                <input type="submit" name="create_stream" value="Create" class="copy-btn">
-            </form>
-            <h2>Placeholder Video</h2>
-            <select class="FileSelector"></select>
-        </div>
+    <nav class="nav-tab-wrapper hscf-tabs">
+        <a href="<?= esc_url($base . '&tab=streams') ?>" class="nav-tab <?= $tab === 'streams' ? 'nav-tab-active' : '' ?>"><span class="dashicons dashicons-video-alt2"></span> Live Streams</a>
+        <a href="<?= esc_url($base . '&tab=videos') ?>" class="nav-tab <?= $tab === 'videos' ? 'nav-tab-active' : '' ?>"><span class="dashicons dashicons-format-video"></span> Video Library</a>
+        <a href="<?= esc_url($base . '&tab=settings') ?>" class="nav-tab <?= $tab === 'settings' ? 'nav-tab-active' : '' ?>"><span class="dashicons dashicons-admin-generic"></span> Settings</a>
+    </nav>
 
-        <div class="middle-img-container">
-            <div class="middleitem">
-                <a href="https://solo.liveu.tv/dashboard" target="_blank">
-                    <img src="https://hitchstream.com/wp-content/uploads/2024/03/livedashboard.png" alt="LiveU Dashboard" />
-                </a>
-            </div>
-            <div class="middleitem">
-                <a href="https://streamer1.hitchstream.com" target="_blank">
-                    <img src="https://hitchstream.com/wp-content/uploads/2024/04/placeholderstreamer.png" alt="Placeholder Streamer" />
-                </a>
-            </div>
-            <div class="middleitem">
-                <a href="https://hitchstream.com/control" target="_blank">
-                    <img src="https://hitchstream.com/wp-content/uploads/2024/04/controller.png" alt="HitchStream Controller" />
-                </a>
-            </div>
-            <div class="middleitem">
-                <a href="https://dash.cloudflare.com/83584468f508b713b66fd41d85e58280/stream/videos" target="_blank">
-                    <img src="https://hitchstream.com/wp-content/uploads/2024/03/cloudflaredashboard.png" alt="CloudFlare Dashboard" />
-                </a>
-            </div>
-        </div>
+    <?php if ($tab === 'settings'): ?>
+    <?php // ── SETTINGS TAB ── collapsible cards, each its own form. Sections are
+          //    rendered with do_settings_fields() (one section) instead of
+          //    do_settings_sections() (all sections) — which is what caused the
+          //    5x duplication. ?>
+    <div class="hscf-settings">
+        <?php if (isset($_GET['settings-updated'])): ?>
+            <div class="notice notice-success is-dismissible"><p><span class="dashicons dashicons-yes-alt" style="color:#008a20;vertical-align:middle;"></span> <strong>Saved.</strong> Your settings have been updated.</p></div>
+        <?php endif; ?>
+        <p class="hscf-lead">Set-and-forget configuration. Once these are correct you rarely need to touch them.</p>
 
-        <div class="form-container right">
-            <form method="post" action="options.php">
-                <?php
-                settings_fields('HSCF_settings');
-                do_settings_sections('HitchStream_Cloudflare');
-                submit_button();
-                ?>
-            </form>
-        </div>
+        <details class="hscf-card" open>
+            <summary class="hscf-card__head"><span class="dashicons dashicons-cloud"></span> Cloudflare API <span class="hscf-card__hint"><?= $account_id ? '<span class="hscf-ok">Account ID set</span>' : '<span class="hscf-warn">Account ID missing</span>' ?></span></summary>
+            <div class="hscf-card__body">
+                <form method="post" action="options.php">
+                    <?php settings_fields('HSCF_settings'); ?>
+                    <table class="form-table" role="presentation"><?php do_settings_fields('HitchStream_Cloudflare', 'HSCF_cloudflare_settings_section'); ?></table>
+                    <?php submit_button('Save Cloudflare API'); ?>
+                </form>
+            </div>
+        </details>
+
+        <details class="hscf-card">
+            <summary class="hscf-card__head"><span class="dashicons dashicons-rss"></span> Webhook <span class="hscf-card__hint"><?= get_option('HSCF_webhook_secret', '') ? '<span class="hscf-ok">Registered</span>' : '<span class="hscf-warn">Not registered</span>' ?></span></summary>
+            <div class="hscf-card__body">
+                <form method="post" action="options.php" id="webhook-settings-form">
+                    <?php settings_fields('HSCF_webhook_settings'); ?>
+                    <?php self::webhook_section_desc(); ?>
+                    <table class="form-table" role="presentation"><?php do_settings_fields('HitchStream_Cloudflare', 'HSCF_webhook_settings_section'); ?></table>
+                    <p class="hscf-btn-row">
+                        <button type="button" id="btn-register-webhook" class="button button-primary"><span class="dashicons dashicons-update"></span> Register Webhook with Cloudflare</button>
+                        <button type="button" id="btn-fetch-webhook-status" class="button"><span class="dashicons dashicons-visibility"></span> Fetch Status</button>
+                        <button type="button" id="btn-delete-webhook" class="button button-link-delete"><span class="dashicons dashicons-trash"></span> Delete Webhook</button>
+                    </p>
+                </form>
+                <div id="webhook-status" class="hscf-status-box" style="display:none;"></div>
+            </div>
+        </details>
+
+        <details class="hscf-card">
+            <summary class="hscf-card__head"><span class="dashicons dashicons-format-video"></span> Player <span class="hscf-card__hint"><?= get_option('HSCF_customer_id', '') ? '<span class="hscf-ok">Customer ID set</span>' : '<span class="hscf-warn">Customer ID missing</span>' ?></span></summary>
+            <div class="hscf-card__body">
+                <form method="post" action="options.php">
+                    <?php settings_fields('HSCF_player_settings'); ?>
+                    <?php self::player_section_desc(); ?>
+                    <table class="form-table" role="presentation"><?php do_settings_fields('HitchStream_Cloudflare', 'HSCF_player_settings_section'); ?></table>
+                    <?php submit_button('Save Player'); ?>
+                </form>
+            </div>
+        </details>
+
+        <details class="hscf-card">
+            <summary class="hscf-card__head"><span class="dashicons dashicons-controls-play"></span> Streamer Service</summary>
+            <div class="hscf-card__body">
+                <form method="post" action="options.php">
+                    <?php settings_fields('HSCF_streamer_settings'); ?>
+                    <?php self::streamer_section_desc(); ?>
+                    <table class="form-table" role="presentation"><?php do_settings_fields('HitchStream_Cloudflare', 'HSCF_streamer_settings_section'); ?></table>
+                    <?php submit_button('Save Streamer'); ?>
+                </form>
+            </div>
+        </details>
+
+        <details class="hscf-card">
+            <summary class="hscf-card__head"><span class="dashicons dashicons-email-alt"></span> Alerts</summary>
+            <div class="hscf-card__body">
+                <form method="post" action="options.php">
+                    <?php settings_fields('HSCF_alert_settings'); ?>
+                    <?php self::alert_section_desc(); ?>
+                    <table class="form-table" role="presentation"><?php do_settings_fields('HitchStream_Cloudflare', 'HSCF_alert_settings_section'); ?></table>
+                    <?php submit_button('Save Alerts'); ?>
+                </form>
+            </div>
+        </details>
     </div>
+    <script>
+    jQuery(function($){
+        // Remember which settings group was just submitted so that after the
+        // save redirect we can flash that exact card's button green.
+        $('.hscf-card form').on('submit', function(){
+            try { sessionStorage.setItem('hscfSavedGroup', $(this).find('input[name=option_page]').val() || ''); } catch(e){}
+        });
+        if (/[?&]settings-updated=true/.test(location.search)) {
+            var grp = ''; try { grp = sessionStorage.getItem('hscfSavedGroup') || ''; sessionStorage.removeItem('hscfSavedGroup'); } catch(e){}
+            var $form = grp ? $('input[name=option_page][value="' + grp + '"]').closest('form') : $();
+            if (!$form.length) { $form = $('.hscf-card form').first(); }
+            $form.closest('details').attr('open', 'open');
+            var $btn = $form.find('.button-primary').first();
+            if ($btn.length) {
+                var setLabel = function(t){ $btn.is('input') ? $btn.val(t) : $btn.text(t); };
+                var orig = $btn.is('input') ? $btn.val() : $btn.text();
+                $btn.addClass('hscf-saved-flash'); setLabel('✓ Saved!');
+                $btn.get(0).scrollIntoView({block:'center', behavior:'smooth'});
+                setTimeout(function(){ $btn.removeClass('hscf-saved-flash'); setLabel(orig); }, 2500);
+            }
+        }
+    });
+    </script>
 
-    <h2>Webhook Settings</h2>
-    <div class="webhook-form-container" style="margin-bottom:30px;">
-        <form method="post" action="options.php" id="webhook-settings-form">
-            <?php settings_fields('HSCF_webhook_settings'); do_settings_sections('HitchStream_Cloudflare'); ?>
-            <div style="margin-top:15px;">
-                <input type="button" id="btn-register-webhook" value="Register Webhook with Cloudflare" class="copy-btn" style="background:#06b6d4;border-color:#06b6d4;margin-right:10px;">
-                <input type="button" id="btn-delete-webhook" value="Delete Webhook" class="copy-btn" style="background:#ef4444;border-color:#ef4444;">
-                <input type="button" id="btn-fetch-webhook-status" value="Fetch Status" class="copy-btn" style="background:#6b7280;border-color:#6b7280;">
-            </div>
+    <?php elseif ($tab === 'videos'): ?>
+    <?php // ── VIDEO LIBRARY TAB ── ?>
+    <?php $videos = self::listCloudflareVideos();
+          $max_upload = self::getFormattedMaxUploadSize();
+          $max_exec   = self::getMaxExecutionTime(); ?>
+    <div class="hscf-panel">
+        <h2 class="hscf-panel__title"><span class="dashicons dashicons-upload"></span> Upload a Video</h2>
+        <p class="description">Max file size: <strong><?= esc_html($max_upload) ?></strong> &middot; Max upload time: <strong><?= esc_html($max_exec) ?></strong></p>
+        <form id="video-upload-form" method="post" enctype="multipart/form-data" class="hscf-upload">
+            <input type="file" name="video_file" required>
+            <button type="submit" name="upload_video" class="button button-primary"><span class="dashicons dashicons-upload"></span> Upload Video</button>
+            <span id="upload-percentage" class="hscf-upload__pct"></span>
         </form>
-        <div id="webhook-status" style="margin-top:15px;padding:10px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:4px;display:none;"></div>
+        <div id="progress-container" class="hscf-progress" style="display:none;"><div id="progress-bar"></div></div>
     </div>
 
-    <h2>Player Settings</h2>
-    <div style="margin-bottom:30px;">
-        <form method="post" action="options.php">
-            <?php settings_fields('HSCF_player_settings'); do_settings_sections('HitchStream_Cloudflare'); submit_button(); ?>
-        </form>
-    </div>
-
-    <h2>Streamer Service Settings</h2>
-    <div style="margin-bottom:30px;">
-        <form method="post" action="options.php">
-            <?php settings_fields('HSCF_streamer_settings'); do_settings_sections('HitchStream_Cloudflare'); submit_button(); ?>
-        </form>
-    </div>
-
-    <h2>Alerts Settings</h2>
-    <div style="margin-bottom:30px;">
-        <form method="post" action="options.php">
-            <?php settings_fields('HSCF_alert_settings'); do_settings_sections('HitchStream_Cloudflare'); submit_button(); ?>
-        </form>
-    </div>
-
-    <h2>Current Streams</h2>
-    <style>
-        .FileSelector { width: 250px; }
-        .cfmodal { display: none; position: fixed; z-index: 1; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgb(0,0,0); background-color: rgba(0,0,0,0.4); }
-        .cfmodalbox { background-color: #fefefe; margin: 15% auto; padding: 20px; border: 1px solid #888; width: 360px; border-radius: 10px; }
-        .cfmodal-content { overflow-wrap: break-word; padding-top: 10px; }
-        .modalcontentbox { background-color: #e9e9e9; border: 1px solid #999999; color: black; padding: 5px; border-radius: 3px; }
-        #progress-container { width: 100%; background: #eee; display: none; }
-        #progress-bar { height: 20px; width: 0%; background-color: #2271b1; }
-        .close { color: #aaa; float: right; font-size: 28px; font-weight: bold; }
-        .close:hover, .close:focus { color: black; text-decoration: none; cursor: pointer; }
-        .top-container { display: flex; justify-content: space-between; }
-        .form-container { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; }
-        .middle-img-container { flex: 1; display: flex; justify-content: center; align-items: flex-end; }
-        .middleitem { padding: 0px 10px 0px 10px; }
-        .form-container.right { align-items: flex-end; }
-        .form-table th { padding: 5px; vertical-align: middle; }
-        .form-table td { padding: 5px; vertical-align: middle; }
-        .live-input-container { display: flex; margin-bottom: 20px; background-color: #e5e5e5; }
-        .live-input-left, .live-input-middle-1, .live-input-middle-2, .live-input-right { flex: 1; }
-        .status-connected { color: green; }
-        .status-disconnected { color: red; }
-        .copy-btn { background: #2271b1; border-color: #2271b1; color: #fff; text-decoration: none; text-shadow: none; font-size: 13px; line-height: 2.15384615; min-height: 30px; margin: 5px; padding: 0 10px; cursor: pointer; border-width: 1px; border-style: solid; -webkit-appearance: none; border-radius: 3px; white-space: nowrap; box-sizing: border-box; }
-        .switch { position: relative; display: inline-block; width: 30px; height: 17px; }
-        .switch input { opacity: 0; width: 0; height: 0; }
-        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; -webkit-transition: .4s; transition: .4s; }
-        .slider:before { position: absolute; content: ""; height: 17px; width: 16px; left: 0px; bottom: 0px; background-color: white; -webkit-transition: .4s; transition: .4s; }
-        input:checked+.slider { background-color: #2271b1; }
-        input:focus+.slider { box-shadow: 0 0 1px #2271b1; }
-        input:checked+.slider:before { -webkit-transform: translateX(14px); -ms-transform: translateX(14px); transform: translateX(14px); }
-        .slider.round { border-radius: 34px; }
-        .slider.round:before { border-radius: 50%; }
-        .video-container { width: 200px; height: auto; margin: 5px; flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; overflow: hidden; }
-        .video-container:nth-child(odd) { background-color: #e5e5e5; }
-        .video-name { height: auto; min-height: 36px; margin: 5px 0; text-align: center; word-wrap: break-word; line-height: 18px; }
-        #videos-panel { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: center; }
-        .video-buttons { display: flex; justify-content: center; margin-top: 10px; }
-        .video-buttons button { width: 24px; height: 24px; background-size: cover; border: none; cursor: pointer; margin: 0 5px; }
-    </style>
-    <?php if (is_array($live_inputs)): foreach ($live_inputs as $input):
-        $input_name = isset($input->meta) && isset($input->meta->name) ? $input->meta->name : 'Unnamed Input';
-        $delete_link = admin_url('admin.php?page=HitchStream_Cloudflare&delete_input=' . esc_attr($input->uid) . '&confirm_delete=yes');
-        $status_class = isset($input->status_details) ? ($input->status_details === 'connected' ? 'status-connected' : 'status-disconnected') : '';
-        $rtmpKey = isset($input->rtmp_details) ? ($input->rtmp_details->streamKey ?? '') : '';
+    <h2 class="hscf-section-title"><span class="dashicons dashicons-format-video"></span> Uploaded Videos</h2>
+    <div id="videos-panel" class="hscf-video-grid">
+    <?php if (is_array($videos) && !empty($videos)): foreach ($videos as $video):
+        if (!is_array($video) || !isset($video['uid'])) { continue; }
+        $dlName        = self::cfDownloadFilename($video['meta']['name'] ?? 'video');
+        $downloadLink  = isset($video['mp4_download_url']) ? self::withDownloadFilename($video['mp4_download_url'], $dlName) : '#';
+        $downloadTitle = isset($video['mp4_download_url']) ? 'Download' : 'Create download';
         ?>
-    <div class="live-input-container">
-        <div class="live-input-left">
-            <strong><?= esc_html($input_name) ?></strong> | <span class="<?= esc_attr($status_class) ?>"><?= esc_html($input->status_details ?? 'Status Unavailable') ?></span>
-            <br><br><strong>For Streaming App :</strong><br>
-            <?php if (isset($input->srt_details)):
-                $baseSRTUrl = 'srt://live.hitchstream.com:778';
-                $passphrase = esc_html($input->srt_details->passphrase);
-                $streamId = esc_html($input->srt_details->streamId);
-                ?>
-                <button class="copy-btn generateSRTvmix" data-simplified-srt-url="live.hitchstream.com" data-port-srt="778" data-passphrase="<?= $passphrase ?>" data-stream-id="<?= $streamId ?>">SRT (vMix)</button>
-                <button class="copy-btn generateSRTobs" data-base-srt-url="<?= htmlspecialchars($baseSRTUrl . '?passphrase=' . $passphrase . '&streamid=' . $streamId) ?>">SRT (OBS)</button><br>
-            <?php endif; ?>
-            <?php if (isset($input->rtmp_details)):
-                $rtmpURL = 'rtmps://live.hitchstream.com:443/live/';
-                $rtmpKey = esc_html($input->rtmp_details->streamKey);
-                ?>
-                <button class="copy-btn copy-rtmp-url-btn" data-rtmp-url="<?= esc_attr($rtmpURL) ?>">RTMP URL</button>
-                <button class="copy-btn copy-rtmp-key-btn" data-rtmp-key="<?= esc_attr($rtmpKey) ?>">RTMP Key</button>
-            <?php endif; ?>
-            <br><strong>For Customer Page:</strong>
-            <?php if (isset($input->uid)): ?>
-                <br><button class="copy-btn copy-input-id-btn" data-input-id="<?= esc_attr($input->uid) ?>">Live Input ID</button>
-                <br><button class="copy-btn copy-embed-code-btn" data-input-id="<?= esc_attr($input->uid) ?>">Embed Code</button>
-            <?php endif; ?>
-            <div class="stream-toggle-container">
-                <span class="stream-toggle-title"><strong>Placeholder Stream: </strong></span>
-                <label class="switch">
-                    <br><input type="checkbox" class="stream-toggle" id="streamToggle-<?= esc_attr($input->uid) ?>" data-rtmp-key="<?= esc_attr($rtmpKey) ?>">
-                    <span class="slider round"></span></label>
-                </div>
-            <br><a href="<?= esc_url($delete_link) ?>" onclick="return confirm('Are you sure you wish to delete <?= esc_js($input_name) ?>?')">DELETE STREAM</a>
-        </div>
-        <div class="live-input-middle-1">
-            <strong><br><br>New Social Stream:</strong>
-            <form class="create-output-form" id="create-output-form">
-                <input type="hidden" name="input_id" value="<?= esc_attr($input->uid) ?>">
-                <input type="text" id="stream-key-input" name="stream_key" placeholder="Stream Key" required>
-                <input type="text" id="stream-url-input" name="url" placeholder="URL" required>
-                <input type="submit" class="copy-btn" value="Create Output">
-            </form>
-            <div><br><strong>Social Streams:</strong></div>
-            <?php $outputs = self::getLiveInputOutputs($input->uid);
-            if (is_array($outputs)): foreach ($outputs as $output): ?>
-                <div>
-                    <?php if (strpos($output->url, 'youtube') !== false) echo 'YouTube ';
-                    elseif (strpos($output->url, 'facebook') !== false) echo 'Facebook ';
-                    else echo esc_html($output->url); ?>
-                    <label class="switch"><input type="checkbox" class="output-toggle" data-output-id="<?= esc_attr($output->uid) ?>" data-input-id="<?= esc_attr($input->uid) ?>" <?= $output->enabled ? 'checked' : '' ?>><span class="slider round"></span></label>
-                    <a href="#" class="delete-output-link" data-output-id="<?= esc_attr($output->uid) ?>" data-input-id="<?= esc_attr($input->uid) ?>" title="Delete Output" style="position: relative;"><img src="https://hitchstream.com/wp-content/uploads/2024/01/delete_icon.png" width="18px" height="18px" alt="Delete Output" style="vertical-align: middle;"></a>
-                </div>
-            <?php endforeach; else: echo '<p>' . esc_html($outputs ?? 'No outputs') . '</p>'; endif; ?>
-        </div>
-        <div class="live-input-middle-2">
-            <br><br><strong>Recordings (<?= esc_html($input_name) ?>):</strong><br>
-            <?php $filteredVideos = self::getVideosByStreamName($input_name);
-            if (is_array($filteredVideos) && !empty($filteredVideos)): foreach ($filteredVideos as $video):
-                $nameParts = explode(' ', $video['meta']['name']);
-                $dateString = implode(' ', array_slice($nameParts, -5));
-                try {
-                    $date = new DateTime($dateString, new DateTimeZone('UTC'));
-                    $date->setTimezone(new DateTimeZone('MST'));
-                    $formattedDate = $date->format('M d Y h:iA T');
-                } catch (Exception $e) { $formattedDate = $dateString; }
-                $cf_customer = get_option('HSCF_customer_id', '');
-                $videoUrl = $cf_customer
-                    ? 'https://customer-' . $cf_customer . '.cloudflarestream.com/' . esc_attr($video['uid']) . '/watch'
-                    : '';
-                $iconUrl = isset($video['mp4_download_url']) ? 'https://hitchstream.com/wp-content/uploads/2024/01/downloadmp4_finish.png' : 'https://hitchstream.com/wp-content/uploads/2024/01/downloadmp4_start.png';
-                $downloadLink = isset($video['mp4_download_url']) ? $video['mp4_download_url'] : '#';
-                $deleteIconUrl = 'https://hitchstream.com/wp-content/uploads/2024/01/delete_icon.png';
-                $embedIconUrl = 'https://hitchstream.com/wp-content/uploads/2024/01/embedcode.png';
-                $downloadTitle = isset($video['mp4_download_url']) ? 'Download' : 'Create download';
-                ?>
-                <div style="display: flex; align-items: center;">
-                    <a href="<?= $videoUrl ?>" target="_blank"><?= esc_html($formattedDate) ?></a>&nbsp;
-                    <a href="<?= $downloadLink ?>" class="create-download-link" data-video-id="<?= esc_attr($video['uid']) ?>" style="margin-right: 10px;"><img src="<?= $iconUrl ?>" title="<?= $downloadTitle ?>"></a>
-                    <a href="#" class="generate-videoid" data-video-id="<?= esc_attr($video['uid']) ?>" style="margin-right: 10px;"><img src="<?= $embedIconUrl ?>" title="Get Video ID"></a>
-                    <a href="#" class="delete-video-link" data-video-id="<?= esc_attr($video['uid']) ?>"><img src="<?= $deleteIconUrl ?>" title="Delete Video"></a>
-                </div>
-            <?php endforeach; else: echo "<p>No recorded videos for this stream.</p>"; endif; ?>
-        </div>
-        <div class="live-input-right">
-            <div style="position: relative;">
-                <iframe src="https://hitchstream.com/player?live=true&inputId=<?= esc_attr($input->uid) ?>" style="border: none; width: 100%; aspect-ratio: 16 / 9;" allow="fullscreen; accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
+        <div class="video-container hscf-video-card">
+            <p class="video-name"><?= esc_html($video['meta']['name'] ?? 'Untitled') ?></p>
+            <iframe src="<?= esc_url($player_base . '?live=false&autoplay=false&inputId=' . $video['uid']) ?>" loading="lazy" style="border:none;width:100%;aspect-ratio:16/9;" allow="fullscreen; accelerometer; gyroscope; encrypted-media; picture-in-picture" allowfullscreen></iframe>
+            <div class="video-buttons">
+                <a href="<?= esc_url($downloadLink) ?>" class="create-download-link hscf-icon-btn hscf-icon-download" data-video-id="<?= esc_attr($video['uid']) ?>" data-filename="<?= esc_attr($dlName) ?>" title="<?= esc_attr($downloadTitle) ?>"><span class="dashicons <?= isset($video['mp4_download_url']) ? 'dashicons-download' : 'dashicons-cloud' ?>"></span></a>
+                <a href="#" class="generate-embed-link hscf-icon-btn hscf-icon-embed" data-video-id="<?= esc_attr($video['uid']) ?>" title="Get Embed Code"><span class="dashicons dashicons-editor-code"></span></a>
+                <a href="#" class="delete-video-link hscf-icon-btn hscf-icon-delete" data-video-id="<?= esc_attr($video['uid']) ?>" title="Delete Video"><span class="dashicons dashicons-trash"></span></a>
             </div>
         </div>
+    <?php endforeach; else: ?>
+        <div class="hscf-empty"><span class="dashicons dashicons-format-video"></span><p><?= is_string($videos) && $videos ? esc_html($videos) : 'No uploaded videos yet.' ?></p></div>
+    <?php endif; ?>
     </div>
-    <?php endforeach; else: echo '<p>' . esc_html($live_inputs ?? 'No inputs available') . '</p>'; endif; ?>
 
-    <div id="Videos Panel">
-        <div class="form-container">
-            <h2>Upload a Video (Max file size: <?= $max_upload ?>, Max upload time: <?= $max_exec ?>)</h2>
-            <form id="video-upload-form" method="post" enctype="multipart/form-data">
-                <input type="file" name="video_file" class="copy-btn" required>
-                <input type="submit" name="upload_video" value="Upload Video" class="copy-btn">
-                <img src="https://hitchstream.com/wp-content/uploads/2024/01/loading_icon2.gif" style="display: none; width: 10px; height: 10px;" id="loading-icon">
+    <?php else: ?>
+    <?php // ── LIVE STREAMS TAB ── ?>
+    <?php $live_inputs = self::getLiveInputs(); ?>
+    <div class="hscf-toolbar">
+        <div class="hscf-toolbar__group">
+            <form method="post" action="" class="hscf-create">
+                <input type="text" name="stream_name" placeholder="New stream name" required>
+                <label class="hscf-ll" title="Create with Low-Latency HLS"><input type="checkbox" name="low_latency" value="1"> Low-Latency</label>
+                <button type="submit" name="create_stream" class="button button-primary"><span class="dashicons dashicons-plus-alt2"></span> Create Stream</button>
             </form>
         </div>
-        <h2>Uploaded Videos</h2>
-        <div id="videos-panel">
-        <?php if (is_array($videos)): foreach ($videos as $video):
-            $iconUrl = isset($video['mp4_download_url']) ? 'https://hitchstream.com/wp-content/uploads/2024/01/downloadmp4_finish.png' : 'https://hitchstream.com/wp-content/uploads/2024/01/downloadmp4_start.png';
-            $downloadLink = isset($video['mp4_download_url']) ? $video['mp4_download_url'] : '#';
-            $deleteIconUrl = 'https://hitchstream.com/wp-content/uploads/2024/01/delete_icon.png';
-            $embedIconUrl = 'https://hitchstream.com/wp-content/uploads/2024/01/embedcode.png';
-            $downloadTitle = isset($video['mp4_download_url']) ? 'Download' : 'Create download';
-            ?>
-            <div class="video-container">
-                <p class="video-name"><?= esc_html($video['meta']['name'] ?? 'Untitled') ?></p>
-                <iframe src="https://hitchstream.com/player?live=false&autoplay=false&inputId=<?= esc_attr($video['uid']) ?>" style="border: none; width: 100%; aspect-ratio: 16 / 9;" allow="fullscreen; accelerometer; gyroscope; encrypted-media; picture-in-picture" allowfullscreen></iframe>
-                <div class="video-buttons">
-                    <a href="<?= $downloadLink ?>" class="create-download-link" data-video-id="<?= esc_attr($video['uid']) ?>" style="margin-right: 10px;"><img src="<?= $iconUrl ?>" title="<?= $downloadTitle ?>"></a>
-                    <a href="#" class="generate-embed-link" data-video-id="<?= esc_attr($video['uid']) ?>" style="margin-right: 10px;"><img src="<?= $embedIconUrl ?>" title="Get Embed Code"></a>
-                    <a href="#" class="delete-video-link" data-video-id="<?= esc_attr($video['uid']) ?>"><img src="<?= $deleteIconUrl ?>" title="Delete Video"></a>
-                </div>
-            </div>
-        <?php endforeach; else: echo '<p>' . esc_html($videos ?? 'No videos') . '</p>'; endif; ?>
+        <div class="hscf-toolbar__links">
+            <a href="https://solo.liveu.tv/dashboard" target="_blank" rel="noopener" class="button"><span class="dashicons dashicons-rss"></span> LiveU</a>
+            <a href="<?= esc_url($cf_dash) ?>" target="_blank" rel="noopener" class="button"><span class="dashicons dashicons-cloud"></span> Cloudflare</a>
         </div>
     </div>
-    <?php
+
+    <?php if ($live_inputs === 'not_configured'): ?>
+        <div class="hscf-empty hscf-empty--warn">
+            <span class="dashicons dashicons-warning"></span>
+            <p><strong>Cloudflare isn't configured yet.</strong> Add your Account ID and authentication under the <a href="<?= esc_url($base . '&tab=settings') ?>">Settings</a> tab, then your live streams will appear here.</p>
+        </div>
+    <?php elseif (is_string($live_inputs)): ?>
+        <div class="hscf-empty hscf-empty--warn">
+            <span class="dashicons dashicons-cloud"></span>
+            <p><strong>Couldn't reach Cloudflare.</strong> <?= esc_html($live_inputs) ?></p>
+        </div>
+    <?php elseif (empty($live_inputs)): ?>
+        <div class="hscf-empty">
+            <span class="dashicons dashicons-video-alt2"></span>
+            <p>No live streams yet. Create one above to get started.</p>
+        </div>
+    <?php else: foreach ($live_inputs as $input):
+        if (!is_object($input) || !isset($input->uid)) { continue; }
+        $input_name   = $input->meta->name ?? 'Unnamed Input';
+        $delete_link  = admin_url('admin.php?page=HitchStream_Cloudflare&delete_input=' . esc_attr($input->uid) . '&confirm_delete=yes');
+        $is_connected = isset($input->status_details) && $input->status_details === 'connected';
+        $status_label = $input->status_details ?? 'Status unavailable';
+        $rtmpKey      = $input->rtmp_details->streamKey ?? '';
+        ?>
+    <div class="hscf-stream">
+        <div class="hscf-stream__head">
+            <button type="button" class="hscf-stream__chevron" title="Collapse / expand" aria-label="Collapse / expand this stream"><span class="dashicons dashicons-arrow-down-alt2"></span></button>
+            <strong class="hscf-stream__name"><?= esc_html($input_name) ?></strong>
+            <span class="hscf-badge <?= $is_connected ? 'hscf-badge--live' : 'hscf-badge--off' ?>" id="badge-<?= esc_attr($input->uid) ?>">
+                <span class="dashicons <?= $is_connected ? 'dashicons-controls-play' : 'dashicons-controls-pause' ?>"></span><span class="hscf-badge__text"><?= esc_html($status_label) ?></span>
+            </span>
+            <a href="<?= esc_url($delete_link) ?>" class="hscf-stream__delete" title="Delete stream" onclick="return confirm('Delete <?= esc_js($input_name) ?>? This cannot be undone.')"><span class="dashicons dashicons-trash"></span></a>
+        </div>
+        <div class="hscf-stream__grid">
+            <div class="hscf-stream__col">
+                <h4>For the streaming app</h4>
+                <?php if (isset($input->srt_details)):
+                    $passphrase = esc_attr($input->srt_details->passphrase);
+                    $streamId   = esc_attr($input->srt_details->streamId);
+                    $baseSRTUrl = 'srt://' . $ingest_host . ':778'; ?>
+                    <button class="button copy-btn generateSRTvmix" data-host="<?= esc_attr($ingest_host) ?>" data-simplified-srt-url="<?= esc_attr($ingest_host) ?>" data-port-srt="778" data-passphrase="<?= $passphrase ?>" data-stream-id="<?= $streamId ?>">SRT (vMix)</button>
+                    <button class="button copy-btn generateSRTobs" data-host="<?= esc_attr($ingest_host) ?>" data-base-srt-url="<?= esc_attr($baseSRTUrl . '?passphrase=' . $passphrase . '&streamid=' . $streamId) ?>">SRT (OBS)</button>
+                <?php endif; ?>
+                <?php if (isset($input->rtmp_details)):
+                    $rtmpURL = 'rtmps://' . $ingest_host . ':443/live/';
+                    $rtmpKey = esc_attr($input->rtmp_details->streamKey); ?>
+                    <button class="button copy-btn copy-rtmp-url-btn" data-rtmp-url="<?= esc_attr($rtmpURL) ?>">RTMP URL</button>
+                    <button class="button copy-btn copy-rtmp-key-btn" data-rtmp-key="<?= $rtmpKey ?>">RTMP Key</button>
+                <?php endif; ?>
+                <h4>For the customer page</h4>
+                <button class="button copy-btn copy-input-id-btn" data-input-id="<?= esc_attr($input->uid) ?>">Live Input ID</button>
+                <button class="button copy-btn copy-embed-code-btn" data-input-id="<?= esc_attr($input->uid) ?>">Embed Code</button>
+                <?php $phRtmpUrl = $input->rtmp_details->url ?? 'rtmps://live.cloudflare.com:443/live/'; ?>
+                <div class="hscf-ph-row">
+                    <select class="FileSelector hscf-ph-video" data-input-id="<?= esc_attr($input->uid) ?>">
+                        <option value="">Placeholder Stream</option>
+                    </select>
+                    <button type="button" class="button hscf-ph-btn is-idle" data-input-id="<?= esc_attr($input->uid) ?>" data-rtmp-url="<?= esc_attr($phRtmpUrl) ?>" data-rtmp-key="<?= esc_attr($rtmpKey) ?>" title="Start placeholder stream"><span class="dashicons dashicons-controls-play"></span></button>
+                    <span class="hscf-ph-status" id="phstatus-<?= esc_attr($input->uid) ?>" data-input-id="<?= esc_attr($input->uid) ?>"></span>
+                </div>
+            </div>
+            <div class="hscf-stream__col">
+                <h4>Social streams</h4>
+                <form class="create-output-form hscf-output-form">
+                    <input type="hidden" name="input_id" value="<?= esc_attr($input->uid) ?>">
+                    <input type="text" id="stream-key-input" name="stream_key" placeholder="Stream Key" required>
+                    <input type="text" id="stream-url-input" name="url" placeholder="URL" required>
+                    <button type="submit" class="button">Add Output</button>
+                </form>
+                <?php $outputs = self::getLiveInputOutputs($input->uid);
+                if (is_array($outputs) && !empty($outputs)): foreach ($outputs as $output): ?>
+                    <div class="hscf-output">
+                        <span><?php $ourl = $output['url'] ?? ''; if (strpos($ourl, 'youtube') !== false) echo 'YouTube';
+                            elseif (strpos($ourl, 'facebook') !== false) echo 'Facebook';
+                            else echo esc_html($ourl); ?></span>
+                        <label class="switch"><input type="checkbox" class="output-toggle" data-output-id="<?= esc_attr($output['uid'] ?? '') ?>" data-input-id="<?= esc_attr($input->uid) ?>" <?= !empty($output['enabled']) ? 'checked' : '' ?>><span class="slider round"></span></label>
+                        <a href="#" class="delete-output-link" data-output-id="<?= esc_attr($output['uid'] ?? '') ?>" data-input-id="<?= esc_attr($input->uid) ?>" title="Delete output"><span class="dashicons dashicons-no-alt"></span></a>
+                    </div>
+                <?php endforeach; else: ?><p class="description">No social streams.</p><?php endif; ?>
+            </div>
+            <div class="hscf-stream__col">
+                <h4>Recordings</h4>
+                <?php $filteredVideos = self::getVideosByStreamName($input_name);
+                if (is_array($filteredVideos) && !empty($filteredVideos)): foreach ($filteredVideos as $video):
+                    if (!is_array($video) || !isset($video['uid'])) { continue; }
+                    $nameParts  = explode(' ', $video['meta']['name'] ?? '');
+                    $dateString = implode(' ', array_slice($nameParts, -5));
+                    try {
+                        $date = new \DateTime($dateString, new \DateTimeZone('UTC'));
+                        $date->setTimezone(new \DateTimeZone('MST'));
+                        $formattedDate = $date->format('M d Y h:iA T');
+                    } catch (\Exception $e) { $formattedDate = $dateString; }
+                    $cf_customer  = get_option('HSCF_customer_id', '');
+                    $videoUrl     = $cf_customer ? 'https://customer-' . $cf_customer . '.cloudflarestream.com/' . esc_attr($video['uid']) . '/watch' : '';
+                    $dlName       = self::cfDownloadFilename($video['meta']['name'] ?? 'recording');
+                    $downloadLink = isset($video['mp4_download_url']) ? self::withDownloadFilename($video['mp4_download_url'], $dlName) : '#';
+                    $downloadTitle= isset($video['mp4_download_url']) ? 'Download' : 'Create download'; ?>
+                    <div class="hscf-recording">
+                        <a href="<?= esc_url($videoUrl) ?>" target="_blank" rel="noopener"><?= esc_html($formattedDate) ?></a>
+                        <span class="hscf-recording__actions">
+                            <a href="<?= esc_url($downloadLink) ?>" class="create-download-link hscf-icon-btn hscf-icon-download" data-video-id="<?= esc_attr($video['uid']) ?>" data-filename="<?= esc_attr($dlName) ?>" title="<?= esc_attr($downloadTitle) ?>"><span class="dashicons <?= isset($video['mp4_download_url']) ? 'dashicons-download' : 'dashicons-cloud' ?>"></span></a>
+                            <a href="#" class="generate-videoid hscf-icon-btn hscf-icon-embed" data-video-id="<?= esc_attr($video['uid']) ?>" title="Copy Video ID (embed)"><span class="dashicons dashicons-editor-code"></span></a>
+                            <a href="#" class="delete-video-link hscf-icon-btn hscf-icon-delete" data-video-id="<?= esc_attr($video['uid']) ?>" title="Delete recording"><span class="dashicons dashicons-trash"></span></a>
+                        </span>
+                    </div>
+                <?php endforeach; else: ?><p class="description">No recordings for this stream.</p><?php endif; ?>
+            </div>
+            <div class="hscf-stream__col hscf-stream__preview">
+                <h4>Preview</h4>
+                <?php $playerUrl = $player_base . '?live=true&inputId=' . $input->uid; ?>
+                <iframe src="<?= esc_url($playerUrl) ?>" loading="lazy" style="border:none;width:100%;aspect-ratio:16/9;" allow="fullscreen; accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
+                <a href="<?= esc_url($playerUrl) ?>" target="_blank" rel="noopener" class="hscf-preview-pop" title="Open player in a new window"><span class="dashicons dashicons-external"></span></a>
+            </div>
+        </div>
+    </div>
+    <?php endforeach; endif; ?>
+    <?php endif; ?>
+
+    <div id="cfModal" class="cfmodal"><div class="cfmodalbox"><span class="close">&times;</span><div class="cfmodal-content"></div></div></div>
+</div>
+        <?php
     }
 
     // ── Helper methods ─────────────────────────────────────────
 
     private static function getLiveInputs(): array|string {
-        $svc = new \HS\Services\LiveInputService();
-        $inputs = $svc->listWithDetails();
+        try {
+            $svc = new \HS\Services\LiveInputService();
+            $inputs = $svc->listWithDetails();
+        } catch (ConfigError $e) {
+            return 'not_configured';
+        } catch (\Throwable $e) {
+            return 'Cloudflare request failed: ' . $e->getMessage();
+        }
         return is_array($inputs) ? $inputs : (string) $inputs;
     }
 
     private static function listCloudflareVideos(): array {
-        $svc = new \HS\Services\LiveInputService();
-        $inputs = $svc->listWithDetails();
-        return is_array($inputs) ? $inputs : [];
+        try {
+            return (new \HS\Services\RecordingsService())->listAll();
+        } catch (\Throwable $e) {
+            return [];
+        }
     }
 
     private static function getLiveInputOutputs(string $input_id): array|string {
-        $svc = new \HS\Services\LiveInputService();
-        return $svc->getOutputs($input_id);
+        try {
+            $svc = new \HS\Services\LiveInputService();
+            return $svc->getOutputs($input_id);
+        } catch (\Throwable $e) {
+            return 'Unable to load outputs.';
+        }
     }
 
     private static function getVideosByStreamName(string $stream_name): array {
-        $svc = new \HS\Services\RecordingsService();
-        return $svc->findByStreamName($stream_name);
+        try {
+            $svc = new \HS\Services\RecordingsService();
+            return $svc->findByStreamName($stream_name);
+        } catch (\Throwable $e) {
+            return [];
+        }
+    }
+
+    /**
+     * Sanitize a video name into a Cloudflare ?filename= value. Cloudflare only
+     * allows [A-Za-z0-9-_], max 120 chars, and appends .mp4 itself — so without
+     * this, downloads save as the generic "default.mp4".
+     */
+    private static function cfDownloadFilename(string $name): string {
+        $name = preg_replace('/\.(mp4|mov)$/i', '', trim($name)); // drop any extension
+        $name = preg_replace('/[^A-Za-z0-9\-_]+/', '-', $name);   // collapse disallowed runs to "-"
+        $name = trim($name, '-_');
+        $name = substr($name, 0, 120);
+        return $name !== '' ? $name : 'video';
+    }
+
+    /** Append ?filename= to a Cloudflare download URL so the file saves with a real name. */
+    private static function withDownloadFilename(string $url, string $filename): string {
+        if ($url === '' || $url === '#') {
+            return $url;
+        }
+        $sep = strpos($url, '?') !== false ? '&' : '?';
+        return $url . $sep . 'filename=' . rawurlencode($filename);
     }
 
     private static function getFormattedMaxUploadSize(): string {

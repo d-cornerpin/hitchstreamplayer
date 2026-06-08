@@ -172,10 +172,15 @@ class CloudflareClient {
         return $this->get("stream/{$input_id}/lifecycle");
     }
 
-    /** GET /accounts/{id}/stream?list_type=live_inputs&page=1&per_page=50 */
+    /** GET /accounts/{id}/stream/live_inputs  — list all live inputs (minimal;
+     *  enrich per-input with getLiveInput() for srt/rtmps/status). */
+    public function listLiveInputs(): array {
+        return $this->get('stream/live_inputs');
+    }
+
+    /** GET /accounts/{id}/stream  — list uploaded/recorded videos. */
     public function listVideos(?string $input_id = null, int $page = 1, int $per_page = 50): array {
-        $q = ['list_type' => 'live_inputs', 'page' => $page, 'per_page' => $per_page];
-        return $this->get('stream', ['query' => $q]);
+        return $this->get('stream', ['query' => ['page' => $page, 'per_page' => $per_page]]);
     }
 
     /** GET /accounts/{id}/stream/live_inputs/{id} */
@@ -193,15 +198,13 @@ class CloudflareClient {
         return $this->delete("stream/live_inputs/{$input_id}");
     }
 
-    /** PUT /accounts/{id}/stream/webhook  — register account-level webhook. */
-    public function registerWebhook(string $notification_url, string $secret = ''): array {
+    /**
+     * PUT /accounts/{id}/stream/webhook — register account-level webhook.
+     * Cloudflare's API takes only notification_url; it generates the signing
+     * secret itself and returns it in result.secret (do NOT send a secret).
+     */
+    public function registerWebhook(string $notification_url): array {
         $body = ['notification_url' => $notification_url];
-        if ($secret) {
-            $body['notification_auth'] = [
-                'strategy' => 'secret_header',
-                'secret'   => $secret,
-            ];
-        }
         return $this->put('stream/webhook', ['body' => wp_json_encode($body)]);
     }
 

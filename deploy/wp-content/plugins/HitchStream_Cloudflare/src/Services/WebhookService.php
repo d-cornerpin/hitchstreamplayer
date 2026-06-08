@@ -17,9 +17,8 @@ class WebhookService {
     }
 
     /** Register account-level webhook. Returns ['secret' => string] on success, ['error' => string] on failure. */
-    public function register(string $notification_url, string $secret = ''): array {
-        $new_secret = $secret ?: bin2hex(random_bytes(32));
-        $result = $this->client->registerWebhook($notification_url, $new_secret);
+    public function register(string $notification_url): array {
+        $result = $this->client->registerWebhook($notification_url);
 
         if (!$result['success']) {
             return ['error' => 'Cloudflare API error', 'status' => $result['status'], 'response' => $result['body']];
@@ -43,6 +42,11 @@ class WebhookService {
     public function get(): array {
         $result = $this->client->getWebhook();
         if (!$result['success']) {
+            // 404 = no webhook configured yet. That's a normal state, not an
+            // error — return an empty result so the UI shows "not registered".
+            if (($result['status'] ?? 0) === 404) {
+                return ['result' => null, 'registered' => false];
+            }
             return ['error' => 'Cloudflare API error', 'status' => $result['status'], 'response' => $result['body']];
         }
         return json_decode($result['body'], true);
@@ -57,5 +61,40 @@ class WebhookService {
         }
         update_option('HSCF_webhook_secret', $result['secret']);
         return ['success' => true];
+    }
+
+    /**
+     * Latest webhook-derived normalized state per input, from the webhook log.
+     * Returns [ input_id => 'live'|'idle'|'reconnecting'|'error' ] for inputs
+     * that have a valid (signed) event on record. Inputs with no webhook history
+     * are simply absent, so callers can fall back to the Cloudflare API for them.
+     */
+    public function latestStatesByInput(array $input_ids): array {
+        global $wpdb;
+        $input_ids = array_values(array_filter(array_unique($input_ids)));
+        if (empty($input_ids)) {
+            return [];
+        }
+        $table = $wpdb->prefix . 'hs_webhook_log';
+        $ph    = implode(',', array_fill(0, count($input_ids), '%s'));
+        // Join each input to its newest signed, normalized event (MAX(id)).
+        $sql = "SELECT t.input_id, t.normalized_state
+                FROM {$table} t
+                INNER JOIN (
+                    SELECT input_id, MAX(id) AS max_id
+                    FROM {$table}
+                    WHERE signature_ok = 1 AND normalized_state IS NOT NULL
+                      AND input_id IN ($ph)
+                    GROUP BY input_id
+                ) m ON t.id = m.max_id";
+        // @phpcs:ignore — $table is internal, ids are placeholder-bound.
+        $rows = $wpdb->get_results($wpdb->prepare($sql, $input_ids), ARRAY_A);
+        $out  = [];
+        foreach ((array) $rows as $r) {
+            if (!empty($r['input_id']) && !empty($r['normalized_state'])) {
+                $out[$r['input_id']] = $r['normalized_state'];
+            }
+        }
+        return $out;
     }
 }

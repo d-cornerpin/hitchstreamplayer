@@ -23,7 +23,7 @@ The tables below list every file. Upload each to the server path shown.
 
 ## What's in `deploy/`
 
-The `deploy/` directory contains **only the files we changed during the rebuild** — 38 files total. Untouched files (the 12 wedding templates, fonts, images, CSS, supporting JS, etc.) are deliberately NOT in `deploy/` so this deploy can never overwrite them. Layout mirrors the WordPress structure:
+The `deploy/` directory contains **only the files we changed during the rebuild** — 41 files total (rebuilt after the pre-deploy audit). Untouched files (the 12 wedding templates, fonts, images, CSS, supporting JS, etc.) are deliberately NOT in `deploy/` so this deploy can never overwrite them. Layout mirrors the WordPress structure:
 
 ```
 deploy/

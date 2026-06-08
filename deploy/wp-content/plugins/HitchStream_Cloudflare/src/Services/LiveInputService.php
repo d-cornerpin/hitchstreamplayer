@@ -18,33 +18,47 @@ class LiveInputService {
 
     /** List all live inputs with detail enrichment (SRT, RTMP, status). */
     public function listWithDetails(): array {
-        $result = $this->client->listVideos();
-        $data = json_decode($result['body'], true);
+        $result = $this->client->listLiveInputs();
+        $data = json_decode($result['body']); // objects — render reads $input->uid etc.
 
-        if (!$result['success'] || !($data['success'] ?? false)) {
+        if (!$result['success'] || !($data->success ?? false)) {
             return ['error' => 'Failed to fetch live inputs.'];
         }
 
-        foreach ($data['result'] as $input) {
+        $inputs = is_array($data->result ?? null) ? $data->result : [];
+        foreach ($inputs as $input) {
+            if (!is_object($input) || !isset($input->uid)) {
+                continue;
+            }
+            // The list response is minimal; fetch srt/rtmps/status per input.
             $detail_result = $this->client->getLiveInput($input->uid);
-            $detail_data = json_decode($detail_result['body'], true);
+            $detail_data   = json_decode($detail_result['body']);
 
-            if ($detail_result['success'] && ($detail_data['success'] ?? false) && isset($detail_data['result'])) {
-                $input->srt_details    = $detail_data['result']['srt'] ?? null;
-                $input->rtmp_details   = $detail_data['result']['rtmps'] ?? null;
-                $input->status_details = $detail_data['result']['status']['current']['state'] ?? 'Status Unavailable';
+            if ($detail_result['success'] && ($detail_data->success ?? false) && isset($detail_data->result)) {
+                $input->srt_details    = $detail_data->result->srt ?? null;
+                $input->rtmp_details   = $detail_data->result->rtmps ?? null;
+                // Cloudflare returns status as a nested object {current:{state}};
+                // the public docs show a flat string. Handle both so a shape
+                // change can't silently blank every status badge.
+                $st = $detail_data->result->status ?? null;
+                $input->status_details = is_string($st) ? $st : ($st->current->state ?? 'Status Unavailable');
             }
         }
 
-        return $data['result'];
+        return $inputs;
     }
 
     /** Create a live input with the given name. Returns the created input data or null on failure. */
-    public function create(string $stream_name): ?array {
-        $result = $this->client->createLiveInput([
+    public function create(string $stream_name, bool $low_latency = false): ?array {
+        $params = [
             'meta'      => ['name' => $stream_name],
             'recording' => ['mode' => 'automatic'],
-        ]);
+        ];
+        if ($low_latency) {
+            // Beta LL-HLS pipeline; requires recording mode 'automatic' (set above).
+            $params['preferLowLatency'] = true;
+        }
+        $result = $this->client->createLiveInput($params);
         $data = json_decode($result['body'], true);
 
         if (!$result['success'] || !($data['success'] ?? false)) {

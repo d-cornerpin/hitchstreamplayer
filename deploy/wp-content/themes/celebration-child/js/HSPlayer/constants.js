@@ -28,7 +28,11 @@ export const POLL_BACKOFF_AFTER_ERRORS = 3;
 export const POLL_BACKOFF_JITTER_MS = 1500;
 export const POLL_TIMEOUT_MS = 8000;
 
-export const FATAL_TIMEOUT_MS = 45000;
+// Must stay LONGER than PREBUFFER_TIMEOUT_MS: on a slow connection the prebuffer
+// gate's own 60s timeout makes a final playback attempt — the fatal timer must
+// not fire first, or viewers on weak venue Wi-Fi get a false "please refresh"
+// right as the stream was about to start.
+export const FATAL_TIMEOUT_MS = 75000;
 
 export const PREBUFFER_TIMEOUT_MS = 60000;
 
