@@ -4,25 +4,29 @@ jQuery(document).ready(function ($) {
     initVideoUploader();
 
     function updateLiveInputStatus() {
+        var ids = $('.hscf-ph-btn').map(function () { return $(this).attr('data-input-id'); }).get();
+        if (!ids.length) return;
         $.ajax({
             url: hscf_ajax.ajax_url,
             type: 'POST',
             data: {
                 action: 'hscf_check_live_input_status',
-                _wpnonce: hscf_ajax.nonce
+                _wpnonce: hscf_ajax.nonce,
+                ids: ids
             },
             success: function (response) {
-                if (response.success) {
-                    $.each(response.data, function (uid, status) {
-                        var statusSpan = $('#status-' + uid);
-                        if (status === 'connected') {
-                            statusSpan.removeClass('status-disconnected').addClass('status-connected');
-                        } else if (status === 'disconnected') {
-                            statusSpan.removeClass('status-connected').addClass('status-disconnected');
-                        }
-                        statusSpan.text(status);
-                    });
-                }
+                if (!response || !response.success) return;
+                $.each(response.data, function (uid, info) {
+                    var status = (info && typeof info === 'object') ? info.status : info;
+                    var $badge = $('#badge-' + uid);
+                    if (!$badge.length) return;
+                    var connected = (status === 'connected');
+                    var disconnected = (status === 'disconnected');
+                    $badge.removeClass('hscf-badge--live hscf-badge--off hscf-badge--unknown')
+                          .addClass(connected ? 'hscf-badge--live' : (disconnected ? 'hscf-badge--off' : 'hscf-badge--unknown'));
+                    $badge.find('.dashicons').attr('class', 'dashicons ' + (connected ? 'dashicons-controls-play' : 'dashicons-controls-pause'));
+                    $badge.find('.hscf-badge__text').text(status);
+                });
             }
         });
     }
@@ -90,34 +94,42 @@ jQuery(document).ready(function ($) {
 
 
 
+    // ── SRT settings (OBS / vMix) — one modal, all fields visible, output
+    //    computed live below as you type. ──
     $(document).on('click', '.generateSRTobs', function () {
         var baseSRTUrl = this.getAttribute('data-base-srt-url');
-
-        // Ask for Ping time in milliseconds
-        var pingTimeInMs = prompt("Ping time to live.hitchstream.com in ms?", "100");
-        var maxBandwidthInMB = prompt("Upload Speed in MB?", "5");
-        var bufferSizeInMB = prompt("Buffer size in MB?", "64");
-
-        // Convert ping time to microseconds and perform calculations
-        var pingTimeInMicroseconds = parseInt(pingTimeInMs, 10) * 1000; // Convert ms to microseconds
-        var calculatedLatency = (pingTimeInMicroseconds * 60000); // Apply given formula
-        calculatedLatency = Math.min(8000000, calculatedLatency);
-
-        var maxBandwidthInBytes = parseInt(maxBandwidthInMB, 10) * 1000000 * 0.9; // Assuming 1MB = 1,000,000 bytes
-        var bufferSizeInBytes = parseInt(bufferSizeInMB, 10) * 1000000;
-
-        var maxBandwidthInKBytes = Math.min(6500, parseInt(maxBandwidthInMB, 10) * 1000 * 0.9);
-
-        if (isNaN(calculatedLatency) || isNaN(maxBandwidthInBytes) || isNaN(bufferSizeInBytes)) {
-            sendToModal("Invalid input. Please enter numeric values.");
-            return;
+        var host = this.getAttribute('data-host') || 'the streaming server';
+        var html =
+            '<h2 class="hscf-modal-title">OBS SRT Settings</h2>' +
+            '<div class="hscf-srt-grid">' +
+              '<label>Ping to ' + host + ' (ms)<input type="number" class="srt-ping" value="100" min="1"></label>' +
+              '<label>Upload speed (MB)<input type="number" class="srt-upload" value="5" min="1"></label>' +
+              '<label>Buffer size (MB)<input type="number" class="srt-buffer" value="64" min="1"></label>' +
+            '</div>' +
+            '<div class="hscf-srt-out">' +
+              srtOutField('Stream URL', 'srt-url-val') +
+              srtOutField('Bitrate (kbps)', 'srt-bitrate-val') +
+            '</div>';
+        openModalHTML(html, true);
+        var $m = $('#cfModal');
+        function recompute() {
+            var ping = parseInt($m.find('.srt-ping').val(), 10);
+            var upload = parseInt($m.find('.srt-upload').val(), 10);
+            var buffer = parseInt($m.find('.srt-buffer').val(), 10);
+            if (isNaN(ping) || isNaN(upload) || isNaN(buffer)) {
+                $m.find('.srt-url-val').text('Enter numeric values in all fields.');
+                $m.find('.srt-bitrate-val').text('—');
+                return;
+            }
+            var latency = Math.min(8000000, ping * 1000 * 60000);
+            var maxbw = upload * 1000000 * 0.9;
+            var buf = buffer * 1000000;
+            var bitrate = Math.min(6500, upload * 1000 * 0.9);
+            $m.find('.srt-url-val').text(baseSRTUrl + '&latency=' + latency + '&maxbw=' + maxbw + '&sndbuf=' + buf + '&rcvbuf=' + buf);
+            $m.find('.srt-bitrate-val').text(bitrate);
         }
-
-        // Construct the full SRT URL with the new latency and other parameters
-        var fullSRTUrl = baseSRTUrl + "&latency=" + calculatedLatency + "&maxbw=" + maxBandwidthInBytes + "&sndbuf=" + bufferSizeInBytes + "&rcvbuf=" + bufferSizeInBytes;
-        var ModalMessage = "<div><strong>OBS SRT Settings:</strong><div><br>Stream URL:<br><div class='modalcontentbox'>" + fullSRTUrl + "</div><br>Bitrate:<br><div class='modalcontentbox'>" + maxBandwidthInKBytes + "</div>";
-        // Present a prompt with the full SRT URL for the user to copy
-        sendToModal(ModalMessage);
+        $m.find('.srt-ping, .srt-upload, .srt-buffer').on('input', recompute);
+        recompute();
     });
 
     $(document).on('click', '.generateSRTvmix', function () {
@@ -125,44 +137,61 @@ jQuery(document).ready(function ($) {
         var portSRT = this.dataset.portSrt;
         var passphrase = this.dataset.passphrase;
         var streamId = this.dataset.streamId;
-
-        // Ask for Ping time in milliseconds
-        var pingTimeInMs = prompt("Ping time to live.hitchstream.com in ms?", "100");
-        var maxBandwidthInMB = prompt("Upload Speed in MB?", "5");
-
-        var calculatedLatency = (pingTimeInMs * 60);
-        calculatedLatency = Math.min(8000, calculatedLatency);
-
-        var maxBandwidthInKBytes = Math.min(6500, parseInt(maxBandwidthInMB, 10) * 1000 * 0.9);
-
-        if (isNaN(calculatedLatency) || isNaN(maxBandwidthInKBytes)) {
-            sendToModal("Invalid input. Please enter numeric values.");
-            return;
+        var host = this.dataset.simplifiedSrtUrl || 'the streaming server';
+        var html =
+            '<h2 class="hscf-modal-title">vMix SRT Settings</h2>' +
+            '<div class="hscf-srt-grid">' +
+              '<label>Ping to ' + host + ' (ms)<input type="number" class="srt-ping" value="100" min="1"></label>' +
+              '<label>Upload speed (MB)<input type="number" class="srt-upload" value="5" min="1"></label>' +
+            '</div>' +
+            '<div class="hscf-srt-out">' +
+              srtOutField('Hostname', 'v-host') +
+              srtOutField('Port', 'v-port') +
+              srtOutField('Latency', 'v-lat') +
+              srtOutField('Passphrase', 'v-pass') +
+              srtOutField('Stream ID', 'v-sid') +
+              srtOutField('Bitrate (kbps)', 'v-bit') +
+            '</div>';
+        openModalHTML(html, true);
+        var $m = $('#cfModal');
+        function recompute() {
+            var ping = parseInt($m.find('.srt-ping').val(), 10);
+            var upload = parseInt($m.find('.srt-upload').val(), 10);
+            $m.find('.v-host').text(simplifiedSRTUrl);
+            $m.find('.v-port').text(portSRT);
+            $m.find('.v-lat').text(isNaN(ping) ? '—' : Math.min(8000, ping * 60));
+            $m.find('.v-pass').text(passphrase);
+            $m.find('.v-sid').text(streamId);
+            $m.find('.v-bit').text(isNaN(upload) ? '—' : Math.min(6500, upload * 1000 * 0.9));
         }
+        $m.find('.srt-ping, .srt-upload').on('input', recompute);
+        recompute();
+    });
 
-        // Construct the full SRT URL with the new latency and other parameters
-        var ModalMessage = "<div><strong>Vmix SRT Settings:</strong><div><br>Hostname:<div class='modalcontentbox'>" + simplifiedSRTUrl + "</div><br>Port:<div class='modalcontentbox'>" + portSRT + "</div><br>Latency:<div class='modalcontentbox'>" + calculatedLatency + "</div><br>Passphrase:<div class='modalcontentbox'>" + passphrase + "</div><br>Stream ID:<div class='modalcontentbox'>" + streamId + "</div><br>Bitrate:<div class='modalcontentbox'>" + maxBandwidthInKBytes + "</div><br>";
-        // Present a prompt with the full SRT URL for the user to copy
-        sendToModal(ModalMessage);
+    // Copy a computed SRT field's value (with the green flash).
+    $(document).on('click', '.srt-copy', function () {
+        var src = $(this).data('src');
+        var text = $('#cfModal').find('.' + src).first().text();
+        copyToClipboard(text, this);
     });
 
 
     // Copy RTMP URL
     $(document).on('click', '.copy-rtmp-url-btn', function () {
         var rtmpURL = $(this).data('rtmp-url');
-        copyToClipboard(rtmpURL);
+        copyToClipboard(rtmpURL, this);
     });
 
     // Copy RTMP Key
     $(document).on('click', '.copy-rtmp-key-btn', function () {
         var rtmpKey = $(this).data('rtmp-key');
-        copyToClipboard(rtmpKey);
+        copyToClipboard(rtmpKey, this);
     });
 
     // Copy Live Input ID
     $(document).on('click', '.copy-input-id-btn', function () {
         var inputID = $(this).data('input-id');
-        copyToClipboard(inputID);
+        copyToClipboard(inputID, this);
     });
 
     // Copy Embed Code
@@ -171,15 +200,14 @@ jQuery(document).ready(function ($) {
 
         // Generate the embed code with proper formatting
         var embedCode = "<div style=\"position: relative;\">\n" +
-            "    <iframe src=\"https://hitchstream.com/player?live=true&amp;inputId=" + inputId + "\"\n" +
+            "    <iframe src=\"" + hscf_ajax.player_url + "?live=true&amp;inputId=" + inputId + "\"\n" +
             "            style=\"border: none; width: 100%; aspect-ratio: 16 / 9;\"\n" +
             "            allow=\"fullscreen; accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture\"\n" +
             "            allowfullscreen=\"\">\n" +
             "    </iframe>\n" +
             "</div>";
 
-        // Copy the formatted embed code to the clipboard and display it in the modal
-        copyToClipboard(embedCode);
+        copyToClipboard(embedCode, this);
     });
 
     // Delete Output
@@ -280,87 +308,65 @@ jQuery(document).ready(function ($) {
     });
 
 
-    $(document).on('click', '.create-download-link', function (e) {
-        var $this = $(this);
-        var videoId = $(this).data('video-id');
-        var $icon = $(this).find('img'); // Assuming the icon is an <img> inside the link
-        var currentHref = $(this).attr('href');
+    // Recording MP4 download. Cloudflare generates the MP4 on demand and gives
+    // no "ready" notification, so checking is unavoidable — but we only do it
+    // while you're actively waiting: click → if already downloadable the link
+    // just downloads; otherwise kick off generation and poll with backoff for
+    // ~2 min, then stop and let you click again to re-check. No background
+    // polling, no modals.
+    var DL_DELAYS = [4000, 7000, 12000, 20000, 30000, 45000]; // ~2 min, backing off
 
-        // Log current state
-        console.log('Button clicked. Video ID:', videoId);
-        console.log('Current href:', currentHref);
-
-        if (currentHref && currentHref.endsWith('.mp4')) {
-            // If the download link points to an MP4 file, keep the title as "Download"
-            $icon.attr('title', 'Download');
-            return;
+    function dlSetIcon($link, cls) { $link.find('.dashicons').attr('class', 'dashicons ' + cls); }
+    function dlPreparing($link, pct) {
+        var t = (typeof pct === 'number' && pct >= 0) ? ('Preparing MP4… ' + Math.round(pct) + '%') : 'Preparing MP4…';
+        $link.addClass('is-preparing').attr('title', t);
+        dlSetIcon($link, 'dashicons-update hscf-spin');
+    }
+    function dlReady($link, url) {
+        // Append ?filename= so the browser saves a real name, not "default.mp4".
+        var fn = $link.attr('data-filename');
+        if (fn && url.indexOf('filename=') === -1) {
+            url += (url.indexOf('?') !== -1 ? '&' : '?') + 'filename=' + encodeURIComponent(fn);
         }
+        $link.removeClass('is-preparing').attr('href', url).attr('title', 'Download MP4').css('color', '#008a20');
+        dlSetIcon($link, 'dashicons-download');
+    }
+    function dlRecheck($link) { $link.removeClass('is-preparing').attr('title', 'Still preparing — click to check again').css('color', ''); dlSetIcon($link, 'dashicons-cloud'); }
 
-        e.preventDefault(); // Prevent default action since we're handling the click event
-
-        $.ajax({
-            url: hscf_ajax.ajax_url,
-            type: 'POST',
-            data: {
-                'action': 'hscf_create_download',
-                'video_id': videoId,
-                '_wpnonce': hscf_ajax.nonce
-            },
-            beforeSend: function () {
-                $icon.attr('src', 'https://hitchstream.com/wp-content/uploads/2024/01/loading_icon2.gif')
-                    .css({
-                        'width': '24px',
-                        'height': '24px'
-                    })
-                    .attr('title', 'Creating download...'); // Update the title to "Creating download..."
-                sendToModal("Making the recording downloadable. This may take a while.");
-            },
-            success: function (response) {
-                if (response.success) {
-                    var downloadStatusInterval = setInterval(function () {
-                        checkDownloadStatus(videoId, downloadStatusInterval, $icon);
-                    }, 10000);
-                } else {
-                    sendToModal("Failed to create download: " + response.data);
-                    $icon.attr('src', 'https://hitchstream.com/wp-content/uploads/2024/01/downloadmp4_start.png')
-                        .attr('title', 'Create download'); // Revert icon back to initial state with title "Create download"
-                }
-            },
-            error: function (xhr, status, error) {
-                sendToModal("Error: " + xhr.responseText);
-                $icon.attr('src', 'https://hitchstream.com/wp-content/uploads/2024/01/downloadmp4_start.png')
-                    .attr('title', 'Create download'); // Revert icon back to initial state with title "Create download"
+    function pollDownload(videoId, $link, attempt) {
+        $.post(hscf_ajax.ajax_url, { action: 'hscf_check_download_status', video_id: videoId, _wpnonce: hscf_ajax.nonce })
+        .done(function (resp) {
+            // Ready: success envelope carries the URL.
+            if (resp && resp.success && resp.data && resp.data.download_url) {
+                dlReady($link, resp.data.download_url);
+                return;
             }
-        });
-    });
-
-    function checkDownloadStatus(videoId, intervalId, iconElement) {
-        console.log("Checking download status for video ID:", videoId);
-        $.ajax({
-            url: hscf_ajax.ajax_url,
-            type: 'POST',
-            data: {
-                'action': 'hscf_check_download_status',
-                'video_id': videoId,
-                '_wpnonce': hscf_ajax.nonce
-            },
-            success: function (response) {
-                console.log("Received response:", response);
-                if (response.success && response.data.download_url) {
-                    console.log("Download URL available:", response.data.download_url);
-                    setTimeout(function () {
-                        clearInterval(intervalId);
-                        iconElement.attr('src', 'https://hitchstream.com/wp-content/uploads/2024/01/downloadmp4_finish.png')
-                            .attr('title', 'Download'); // Update the title to "Download"
-                        iconElement.closest('a').attr('href', response.data.download_url);
-                    }, 120000); // Delay of 2 minutes
-                }
-            },
-            error: function (xhr, status, error) {
-                console.error("Error: " + xhr.responseText);
-            }
+            // Still generating: the error envelope carries percentComplete.
+            var pct = resp && resp.data && resp.data.percent;
+            dlPreparing($link, typeof pct === 'number' ? pct : undefined);
+            if (attempt < DL_DELAYS.length) { setTimeout(function () { pollDownload(videoId, $link, attempt + 1); }, DL_DELAYS[attempt]); }
+            else { dlRecheck($link); }
+        }).fail(function () {
+            if (attempt < DL_DELAYS.length) { setTimeout(function () { pollDownload(videoId, $link, attempt + 1); }, DL_DELAYS[attempt]); }
+            else { dlRecheck($link); }
         });
     }
+
+    $(document).on('click', '.create-download-link', function (e) {
+        var $link = $(this);
+        var href = $link.attr('href') || '';
+        if (href && href !== '#' && href.indexOf('.mp4') !== -1) return; // already downloadable → let it download
+
+        e.preventDefault();
+        if ($link.hasClass('is-preparing')) return; // already working on it
+        var videoId = $link.data('video-id');
+        dlPreparing($link);
+        $.post(hscf_ajax.ajax_url, { action: 'hscf_create_download', video_id: videoId, _wpnonce: hscf_ajax.nonce })
+        .done(function (resp) {
+            if (resp && resp.success) { pollDownload(videoId, $link, 0); }
+            else { dlRecheck($link); }
+        }).fail(function () { dlRecheck($link); });
+    });
 
 
 
@@ -369,36 +375,28 @@ jQuery(document).ready(function ($) {
     $(document).on('click', '.delete-video-link', function (e) {
         e.preventDefault();
         var $this = $(this);
-        var videoId = $(this).data('video-id');
+        var videoId = $this.data('video-id');
+        if (!confirm('Delete this video? This cannot be undone.')) return;
 
-        if (confirm('Are you sure you want to delete this video?')) {
-            $.ajax({
-                url: hscf_ajax.ajax_url,
-                type: 'POST',
-                data: {
-                    action: 'hscf_delete_recording',
-                    video_id: videoId,
-                    '_wpnonce': hscf_ajax.nonce
-                },
-                success: function (response) {
-                    if (response.success) {
-                        sendToModal('Video deleted successfully.');
-                        // Determine the correct element to remove
-                        var container = $(e.target).closest('.video-container');
-                        if (container.length) { // Check if the container is a video-container
-                            container.remove(); // Remove the .video-container
-                        } else {
-                            $(e.target).closest('div').remove(); // Otherwise, remove the closest div
-                        }
-                    } else {
-                        sendToModal('Failed to delete video: ' + response.data);
-                    }
-                },
-                error: function (xhr) {
-                    sendToModal('Error: ' + xhr.responseText);
+        var $row = $this.closest('.hscf-recording, .video-container');
+        $row.css('opacity', '0.5');
+        $.ajax({
+            url: hscf_ajax.ajax_url,
+            type: 'POST',
+            data: { action: 'hscf_delete_recording', video_id: videoId, '_wpnonce': hscf_ajax.nonce },
+            success: function (response) {
+                if (response.success) {
+                    $row.fadeOut(200, function () { $(this).remove(); }); // no success modal — just remove it
+                } else {
+                    $row.css('opacity', '1');
+                    sendToModal('Failed to delete recording: ' + response.data);
                 }
-            });
-        }
+            },
+            error: function (xhr) {
+                $row.css('opacity', '1');
+                sendToModal('Error: ' + xhr.responseText);
+            }
+        });
     });
 
 
@@ -408,13 +406,7 @@ jQuery(document).ready(function ($) {
         e.preventDefault();
         var $this = $(this);
         var videoId = $(this).data('video-id');
-
-        // Copy video ID (UID) to clipboard
-        navigator.clipboard.writeText(videoId).then(function () {
-            copyToClipboard(videoId);
-        }).catch(function (error) {
-            sendToModal("Error copying video ID: " + error);
-        });
+        copyToClipboard(videoId, this);
     });
 
     // Function to escape HTML characters
@@ -429,100 +421,135 @@ jQuery(document).ready(function ($) {
         var videoId = $(this).data('video-id');
 
         // Format the embed code using the video UID
-        var embedCode = `<div style="position: relative"><iframe src="https://hitchstream.com/player?live=false&inputId=${videoId}" style="border: none; width: 100%; aspect-ratio: 16 / 9;" allow="fullscreen; accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe></div>`;
+        var embedCode = `<div style="position: relative"><iframe src="${hscf_ajax.player_url}?live=false&inputId=${videoId}" style="border: none; width: 100%; aspect-ratio: 16 / 9;" allow="fullscreen; accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe></div>`;
 
-        // Send the formatted and escaped embed code to be copied to clipboard
-        copyToClipboard(escapeHtml(embedCode));
+        copyToClipboard(escapeHtml(embedCode), this);
     });
 
 
-    $(document).on('change', '.stream-toggle', function () {
-        // Disable the toggle to prevent multiple clicks
-        $(this).attr('disabled', true);
+    // ── Placeholder stream: one button that cycles play → ⟳ → stop → ⟳ ──
+    // Collapse / expand a live-input card down to its grey title bar.
+    $(document).on('click', '.hscf-stream__chevron', function (e) {
+        e.preventDefault();
+        $(this).closest('.hscf-stream').toggleClass('is-collapsed');
+    });
 
-        var isChecked = $(this).is(':checked');
-        var videoFile;
-        var data;
-        var rtmpsKey = $(this).data('rtmp-key'); // Get the RTMP key from the data attribute
+    // Open the player for a live input in its own (16:9) window. Falls back to
+    // the link's target=_blank if the popup is blocked.
+    $(document).on('click', '.hscf-preview-pop', function (e) {
+        var url = $(this).attr('href');
+        if (!url) return;
+        var w = window.open(url, '', 'width=960,height=540,resizable=yes,scrollbars=yes');
+        if (w) { e.preventDefault(); w.focus(); }
+    });
 
-        // Check if we are starting or stopping the stream
-        if (isChecked) {
-            // Prepare data for starting the stream
-            videoFile = $('.FileSelector').val();
-            data = {
-                action: 'start_placeholderstream',
-                videoFile: videoFile,
-                rtmpsUrl: 'rtmps://live.hitchstream.com:443/live/', // Hardcoded as it doesn't change
-                rtmpsKey: rtmpsKey, // Use the RTMP key from the data attribute
-                _wpnonce: hscf_ajax.nonce
-            };
-        } else {
-            // Prepare data for stopping the stream
-            data = {
-                action: 'stop_placeholderstream',
-                _wpnonce: hscf_ajax.nonce
-            };
+    function setPhStatus($el, text, kind) {
+        var color = kind === 'err' ? '#b32d2e' : (kind === 'ok' ? '#008a20' : '#646970');
+        $el.text(text).css('color', color);
+    }
+    function phErr(x) {
+        return (x && x.responseJSON && x.responseJSON.data) ? x.responseJSON.data : 'Request failed';
+    }
+
+    // Morph the button: 'idle' = green play, 'running' = red stop, 'busy' = spinner.
+    function setPhButton(inputId, state) {
+        var $btn = $('.hscf-ph-btn[data-input-id="' + inputId + '"]');
+        if (!$btn.length) return;
+        $btn.removeClass('is-idle is-running is-busy').data('phstate', state);
+        if (state === 'idle') {
+            $btn.addClass('is-idle').prop('disabled', false).attr('title', 'Start placeholder stream')
+                .html('<span class="dashicons dashicons-controls-play"></span>');
+        } else if (state === 'running') {
+            $btn.addClass('is-running').prop('disabled', false).attr('title', 'Stop placeholder stream')
+                .html('<span class="hscf-stop-sq"></span>');
+        } else { // busy
+            $btn.addClass('is-busy').prop('disabled', true).attr('title', 'Working…')
+                .html('<span class="dashicons dashicons-update hscf-spin"></span>');
         }
+    }
 
-        jQuery.post(ajaxurl, data, function (response) {
-            console.log('Raw response from server:', response); // Log the raw response from the server
-            response = JSON.parse(response);
-            console.log('Parsed response:', response); // Log the parsed response
-            if ((isChecked && response.message === "Streaming started") || (!isChecked && response.message === "Streaming stopped successfully")) {
-                console.log('Server response:', response.message);
-                // New: Check actual stream state after server response
-                var streamStateData = {
-                    action: 'check_stream_state',
-                    _wpnonce: hscf_ajax.nonce
-                };
-                jQuery.post(ajaxurl, streamStateData, function (streamStateResponse) {
-                    streamStateResponse = JSON.parse(streamStateResponse);
-                    console.log('Actual state from API:', streamStateResponse);
-                    const actualStreamState = streamStateResponse.isStreaming;
-                    console.log('Actual Stream State:', actualStreamState);
-                    console.log('Expected Stream State (isChecked):', isChecked);
-                    if (actualStreamState !== isChecked) {
-                        // Revert toggle state if actual stream state doesn't match expected
-                        $('.stream-toggle').prop('checked', !isChecked);
-                        sendToModal('Stream state mismatch. Please try again.');
-                    }
-                }).error(function (jqXHR, textStatus, errorThrown) {
-                    // Handle error for stream state check
-                    console.log('Error checking stream state:', errorThrown);
-                    sendToModal('Error checking stream state. Please try again.');
-                });
-            } else {
-                // If the response is not successful, revert the toggle state
-                $('.stream-toggle').prop('checked', !isChecked);
-                console.log('Stream did not ' + (isChecked ? 'start' : 'stop') + ' successfully.'); // Log the failure message
-                sendToModal('Stream did not ' + (isChecked ? 'start' : 'stop') + ' successfully.');
-            }
-        }).error(function (jqXHR, textStatus, errorThrown) {
-            console.log('Server error:', errorThrown); // Log the error from the server
-            // Extract error message from response if available, otherwise use errorThrown
-            var errorMessage = jqXHR.responseJSON && jqXHR.responseJSON.message ? jqXHR.responseJSON.message : errorThrown;
-            sendToModal('Error: ' + errorMessage); // Show the actual error message from the endpoint
-            // Revert the toggle state in case of an error
-            $('.stream-toggle').prop('checked', !isChecked);
-        }).always(function () {
-            // Re-enable the toggle after processing is complete
-            $('.stream-toggle').attr('disabled', false);
-        });
+    $(document).on('click', '.hscf-ph-btn', function (e) {
+        e.preventDefault();
+        var $btn = $(this);
+        var inputId = $btn.attr('data-input-id');
+        var state = $btn.data('phstate') || 'idle';
+        var $status = $('#phstatus-' + inputId);
+
+        if (state === 'idle') {
+            var videoFile = $('.hscf-ph-video[data-input-id="' + inputId + '"]').val();
+            if (!videoFile) { setPhStatus($status, 'Pick a video first.', 'err'); return; }
+            setPhButton(inputId, 'busy');
+            setPhStatus($status, 'Starting…', 'muted');
+            $.post(hscf_ajax.ajax_url, {
+                action: 'start_placeholderstream', _wpnonce: hscf_ajax.nonce,
+                id: inputId, videoFile: videoFile,
+                rtmpsUrl: $btn.attr('data-rtmp-url'), rtmpsKey: $btn.attr('data-rtmp-key')
+            }).done(function (resp) {
+                if (resp && resp.success) { pollPhUntil(inputId, 'running'); }
+                else { setPhStatus($status, (resp && resp.data) || 'Failed to start', 'err'); setPhButton(inputId, 'idle'); }
+            }).fail(function (x) { setPhStatus($status, phErr(x), 'err'); setPhButton(inputId, 'idle'); });
+        } else if (state === 'running') {
+            setPhButton(inputId, 'busy');
+            setPhStatus($status, 'Stopping…', 'muted');
+            $.post(hscf_ajax.ajax_url, {
+                action: 'stop_placeholderstream', _wpnonce: hscf_ajax.nonce, id: inputId
+            }).done(function (resp) {
+                if (resp && resp.success) { pollPhUntil(inputId, 'idle'); }
+                else { setPhStatus($status, (resp && resp.data) || 'Failed to stop', 'err'); setPhButton(inputId, 'running'); }
+            }).fail(function (x) { setPhStatus($status, phErr(x), 'err'); setPhButton(inputId, 'running'); });
+        }
     });
 
-    function checkAndSetStreamState() {
-        $.post(hscf_ajax.ajax_url, {
-            'action': 'check_stream_state',
-            '_wpnonce': hscf_ajax.nonce,
-        }, function (response) {
-            response = JSON.parse(response);
-            if (response && response.hasOwnProperty('isStreaming')) {
-                $('.stream-toggle').prop('checked', response.isStreaming);
-            } else {
-                console.error('Failed to fetch the stream state:', response);
+    // Poll until the input reaches the target state, then settle the button.
+    function pollPhUntil(inputId, target) {
+        var $status = $('#phstatus-' + inputId);
+        var tries = 0;
+        var iv = setInterval(function () {
+            tries++;
+            $.post(hscf_ajax.ajax_url, { action: 'check_stream_state', _wpnonce: hscf_ajax.nonce, id: inputId })
+            .done(function (resp) {
+                if (!resp || !resp.success) return;
+                var status = (resp.data && resp.data.status) || 'idle';
+                if (target === 'running') {
+                    if (status === 'running') {
+                        setPhButton(inputId, 'running'); setPhStatus($status, '● Streaming', 'ok'); clearInterval(iv);
+                    } else if (status === 'error') {
+                        setPhButton(inputId, 'idle'); setPhStatus($status, 'Error: ' + ((resp.data && resp.data.error) || 'failed to start'), 'err'); clearInterval(iv);
+                    } else if (status === 'idle' && tries > 2) {
+                        setPhButton(inputId, 'idle'); setPhStatus($status, 'Stopped unexpectedly', 'err'); clearInterval(iv);
+                    }
+                } else { // target idle (stopping)
+                    if (status === 'idle' || status === 'stopped') {
+                        setPhButton(inputId, 'idle'); $status.text(''); clearInterval(iv);
+                    }
+                }
+            });
+            if (tries >= 12) { // ~18s cap — settle to whatever the state implies
+                clearInterval(iv);
+                setPhButton(inputId, target === 'running' ? 'running' : 'idle');
             }
-        }).fail(function (jqXHR, textStatus, errorThrown) {
-            console.error('Error fetching stream state:', errorThrown);
+        }, 1500);
+    }
+
+    // Reflect actual per-input placeholder state on load / periodic refresh.
+    function checkAndSetStreamState() {
+        $.post(hscf_ajax.ajax_url, { action: 'check_stream_state', _wpnonce: hscf_ajax.nonce }, function (resp) {
+            if (!resp || !resp.success) return;
+            var streams = (resp.data && resp.data.streams) || {};
+            $('.hscf-ph-btn').each(function () {
+                var $btn = $(this);
+                if ($btn.hasClass('is-busy')) return; // don't fight an in-progress transition
+                var id = $btn.attr('data-input-id');
+                var $status = $('#phstatus-' + id);
+                var s = streams[id];
+                if (s && (s.status === 'running' || s.status === 'starting')) {
+                    setPhButton(id, 'running'); setPhStatus($status, '● Streaming', 'ok');
+                } else if (s && s.status === 'error') {
+                    setPhButton(id, 'idle'); setPhStatus($status, 'Error', 'err');
+                } else {
+                    setPhButton(id, 'idle'); $status.text('');
+                }
+            });
         });
     }
 
@@ -551,8 +578,10 @@ jQuery(document).ready(function ($) {
                     console.error('Failed to fetch video files:', response);
                 }
             }
-        }).fail(function (jqXHR, textStatus, errorThrown) {
-            console.error('Error fetching video files:', errorThrown);
+        }).fail(function () {
+            // Placeholder-video list needs the Streamer service configured; if it
+            // isn't, leave the selector empty rather than spamming the console.
+            console.warn('HitchStream: placeholder video list unavailable (Streamer service not configured?).');
         });
     }
 
@@ -570,45 +599,81 @@ jQuery(document).ready(function ($) {
 
 
 
-    function copyToClipboard(text) {
-        navigator.clipboard.writeText(text).then(function () {
-            // Create a message with a textarea containing the copied text
-            var message = "Copied to clipboard:<br><textarea readonly class='modalcontentbox' style='width:100%;' id='clip-textarea'>" + text + "</textarea>";
-            sendToModal(message);
+    function copyToClipboard(text, btn) {
+        var onOk = function () { flashCopied(btn); };
+        // navigator.clipboard only exists in a secure context (https or
+        // localhost). Over http on a LAN IP it's undefined, so fall back to the
+        // legacy execCommand path, which works without a secure context.
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(text).then(onOk).catch(function () { fallbackCopy(text, onOk); });
+        } else {
+            fallbackCopy(text, onOk);
+        }
+    }
 
-            // Adjust the height of the textarea after the modal is displayed
-            setTimeout(function () {
-                var textarea = document.getElementById('clip-textarea');
-                if (textarea) {
-                    textarea.style.height = 'auto'; // Reset the height to calculate properly
-                    textarea.style.height = textarea.scrollHeight + 'px'; // Set the height to scroll height
-                }
-            }, 0); // Timeout set to 0 to ensure it runs after the DOM update
-        }).catch(function (error) {
-            sendToModal("Error copying text: " + error);
-        });
+    // Briefly turn a copy button green with a check + "Copied!" as confirmation.
+    function flashCopied(btn) {
+        if (!btn) return;
+        var $b = jQuery(btn);
+        if ($b.data('hscfBusy')) { return; }
+        var orig = $b.html();
+        $b.data('hscfBusy', true)
+          .css('min-width', $b.outerWidth() + 'px')
+          .addClass('hscf-copied')
+          .html('<span class="dashicons dashicons-yes" style="vertical-align:text-top;margin:0;"></span> Copied!');
+        setTimeout(function () {
+            $b.removeClass('hscf-copied').css('min-width', '').html(orig).removeData('hscfBusy');
+        }, 1800);
+    }
+
+    function fallbackCopy(text, onOk) {
+        try {
+            var ta = document.createElement('textarea');
+            ta.value = text;
+            ta.setAttribute('readonly', '');
+            ta.style.position = 'fixed';
+            ta.style.top = '-9999px';
+            document.body.appendChild(ta);
+            ta.focus();
+            ta.select();
+            var ok = document.execCommand('copy');
+            document.body.removeChild(ta);
+            if (ok) { onOk(); } else { sendToModal('Copy this manually:<br><textarea readonly class="modalcontentbox" style="width:100%;">' + text + '</textarea>'); }
+        } catch (e) {
+            sendToModal('Copy this manually:<br><textarea readonly class="modalcontentbox" style="width:100%;">' + text + '</textarea>');
+        }
     }
 
 
 
-    updateLiveInputStatus();
-    checkAndSetStreamState();
-
-    // Poll every 10 seconds
-    setInterval(function () {
+    // Live-input status badges + placeholder-stream button states. Only poll on
+    // the Streams tab (where the cards exist) and pause while the browser tab is
+    // hidden — no point hammering AJAX on a background or unrelated tab.
+    if ($('.hscf-stream').length) {
         updateLiveInputStatus();
         checkAndSetStreamState();
-    }, 10000);
+        setInterval(function () {
+            if (document.hidden) return;
+            updateLiveInputStatus();
+            checkAndSetStreamState();
+        }, 10000);
+    }
 
 });
 
+// jQuery runs in noConflict mode in wp-admin, so the global `$` is NOT jQuery.
+// The code below this point is at top level (outside the ready wrapper above),
+// so alias it — otherwise `$(...)` throws "$ is not a function" and halts the
+// rest of the script (which is why the modal never initialised).
+var $ = jQuery;
+
 // --- Webhook Settings ---
 
-function HSCF_cf_api_call(action, callback) {
+function HSCF_cf_api_call(action, callback, extra) {
     $.ajax({
         url: hscf_ajax.ajax_url,
         type: 'POST',
-        data: { action: action, _wpnonce: hscf_ajax.nonce },
+        data: $.extend({ action: action, _wpnonce: hscf_ajax.nonce }, extra || {}),
         success: function(response) {
             if (response.success) {
                 callback(null, response.data);
@@ -632,10 +697,11 @@ $(document).on('click', '#btn-register-webhook', function() {
             sendToModal('Registration failed: ' + err);
             return;
         }
-        // Update the secret field with the value from Cloudflare
-        $('#HSCF_webhook_secret').val(data.secret || '');
-        sendToModal('Webhook registered successfully!<br>Secret: <div class="modalcontentbox">' + escHtml(data.secret || '') + '</div>');
-    });
+        // Update the secret + URL fields with the values from Cloudflare
+        $('input[name=HSCF_webhook_secret]').val(data.secret || '');
+        if (data.url) { $('input[name=HSCF_webhook_url]').val(data.url); }
+        sendToModal('Webhook registered successfully!<br>URL: <div class="modalcontentbox">' + escHtml(data.url || '') + '</div>Secret: <div class="modalcontentbox">' + escHtml(data.secret || '') + '</div>');
+    }, { webhook_url: ($('input[name=HSCF_webhook_url]').val() || '') });
 });
 
 $(document).on('click', '#btn-delete-webhook', function() {
@@ -720,6 +786,8 @@ window.onclick = function (event) {
 function clearModal() {
     var cfmodalContent = cfmodal.querySelector('.cfmodal-content');
     cfmodalContent.innerHTML = '';
+    var box = cfmodal.querySelector('.cfmodalbox');
+    if (box) { box.style.width = ''; }
 }
 
 function sendToModal(message) {
@@ -727,4 +795,24 @@ function sendToModal(message) {
     var cfmodalContent = cfmodal.querySelector('.cfmodal-content');
     cfmodalContent.innerHTML = `<p>${message}</p>`;
     cfmodal.style.display = "block";
+}
+
+// Set raw modal HTML (no <p> wrapper) — for form-based modals like the SRT
+// generators. `wide` gives the box more room for a form + computed output.
+function openModalHTML(html, wide) {
+    clearModal();
+    var box = cfmodal.querySelector('.cfmodalbox');
+    if (box) { box.style.width = wide ? '560px' : ''; }
+    cfmodal.querySelector('.cfmodal-content').innerHTML = html;
+    cfmodal.style.display = "block";
+}
+
+// One output row in an SRT modal: label + copy button + value box.
+function srtOutField(label, cls) {
+    return '<div class="hscf-srt-field">' +
+        '<div class="hscf-srt-label">' + label + '</div>' +
+        '<div class="hscf-srt-row">' +
+            '<div class="modalcontentbox ' + cls + '"></div>' +
+            '<button type="button" class="button button-small srt-copy" data-src="' + cls + '">Copy</button>' +
+        '</div></div>';
 }
