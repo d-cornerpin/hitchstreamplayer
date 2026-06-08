@@ -12,6 +12,15 @@ if (!class_exists('HS\\CloudflareClient')) {
         require_once $hs_cf_client_file;
     }
 }
+
+// HitchStream RapidComposer blocks — child-owned overrides of the parent plugin's
+// [hs_*] shortcode handlers (inc/hs-blocks.php), so a parent update can't wipe them
+// and break every event page. is_readable guard avoids a white-screen if the file
+// is ever missing.
+$hs_blocks_file = get_stylesheet_directory() . '/inc/hs-blocks.php';
+if (is_readable($hs_blocks_file)) {
+    require_once $hs_blocks_file;
+}
 function get_status_ajax_callback() {
     global $post;
     $post_id = intval( $_POST['post_id'] );
