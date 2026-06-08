@@ -113,9 +113,9 @@ echo
 color_cyan "==> Restoring files"; echo
 
 if [[ $DRY_RUN -eq 1 ]]; then
-    rsync -azn --stats --itemize-changes --exclude='.DS_Store' \
+    rsync -rlvzn --no-perms --no-times --stats --itemize-changes --exclude='.DS_Store' \
         "${BACKUP_THEME}/" "$SSH_ALIAS:${REMOTE_THEME}/"
-    rsync -azn --stats --itemize-changes --exclude='.DS_Store' \
+    rsync -rlvzn --no-perms --no-times --stats --itemize-changes --exclude='.DS_Store' \
         "${BACKUP_PLUGIN}/" "$SSH_ALIAS:${REMOTE_PLUGIN}/"
     echo
     color_yellow "✓ DRY RUN complete. Re-run without --dry-run to actually roll back."
@@ -129,8 +129,8 @@ else
     rsync -az --exclude='.DS_Store' "$SSH_ALIAS:${REMOTE_THEME}/"  "${SNAP}/wp-content/themes/celebration-child/"
     rsync -az --exclude='.DS_Store' "$SSH_ALIAS:${REMOTE_PLUGIN}/" "${SNAP}/wp-content/plugins/HitchStream_Cloudflare/"
 
-    rsync -az --stats --exclude='.DS_Store' "${BACKUP_THEME}/"  "$SSH_ALIAS:${REMOTE_THEME}/"
-    rsync -az --stats --exclude='.DS_Store' "${BACKUP_PLUGIN}/" "$SSH_ALIAS:${REMOTE_PLUGIN}/"
+    rsync -rlvz --no-perms --no-times --stats --exclude='.DS_Store' "${BACKUP_THEME}/"  "$SSH_ALIAS:${REMOTE_THEME}/"
+    rsync -rlvz --no-perms --no-times --stats --exclude='.DS_Store' "${BACKUP_PLUGIN}/" "$SSH_ALIAS:${REMOTE_PLUGIN}/"
     echo
     color_green "✓ ROLLBACK COMPLETE. Server is at the state from ${TIMESTAMP}."
     echo "    (Pre-rollback snapshot of what was just overwritten: ${SNAP}/)"

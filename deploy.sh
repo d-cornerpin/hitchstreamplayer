@@ -44,7 +44,7 @@ BACKUP_ROOT="backups"
 
 # Show the y/n prompt before uploading. Set to "false" to skip the prompt
 # once you're comfortable with the script (still keeps backups + dry-run).
-CONFIRM_BEFORE_UPLOAD="true"
+CONFIRM_BEFORE_UPLOAD="${CONFIRM_BEFORE_UPLOAD:-true}"
 
 # Files/directories on the server to delete after upload. These are the
 # legacy paths the rebuild made obsolete. Adjust over time as needed.
@@ -232,18 +232,21 @@ step "Uploading new files"
 # window where it references a not-yet-present plugin file. Plugin-first closes
 # that window. (functions.php also has an is_readable guard as a backstop.)
 if [[ $DRY_RUN -eq 1 ]]; then
-    rsync -azn --stats --itemize-changes --exclude='.DS_Store' \
+    rsync -rlvzn --no-perms --no-times --stats --itemize-changes --exclude='.DS_Store' \
         "$LOCAL_DEPLOY/plugins/HitchStream_Cloudflare/" \
         "$SSH_ALIAS:${REMOTE_PLUGIN}/"
-    rsync -azn --stats --itemize-changes --exclude='.DS_Store' \
+    rsync -rlvzn --no-perms --no-times --stats --itemize-changes --exclude='.DS_Store' \
         "$LOCAL_DEPLOY/themes/celebration-child/" \
         "$SSH_ALIAS:${REMOTE_THEME}/"
     note "$(color_yellow 'Dry-run: above is what WOULD be transferred.')"
 else
-    rsync -az --stats --exclude='.DS_Store' \
+    # --no-perms --no-times: the target dirs are owned by another user (we're in
+    # the group, not the owner), so rsync can't set perms/times on them. We only
+    # need the file CONTENTS to land; new files inherit group via setgid + umask.
+    rsync -rlvz --no-perms --no-times --stats --exclude='.DS_Store' \
         "$LOCAL_DEPLOY/plugins/HitchStream_Cloudflare/" \
         "$SSH_ALIAS:${REMOTE_PLUGIN}/"
-    rsync -az --stats --exclude='.DS_Store' \
+    rsync -rlvz --no-perms --no-times --stats --exclude='.DS_Store' \
         "$LOCAL_DEPLOY/themes/celebration-child/" \
         "$SSH_ALIAS:${REMOTE_THEME}/"
     note "$(color_green '✓') Upload complete"
