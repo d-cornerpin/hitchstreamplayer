@@ -37,7 +37,11 @@ class LiveInputService {
             if ($detail_result['success'] && ($detail_data->success ?? false) && isset($detail_data->result)) {
                 $input->srt_details    = $detail_data->result->srt ?? null;
                 $input->rtmp_details   = $detail_data->result->rtmps ?? null;
-                $input->status_details = $detail_data->result->status->current->state ?? 'Status Unavailable';
+                // Cloudflare returns status as a nested object {current:{state}};
+                // the public docs show a flat string. Handle both so a shape
+                // change can't silently blank every status badge.
+                $st = $detail_data->result->status ?? null;
+                $input->status_details = is_string($st) ? $st : ($st->current->state ?? 'Status Unavailable');
             }
         }
 

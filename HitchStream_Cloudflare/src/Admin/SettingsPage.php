@@ -111,10 +111,22 @@ class SettingsPage {
     }
 
     public static function registerPlayerSettings(): void {
-        register_setting('HSCF_player_settings', 'HSCF_customer_id');
+        register_setting('HSCF_player_settings', 'HSCF_customer_id', [
+            'sanitize_callback' => [__CLASS__, 'sanitize_customer_id'],
+        ]);
 
         add_settings_section('HSCF_player_settings_section', 'Player Settings', [__CLASS__, 'player_section_desc'], 'HitchStream_Cloudflare');
         add_settings_field('HSCF_customer_id_field', 'Cloudflare Customer ID', [__CLASS__, 'customer_id_field'], 'HitchStream_Cloudflare', 'HSCF_player_settings_section');
+    }
+
+    /**
+     * Store the BARE customer code. The player builds URLs as
+     * customer-{code}.cloudflarestream.com, so a pasted "customer-XXXX" would
+     * double-prefix and break every stream URL site-wide. Strip it defensively.
+     */
+    public static function sanitize_customer_id($value): string {
+        $value = is_string($value) ? strtolower(trim($value)) : '';
+        return preg_replace('/^customer-/', '', $value);
     }
 
     public static function registerStreamerSettings(): void {
@@ -193,8 +205,8 @@ class SettingsPage {
 
     public static function customer_id_field(): void {
         $val = get_option('HSCF_customer_id', '');
-        echo '<input type="text" name="HSCF_customer_id" value="' . esc_attr($val) . '" class="regular-text" placeholder="customer-XXXXXXXX code from your Stream URLs" />';
-        echo '<p class="description">The <code>customer-XXXXX</code> code from your Cloudflare Stream playback URLs. Required — the player cannot build stream URLs without it.</p>';
+        echo '<input type="text" name="HSCF_customer_id" value="' . esc_attr($val) . '" class="regular-text" placeholder="e.g. f33zs165nr7gyfy4 — bare code, no customer- prefix" />';
+        echo '<p class="description">The customer code from your Cloudflare Stream URLs — the part <strong>after</strong> <code>customer-</code> in <code>customer-XXXX.cloudflarestream.com</code>. Enter just the <code>XXXX</code> (a leading <code>customer-</code> is stripped automatically). Required — the player builds every stream URL from this.</p>';
     }
 
     public static function streamer_section_desc(): void {
@@ -668,11 +680,11 @@ class SettingsPage {
                 <?php $outputs = self::getLiveInputOutputs($input->uid);
                 if (is_array($outputs) && !empty($outputs)): foreach ($outputs as $output): ?>
                     <div class="hscf-output">
-                        <span><?php if (strpos($output->url, 'youtube') !== false) echo 'YouTube';
-                            elseif (strpos($output->url, 'facebook') !== false) echo 'Facebook';
-                            else echo esc_html($output->url); ?></span>
-                        <label class="switch"><input type="checkbox" class="output-toggle" data-output-id="<?= esc_attr($output->uid) ?>" data-input-id="<?= esc_attr($input->uid) ?>" <?= $output->enabled ? 'checked' : '' ?>><span class="slider round"></span></label>
-                        <a href="#" class="delete-output-link" data-output-id="<?= esc_attr($output->uid) ?>" data-input-id="<?= esc_attr($input->uid) ?>" title="Delete output"><span class="dashicons dashicons-no-alt"></span></a>
+                        <span><?php $ourl = $output['url'] ?? ''; if (strpos($ourl, 'youtube') !== false) echo 'YouTube';
+                            elseif (strpos($ourl, 'facebook') !== false) echo 'Facebook';
+                            else echo esc_html($ourl); ?></span>
+                        <label class="switch"><input type="checkbox" class="output-toggle" data-output-id="<?= esc_attr($output['uid'] ?? '') ?>" data-input-id="<?= esc_attr($input->uid) ?>" <?= !empty($output['enabled']) ? 'checked' : '' ?>><span class="slider round"></span></label>
+                        <a href="#" class="delete-output-link" data-output-id="<?= esc_attr($output['uid'] ?? '') ?>" data-input-id="<?= esc_attr($input->uid) ?>" title="Delete output"><span class="dashicons dashicons-no-alt"></span></a>
                     </div>
                 <?php endforeach; else: ?><p class="description">No social streams.</p><?php endif; ?>
             </div>

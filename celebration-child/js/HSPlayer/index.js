@@ -278,6 +278,9 @@ export class HSVideoElement extends HTMLElement {
       // sharp level immediately; capLevelToPlayerSize still caps it to the display.
       this._createEngine(url, { startLevel: -1, abrEwmaDefaultEstimate: 6000000 });
       if (!this._currentEngine) { this._enterFatal(); return; }
+      // Surface engine errors (bad/expired video UID, 404, network) instead of
+      // hanging silently on the poster — same handler the live path uses.
+      this._currentEngine.on('error', (_e, d) => this._onEngineError(d));
       // VOD is tap-to-play (Option B): the engine loads and waits. The actual
       // play() fires on the viewer's play-button tap (see the gesture handler)
       // so it starts WITH sound, and the poster reveals on the 'playing' event.
