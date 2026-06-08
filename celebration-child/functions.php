@@ -37,6 +37,12 @@ function enqueue_scripts() {
     global $post;
     wp_enqueue_script('my-script', get_stylesheet_directory_uri() . '/js/status.js', array('jquery'), '1.0', true);
     wp_localize_script('my-script', 'jsData', array('ajaxurl' => admin_url('admin-ajax.php'), 'post_id' => $post->ID));
+
+    // Wedding-page countdown — child-owned replacement for the parent
+    // bt_elements.js .hs_CountdownHolder block (wall-clock accurate; see
+    // js/hs-countdown.js). filemtime version auto-busts the browser cache.
+    $hs_cd = get_stylesheet_directory() . '/js/hs-countdown.js';
+    wp_enqueue_script('hs-countdown', get_stylesheet_directory_uri() . '/js/hs-countdown.js', array('jquery'), file_exists($hs_cd) ? filemtime($hs_cd) : '1.0', true);
 }
 
 add_action('wp_enqueue_scripts', 'enqueue_scripts');
