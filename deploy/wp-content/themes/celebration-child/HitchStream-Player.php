@@ -30,9 +30,6 @@ $live_state_url   = esc_url(get_stylesheet_directory_uri() . '/endpoints/live-st
 // customer code — if HSCF_customer_id is unset, the player will fatal loudly,
 // surfacing the misconfiguration to the operator.
 $cf_customer_id   = get_option('HSCF_customer_id', '');
-$poster_initial   = get_option('HSCF_poster_initial', 'https://hitchstream.com/wp-content/uploads/2024/04/Poster_Initial_Default.png');
-$poster_idle      = get_option('HSCF_poster_idle', 'https://hitchstream.com/wp-content/uploads/2024/04/Poster_Idle_Default.png');
-$poster_fatal     = get_option('HSCF_poster_fatal', 'https://hitchstream.com/wp-content/uploads/2025/09/Poster_fatal_2.png');
 
 // Determine server-side live state from webhook cache (hint to the player; not authoritative).
 $input_id_for_server = get_query_var('inputId') ?: '';
@@ -59,11 +56,6 @@ if ($input_id_for_server && function_exists('hs_compute_server_live_state')) {
             },
             cloudflare: {
                 customerCode: <?php echo wp_json_encode($cf_customer_id); ?>
-            },
-            posters: {
-                initial: <?php echo wp_json_encode($poster_initial); ?>,
-                idle:    <?php echo wp_json_encode($poster_idle); ?>,
-                fatal:   <?php echo wp_json_encode($poster_fatal); ?>
             },
             server: {
                 isLive: <?php echo $server_is_live === 'true' ? 'true' : 'false'; ?>
@@ -164,25 +156,17 @@ if ($input_id_for_server && function_exists('hs_compute_server_live_state')) {
             }
 
             const inputId          = getURLParameter('inputId');
-            const initialPosterURL = getURLParameter('initialposterURL');
-            const idlePosterURL    = getURLParameter('idleposterURL');
-            const fatalPosterURL   = getURLParameter('posterFatalURL');
             const live             = getURLParameter('live') === 'true';
             const autoplay         = getURLParameter('autoplay') !== 'false'; // default true
 
-            // URL params override server defaults for posters.
-            if (initialPosterURL) hsVideo.setAttribute('poster-initial', initialPosterURL);
-            if (idlePosterURL)    hsVideo.setAttribute('poster-idle', idlePosterURL);
-            if (fatalPosterURL)   hsVideo.setAttribute('poster-fatal', fatalPosterURL);
-
+            // Note: legacy poster-image URL params (initialposterURL, idleposterURL,
+            // posterFatalURL) are no longer read — the poster is the slotted logo
+            // card + animated backdrop. Pages may still append them harmlessly.
             if (hsVideo && typeof hsVideo.setApiInfo === 'function') {
                 hsVideo.setApiInfo({
                     inputId: inputId,
                     isLive: live,
-                    autoplay: autoplay,
-                    posterInitialURL: initialPosterURL || undefined,
-                    posterIdleURL:    idlePosterURL    || undefined,
-                    posterFatalURL:   fatalPosterURL   || undefined
+                    autoplay: autoplay
                 });
             }
         });

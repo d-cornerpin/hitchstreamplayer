@@ -34,10 +34,10 @@ function handleIdlePoll(payload) {
       return { nextState: STATE.IDLE, sideEffects: [] };
 
     case 'error':
-      // Error received — transition to FATAL to surface visible error UI.
+      // Error received — enter FATAL via _enterFatal (logo card + "refresh"
+      // message), the same fatal UI every other path uses.
       return { nextState: STATE.FATAL, sideEffects: [
-        { type: 'setErrorPoster', payload: {} },
-        { type: 'showStatus', payload: { text: `Error: ${errorCode}` } },
+        { type: 'startFatal' },
         { type: 'logError', payload: { errorCode, source } },
       ]};
 
@@ -58,7 +58,6 @@ function handlePreparingPoll(payload, context) {
         return { nextState: STATE.PREPARING, sideEffects: [] };
       }
       return { nextState: STATE.IDLE, sideEffects: [
-        { type: 'setPoster', payload: { which: context.hasPlayedOnce ? 'idle' : 'initial' } },
         { type: 'showStatus', payload: STATUS.WAITING },
       ]};
 
@@ -67,14 +66,12 @@ function handlePreparingPoll(payload, context) {
 
     case 'idle':
       return { nextState: STATE.IDLE, sideEffects: [
-        { type: 'setPoster', payload: { which: context.hasPlayedOnce ? 'idle' : 'initial' } },
         { type: 'showStatus', payload: context.userGestureUnlocked ? STATUS.PAUSED : STATUS.WAITING },
       ]};
 
     case 'error':
       return { nextState: STATE.IDLE, sideEffects: [
         { type: 'logError', payload: { errorCode, source } },
-        { type: 'setPoster', payload: { which: context.hasPlayedOnce ? 'idle' : 'initial' } },
         { type: 'showStatus', payload: isViewerFacingError(errorCode) ? STATUS.ERROR : STATUS.WAITING },
       ]};
 
@@ -103,7 +100,6 @@ function handlePlayingPoll(payload, context) {
       // While playing, reconnecting → drain to idle if buffer depleted.
       if (context.hasBufferedContent === false || context.bufferAhead < 0.5) {
         return { nextState: STATE.IDLE, sideEffects: [
-          { type: 'setPoster', payload: { which: 'idle' } },
           { type: 'showStatus', payload: STATUS.PAUSED },
         ]};
       }
@@ -123,7 +119,6 @@ function handlePlayingPoll(payload, context) {
       // Buffer exhausted — transition to idle.
       return { nextState: STATE.IDLE, sideEffects: [
         { type: 'destroyHls' },
-        { type: 'setPoster', payload: { which: context.hasPlayedOnce ? 'idle' : 'initial' } },
         { type: 'showStatus', payload: STATUS.PAUSED },
       ]};
 
@@ -137,7 +132,6 @@ function handlePlayingPoll(payload, context) {
       }
       return { nextState: STATE.IDLE, sideEffects: [
         { type: 'destroyHls' },
-        { type: 'setPoster', payload: { which: context.hasPlayedOnce ? 'idle' : 'initial' } },
         { type: 'showStatus', payload: isViewerFacingError(errorCode) ? STATUS.ERROR : STATUS.WAITING },
         { type: 'logError', payload: { errorCode, source } },
       ]};
@@ -206,7 +200,6 @@ export function transition({ currentState, event, context }) {
       if (type === 'bufferDrained') {
         return { nextState: STATE.IDLE, sideEffects: [
           { type: 'destroyHls' },
-          { type: 'setPoster', payload: { which: context.hasPlayedOnce ? 'idle' : 'initial' } },
           { type: 'showStatus', payload: STATUS.PAUSED },
         ]};
       }

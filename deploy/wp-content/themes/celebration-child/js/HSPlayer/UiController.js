@@ -9,7 +9,6 @@ export class UiController {
     this.debugPanelEl = null;
     this.statusMessageEl = null;
     this.posterEl = null;
-    this.posterImgEl = null;
     this.posterMessageEl = null;
     this._bgPauseTimer = null;
   }
@@ -23,12 +22,11 @@ export class UiController {
     this.debugPanelEl = shadow.querySelector('.debug-panel');
     this.statusMessageEl = shadow.querySelector('.status-message');
     this.posterEl = shadow.querySelector('.poster');
-    this.posterImgEl = shadow.querySelector('.poster-img');
     this.posterMessageEl = shadow.querySelector('.poster-message');
 
-    // If the host provides slotted poster content (a logo/branding card), hide
-    // the legacy image-poster layer so the two don't stack — the default poster
-    // images carry their own logo/text and would otherwise duplicate it.
+    // Mark the poster as having slotted content (a logo/branding card) so the
+    // animated backdrop is shown behind it (.poster.has-slot .poster-bg). Without
+    // a slotted card the poster stays a plain black backdrop.
     const posterSlot = shadow.querySelector('slot[name="poster"]');
     if (posterSlot) {
       const syncSlot = () => {
@@ -41,11 +39,6 @@ export class UiController {
       syncSlot();
     }
     return shadow;
-  }
-
-  /** Set the poster image source (does not change its opacity). */
-  setPosterImage(url) {
-    if (this.posterImgEl && url) this.posterImgEl.src = url;
   }
 
   /** Set the under-logo poster message (empty string clears it). animate=false
@@ -162,8 +155,6 @@ export class UiController {
         @keyframes hs-driftD { 0% { transform: translate(0,0); } 100% { transform: translate(-20vmax, -20vmax); } }
         @keyframes hs-driftPink { 0% { transform: translate(0,0); } 100% { transform: translate(30vmax, 20vmax); } }
         @keyframes hs-driftYellow { 0% { transform: translate(0,0); } 100% { transform: translate(-25vmax, 30vmax); } }
-        .poster-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
-        .poster.has-slot .poster-img { display: none; }
         .poster-slot { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; transition: opacity 0.6s ease; }
         /* Before the first tap the play button stands alone over the backdrop;
            the logo + message stay hidden, then fade in once play is pressed. */
@@ -188,7 +179,6 @@ export class UiController {
           <div class="obj pDark1 person pMega1"></div><div class="obj pDark4 person pMega2"></div>
           <div class="poster-bg-ov"></div>
         </div>
-        <img class="poster-img" alt="" />
         <div class="poster-slot"><slot name="poster"></slot><div class="poster-message"></div></div>
       </div>
       <div class="overlay"></div>
