@@ -57,9 +57,9 @@ class SettingsPage {
             $errors[] = '<strong>Cloudflare Customer ID is not set.</strong> The player cannot build stream URLs — live and VOD playback will not work.';
         }
 
-        // ── Webhook secret (the original, kept prominent) ──
-        if ((string) get_option('HSCF_webhook_secret', '') === '') {
-            $errors[] = '<strong>Webhook secret is NOT configured.</strong> Incoming Cloudflare webhooks are being rejected, so live state updates fall back to slower polling. Register the webhook in the Webhook panel.';
+        // ── Live webhook wiring (Cloudflare Notifications) ──
+        if ((string) get_option('HSCF_webhook_policy_id', '') === '') {
+            $errors[] = '<strong>Live webhook is not set up.</strong> Instant connect/disconnect updates depend on it; without it the player falls back to ~10–20s polling. Open the Webhook panel and click “Set Up Live Webhook”.';
         }
 
         // ── Streamer service key (optional — degraded, not broken) ──
@@ -180,7 +180,7 @@ class SettingsPage {
     }
 
     public static function webhook_section_desc(): void {
-        echo '<p>Configure webhook notifications from Cloudflare Stream. After registering, the secret returned by Cloudflare will be stored in the Secret field above for signature verification.</p>';
+        echo '<p>Live-input events (connected / disconnected / errored) are delivered through <strong>Cloudflare Notifications</strong>. Click <em>Set Up Live Webhook</em> and the plugin creates the webhook destination and notification policy in your Cloudflare account automatically and keeps the shared secret in sync — no dashboard steps needed. <em>(This is separate from Stream\'s on-demand <code>video.ready</code> webhook, which this player does not use.)</em></p>';
     }
 
     public static function webhook_url_field(): void {
@@ -192,9 +192,12 @@ class SettingsPage {
     }
 
     public static function webhook_secret_field(): void {
-        $val = get_option('HSCF_webhook_secret', '');
-        echo '<input type="text" name="HSCF_webhook_secret" value="' . esc_attr($val) . '" style="width:100%;max-width:600px;" placeholder="Set by Cloudflare on Register" disabled />';
-        echo '<p class="description">Cloudflare generates its own secret when you click "Register Webhook". The stored secret is overwritten by Cloudflare\'s value.</p>';
+        $val = (string) get_option('HSCF_webhook_secret', '');
+        $masked = strlen($val) > 8
+            ? substr($val, 0, 4) . str_repeat('•', strlen($val) - 8) . substr($val, -4)
+            : ($val ? str_repeat('•', strlen($val)) : '');
+        echo '<input type="text" value="' . esc_attr($masked) . '" style="width:100%;max-width:600px;" placeholder="Generated automatically on Set Up" disabled />';
+        echo '<p class="description">The <code>cf-webhook-auth</code> shared secret. Managed automatically — generated on setup, rotated with the button below — and kept identical on the Cloudflare destination and here so incoming webhooks authenticate.</p>';
         echo '<p><button type="button" class="button" id="hscf-webhook-rotate-btn">Rotate Secret</button> <span id="hscf-webhook-rotate-result" class="hscf-test-result"></span></p>';
         echo self::testButtonScript('hscf-webhook-rotate-btn', 'hscf-webhook-rotate-result', 'hscf_rotate_webhook', 'Rotate Secret');
     }
@@ -478,16 +481,16 @@ class SettingsPage {
         </details>
 
         <details class="hscf-card">
-            <summary class="hscf-card__head"><span class="dashicons dashicons-rss"></span> Webhook <span class="hscf-card__hint"><?= get_option('HSCF_webhook_secret', '') ? '<span class="hscf-ok">Registered</span>' : '<span class="hscf-warn">Not registered</span>' ?></span></summary>
+            <summary class="hscf-card__head"><span class="dashicons dashicons-rss"></span> Live Webhook <span class="hscf-card__hint"><?= get_option('HSCF_webhook_policy_id', '') ? '<span class="hscf-ok">Configured</span>' : '<span class="hscf-warn">Not set up</span>' ?></span></summary>
             <div class="hscf-card__body">
                 <form method="post" action="options.php" id="webhook-settings-form">
                     <?php settings_fields('HSCF_webhook_settings'); ?>
                     <?php self::webhook_section_desc(); ?>
                     <table class="form-table" role="presentation"><?php do_settings_fields('HitchStream_Cloudflare', 'HSCF_webhook_settings_section'); ?></table>
                     <p class="hscf-btn-row">
-                        <button type="button" id="btn-register-webhook" class="button button-primary"><span class="dashicons dashicons-update"></span> Register Webhook with Cloudflare</button>
-                        <button type="button" id="btn-fetch-webhook-status" class="button"><span class="dashicons dashicons-visibility"></span> Fetch Status</button>
-                        <button type="button" id="btn-delete-webhook" class="button button-link-delete"><span class="dashicons dashicons-trash"></span> Delete Webhook</button>
+                        <button type="button" id="btn-register-webhook" class="button button-primary"><span class="dashicons dashicons-cloud"></span> Set Up Live Webhook</button>
+                        <button type="button" id="btn-fetch-webhook-status" class="button"><span class="dashicons dashicons-visibility"></span> Check Status</button>
+                        <button type="button" id="btn-delete-webhook" class="button button-link-delete"><span class="dashicons dashicons-trash"></span> Remove Live Webhook</button>
                     </p>
                 </form>
                 <div id="webhook-status" class="hscf-status-box" style="display:none;"></div>

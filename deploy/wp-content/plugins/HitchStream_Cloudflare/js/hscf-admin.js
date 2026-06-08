@@ -685,35 +685,35 @@ function HSCF_cf_api_call(action, callback, extra) {
 
 $(document).on('click', '#btn-register-webhook', function() {
     var $btn = $(this);
-    $btn.prop('disabled', true).val('Registering...');
+    var orig = $btn.html();
+    $btn.prop('disabled', true).text('Setting up…');
 
     HSCF_cf_api_call('hscf_register_webhook', function(err, data) {
-        $btn.prop('disabled', false).val('Register Webhook with Cloudflare');
+        $btn.prop('disabled', false).html(orig);
         if (err) {
-            sendToModal('Registration failed: ' + err);
+            sendToModal('Set up failed: ' + escHtml(err));
             return;
         }
-        // Update the secret + URL fields with the values from Cloudflare
-        $('input[name=HSCF_webhook_secret]').val(data.secret || '');
-        if (data.url) { $('input[name=HSCF_webhook_url]').val(data.url); }
-        sendToModal('Webhook registered successfully!<br>URL: <div class="modalcontentbox">' + escHtml(data.url || '') + '</div>Secret: <div class="modalcontentbox">' + escHtml(data.secret || '') + '</div>');
-    }, { webhook_url: ($('input[name=HSCF_webhook_url]').val() || '') });
+        $('#btn-fetch-webhook-status').trigger('click');
+        sendToModal(escHtml((data && data.message) || 'Live webhook configured.'));
+    });
 });
 
 $(document).on('click', '#btn-delete-webhook', function() {
-    if (!confirm('Are you sure you want to delete the Cloudflare webhook?')) return;
+    if (!confirm('Remove the live webhook (destination + notification policy) from Cloudflare?')) return;
 
     var $btn = $(this);
-    $btn.prop('disabled', true).val('Deleting...');
+    var orig = $btn.html();
+    $btn.prop('disabled', true).text('Removing…');
 
     HSCF_cf_api_call('hscf_delete_webhook', function(err, data) {
-        $btn.prop('disabled', false).val('Delete Webhook');
+        $btn.prop('disabled', false).html(orig);
         if (err) {
-            sendToModal('Deletion failed: ' + err);
+            sendToModal('Removal failed: ' + escHtml(err));
             return;
         }
-        $('#HSCF_webhook_secret').val('');
-        sendToModal('Webhook deleted. Status: ' + (data.status || 'unknown'));
+        $('#btn-fetch-webhook-status').trigger('click');
+        sendToModal(escHtml((data && data.message) || 'Live webhook removed.'));
     });
 });
 
@@ -723,13 +723,15 @@ $(document).on('click', '#btn-fetch-webhook-status', function() {
             $('#webhook-status').show().html('<span style="color:#dc2626;">Error: ' + escHtml(err) + '</span>');
             return;
         }
-        var html = '<strong>Webhook Status:</strong><br>';
-        if (data && data.result && data.result.notification_url) {
-            html += 'Registered URL: <div class="modalcontentbox">' + escHtml(data.result.notification_url || data.result.notificationUrl || '') + '</div>';
-            html += '<br>Modified: ' + escHtml(data.result.modified || 'N/A');
-            html += '<br><span style="color:#16a34a;">&#10003; Webhook is registered</span>';
+        var html = '<strong>Live Webhook Status:</strong><br>';
+        if (data && data.configured) {
+            html += '<span style="color:#16a34a;">&#10003; Configured</span> — Cloudflare Notifications policy is routing live events.';
+            html += '<br>Receiver: <div class="modalcontentbox">' + escHtml(data.url || '') + '</div>';
+            html += 'Policy enabled: ' + (data.policy_enabled ? 'yes' : 'no');
+        } else if (data && data.dest_id) {
+            html += '<span style="color:#d97706;">Destination exists but no policy is routing events. Click “Set Up Live Webhook”.</span>';
         } else {
-            html += '<span style="color:#dc2626;">No webhook currently registered.</span>';
+            html += '<span style="color:#dc2626;">Not set up. Click “Set Up Live Webhook”.</span>';
         }
         $('#webhook-status').show().html(html);
     });
@@ -741,12 +743,10 @@ function escHtml(str) {
     return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-// Fetch webhook status on page load
+// Show live webhook status on page load (only when the panel is present).
 $(document).ready(function() {
-    // Auto-populate webhook URL if not set
-    var currentUrl = $('#HSCF_webhook_url').val();
-    if (!currentUrl) {
-        $('#HSCF_webhook_url').val(window.location.origin + '/wp-content/themes/celebration-child/endpoints/cf-live-webhook.php');
+    if ($('#btn-fetch-webhook-status').length) {
+        $('#btn-fetch-webhook-status').trigger('click');
     }
 });
 
