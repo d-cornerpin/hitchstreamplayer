@@ -19,9 +19,9 @@ class AjaxController {
     /** Explicit allowlist: action name → handler method name. */
     private const ALLOWLIST = [
         'hscf_upload_video'             => 'handleUpload',
-        'hscf_register_webhook'         => 'handleRegisterWebhook',
-        'hscf_delete_webhook'           => 'handleDeleteWebhook',
-        'hscf_fetch_webhooks'           => 'handleFetchWebhooks',
+        'hscf_register_webhook'         => 'handleSetupLiveWebhook',
+        'hscf_delete_webhook'           => 'handleRemoveLiveWebhook',
+        'hscf_fetch_webhooks'           => 'handleLiveWebhookStatus',
         'hscf_rotate_webhook'           => 'handleRotateWebhook',
         'hscf_test_connection'          => 'handleTestConnection',
         'hscf_test_streamer'            => 'handleTestStreamer',
@@ -210,59 +210,50 @@ class AjaxController {
         }
     }
 
-    private function handleRegisterWebhook(): void {
-        // Source the callback URL: what the user typed in the field → the saved
-        // option → a sensible default derived from the site URL.
-        $callback_url = esc_url_raw(wp_unslash($_POST['webhook_url'] ?? ''));
-        if (empty($callback_url)) {
-            $callback_url = (string) get_option('HSCF_webhook_url', '');
-        }
-        if (empty($callback_url)) {
-            $callback_url = rtrim(home_url('/'), '/') . '/wp-content/themes/celebration-child/endpoints/cf-live-webhook.php';
-        }
-
-        $result = $this->webhook->register($callback_url);
+    /** Set up the LIVE webhook in Cloudflare Notifications (idempotent). */
+    private function handleSetupLiveWebhook(): void {
+        $result = $this->webhook->setup();
         if (isset($result['error'])) {
-            $detail = $result['error'];
-            if (!empty($result['response'])) {
-                $detail .= ' — ' . wp_strip_all_tags((string) $result['response']);
+            $msg = $result['error'];
+            if (!empty($result['detail'])) {
+                $msg .= ' — ' . wp_strip_all_tags((string) $result['detail']);
             }
-            wp_send_json_error($detail);
+            wp_send_json_error($msg);
             return;
         }
-        // Cloudflare generated and returned the signing secret — store it.
-        update_option('HSCF_webhook_secret', $result['secret']);
-        update_option('HSCF_webhook_url', $callback_url);
-        wp_send_json_success(['message' => 'Webhook registered successfully.', 'secret' => $result['secret'], 'url' => $callback_url]);
+        $created = [];
+        if (!empty($result['dest_created']))   { $created[] = 'destination'; }
+        if (!empty($result['policy_created'])) { $created[] = 'notification policy'; }
+        $msg = empty($created)
+            ? 'Live webhook already configured — wiring verified and secret re-synced.'
+            : 'Live webhook set up (' . implode(' + ', $created) . ' created in Cloudflare).';
+        wp_send_json_success(['message' => $msg, 'url' => $result['url']]);
     }
 
-    private function handleDeleteWebhook(): void {
-        $result = $this->webhook->delete();
-        delete_option('HSCF_webhook_secret');
-        wp_send_json_success(['status' => $result['status'], 'body' => $result['body']]);
+    /** Remove the live webhook destination + policy from Cloudflare. */
+    private function handleRemoveLiveWebhook(): void {
+        $result = $this->webhook->remove();
+        $removed = !empty($result['removed']) ? implode(' + ', $result['removed']) : 'nothing (was not set up)';
+        wp_send_json_success(['message' => 'Live webhook removed: ' . $removed . '.']);
     }
 
-    private function handleFetchWebhooks(): void {
-        $result = $this->webhook->get();
-        if (isset($result['error'])) {
-            wp_send_json_error($result['error']);
-            return;
-        }
-        wp_send_json_success($result);
+    /** Report the live webhook wiring status. */
+    private function handleLiveWebhookStatus(): void {
+        wp_send_json_success($this->webhook->status());
     }
 
+    /** Rotate the cf-webhook-auth shared secret on both Cloudflare and WordPress. */
     private function handleRotateWebhook(): void {
-        $callback_url = get_option('HSCF_webhook_url', '');
-        if (!$callback_url) {
-            wp_send_json_error('Webhook URL not configured.');
-            return;
-        }
-        $result = $this->webhook->rotate($callback_url);
+        $result = $this->webhook->rotate();
         if (isset($result['error'])) {
-            wp_send_json_error($result['error']);
+            $msg = $result['error'];
+            if (!empty($result['detail'])) {
+                $msg .= ' — ' . wp_strip_all_tags((string) $result['detail']);
+            }
+            wp_send_json_error($msg);
             return;
         }
-        wp_send_json_success(['message' => 'Secret rotated successfully.']);
+        wp_send_json_success(['message' => 'Secret rotated — Cloudflare and WordPress are back in sync.']);
     }
 
     private function handleTestConnection(): void {

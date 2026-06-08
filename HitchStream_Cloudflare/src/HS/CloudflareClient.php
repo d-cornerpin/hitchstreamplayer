@@ -218,6 +218,51 @@ class CloudflareClient {
         return $this->get('stream/webhook');
     }
 
+    // ── Notifications / Alerting (LIVE-input webhooks) ─────────────────
+    // Live-input events (connected/disconnected/errored) are NOT delivered by
+    // the Stream webhook above (that's on-demand video.ready). They come from
+    // Cloudflare Notifications: a webhook "destination" + a "policy" of
+    // alert_type stream_live_notifications. These wrap that Alerting API.
+
+    /** GET alerting/v3/destinations/webhooks — list notification webhook destinations. */
+    public function listWebhookDestinations(): array {
+        return $this->get('alerting/v3/destinations/webhooks');
+    }
+
+    /** POST alerting/v3/destinations/webhooks — create one. Secret is echoed back to us in the cf-webhook-auth header. */
+    public function createWebhookDestination(string $name, string $url, string $secret): array {
+        return $this->post('alerting/v3/destinations/webhooks', [
+            'body' => wp_json_encode(['name' => $name, 'url' => $url, 'secret' => $secret]),
+        ]);
+    }
+
+    /** PUT alerting/v3/destinations/webhooks/{id} — update name/url/secret. */
+    public function updateWebhookDestination(string $id, string $name, string $url, string $secret): array {
+        return $this->put("alerting/v3/destinations/webhooks/{$id}", [
+            'body' => wp_json_encode(['name' => $name, 'url' => $url, 'secret' => $secret]),
+        ]);
+    }
+
+    /** DELETE alerting/v3/destinations/webhooks/{id} */
+    public function deleteWebhookDestination(string $id): array {
+        return $this->delete("alerting/v3/destinations/webhooks/{$id}");
+    }
+
+    /** GET alerting/v3/policies — list notification policies. */
+    public function listAlertPolicies(): array {
+        return $this->get('alerting/v3/policies');
+    }
+
+    /** POST alerting/v3/policies — create a notification policy (pass the full policy body). */
+    public function createAlertPolicy(array $policy): array {
+        return $this->post('alerting/v3/policies', ['body' => wp_json_encode($policy)]);
+    }
+
+    /** DELETE alerting/v3/policies/{id} */
+    public function deleteAlertPolicy(string $id): array {
+        return $this->delete("alerting/v3/policies/{$id}");
+    }
+
     /**
      * Upload a video to Cloudflare Stream using the TUS resumable protocol.
      *
