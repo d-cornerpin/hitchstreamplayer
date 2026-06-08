@@ -480,7 +480,7 @@ function bt_plugin_enqueue()
         "bt_plugin_enqueue",
         plugin_dir_url(__FILE__) . "bt_elements.js",
         ["jquery"],
-        "",
+        filemtime(plugin_dir_path(__FILE__) . "bt_elements.js"), // auto cache-bust on edit
         false
     );
 }
