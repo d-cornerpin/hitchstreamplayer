@@ -84,6 +84,7 @@ export class HSVideoElement extends HTMLElement {
       this.debugPanel = new DebugPanel(this.ui.debugPanelEl, {
         videoEl: this.videoEl,
         getPlayerState: () => this.playerState,
+        getEngineStats: () => { try { return this._currentEngine?.getStats?.() ?? null; } catch (e) { return null; } },
       });
       if (this.debugMode && this.debugPanelEl) {
         this.debugPanelEl.style.display = 'block';

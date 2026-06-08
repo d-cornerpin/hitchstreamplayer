@@ -117,4 +117,15 @@ export class NativeHlsEngine {
   set autoLevelCapping(val) { /* no-op */ }
   get latency() { return NaN; }
   get manifestLoadingRetryCount() { return 0; }
+
+  /** Native HLS (Safari) hides level/bandwidth internals — the panel falls back
+   *  to the <video> element for resolution and dropped frames. */
+  getStats() {
+    return {
+      engine: 'Native (Safari)',
+      levelHeight: null, levelWidth: null, levelBitrate: null,
+      levelAuto: true, levelCount: 0,
+      bandwidthEstimate: NaN, latency: NaN,
+    };
+  }
 }
