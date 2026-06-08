@@ -176,4 +176,27 @@ export class HlsEngine {
   set autoLevelCapping(val) { if (this._hls) this._hls.autoLevelCapping = val; }
   get latency() { return this._hls?.latency ?? NaN; }
   get manifestLoadingRetryCount() { return this._hls?.manifestLoadingRetryCount ?? 0; }
+  get bandwidthEstimate() { return this._hls?.bandwidthEstimate ?? NaN; }
+
+  /**
+   * Snapshot of playback-quality stats for the debug panel. Resolution and
+   * dropped frames come from the <video> element; this provides the things only
+   * Hls.js knows: the active rendition's height/bitrate, the ABR bandwidth
+   * estimate, and live-edge latency.
+   */
+  getStats() {
+    const levels = this.levels || [];
+    const cur = this.currentLevel;
+    const lvl = (typeof cur === 'number' && cur >= 0 && levels[cur]) ? levels[cur] : null;
+    return {
+      engine: 'Hls.js',
+      levelHeight: lvl ? lvl.height : null,
+      levelWidth: lvl ? lvl.width : null,
+      levelBitrate: lvl ? lvl.bitrate : null, // bits/sec
+      levelAuto: cur === -1 || !!this._hls?.autoLevelEnabled,
+      levelCount: levels.length,
+      bandwidthEstimate: this.bandwidthEstimate, // bits/sec
+      latency: this.latency, // seconds behind live edge
+    };
+  }
 }

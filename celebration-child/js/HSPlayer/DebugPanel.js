@@ -41,6 +41,8 @@ export class DebugPanel {
     this._data = {};
     this._videoEl = opts.videoEl || null;
     this._getPlayerState = typeof opts.getPlayerState === 'function' ? opts.getPlayerState : () => null;
+    this._getEngineStats = typeof opts.getEngineStats === 'function' ? opts.getEngineStats : () => null;
+    this._frame = { lastTotal: 0, lastTime: 0, fps: null }; // for deriving FPS from the decoded-frame counter
     this._timer = null;
   }
 
@@ -70,6 +72,57 @@ export class DebugPanel {
       if (typeof Hls !== 'undefined' && Hls.isSupported && Hls.isSupported()) return 'Hls.js';
     } catch (e) { /* ignore */ }
     return 'Native (Safari)';
+  }
+
+  /** Resolution, FPS and dropped frames straight off the <video> element. */
+  _videoQuality(v) {
+    if (!v) return { res: '—', fps: '—', dropped: '—' };
+    const res = (v.videoWidth > 0 && v.videoHeight > 0) ? `${v.videoWidth}×${v.videoHeight}` : '—';
+
+    // Decoded/dropped frame counters: the standard API, with the old WebKit one
+    // as a fallback. Both are cumulative since playback began.
+    let total = null, dropped = null;
+    if (typeof v.getVideoPlaybackQuality === 'function') {
+      const q = v.getVideoPlaybackQuality();
+      total = q.totalVideoFrames; dropped = q.droppedVideoFrames;
+    } else if (typeof v.webkitDecodedFrameCount === 'number') {
+      total = v.webkitDecodedFrameCount; dropped = v.webkitDroppedFrameCount || 0;
+    }
+    if (total == null) return { res, fps: '—', dropped: '—' };
+
+    // FPS = decoded-frame delta over elapsed time. Recompute only when ≥0.5s has
+    // passed so irregular render ticks (polls land between 1s ticks) don't jitter it.
+    const now = Date.now();
+    const s = this._frame;
+    if (s.lastTime && now > s.lastTime) {
+      const dt = (now - s.lastTime) / 1000;
+      if (dt >= 0.5) { s.fps = (total - s.lastTotal) / dt; s.lastTotal = total; s.lastTime = now; }
+    } else {
+      s.lastTotal = total; s.lastTime = now;
+    }
+    const fps = (typeof s.fps === 'number') ? `~${Math.max(0, Math.round(s.fps))} fps` : '—';
+    const pct = total > 0 ? (dropped / total) * 100 : 0;
+    const droppedStr = `${dropped} of ${total} (${pct.toFixed(pct > 0 && pct < 1 ? 2 : 1)}%)`;
+    return { res, fps, dropped: droppedStr };
+  }
+
+  /** Active rendition / bandwidth / live-latency from the engine (Hls.js only). */
+  _engineQuality() {
+    let st = null;
+    try { st = this._getEngineStats(); } catch (e) { st = null; }
+    if (!st) return { engine: this._engineKind(), quality: '—', bandwidth: '—', latency: '—' };
+
+    let quality = '—';
+    if (st.levelHeight) {
+      quality = `${st.levelHeight}p`;
+      if (st.levelBitrate) quality += ` @ ${(st.levelBitrate / 1e6).toFixed(1)} Mbps`;
+      if (st.levelAuto) quality += ' (auto)';
+    } else if (st.levelAuto && st.levelCount > 0) {
+      quality = 'Auto (selecting…)';
+    }
+    const bandwidth = isFinite(st.bandwidthEstimate) ? `~${(st.bandwidthEstimate / 1e6).toFixed(1)} Mbps` : '—';
+    const latency = (isFinite(st.latency) && st.latency > 0) ? `${st.latency.toFixed(1)}s` : '—';
+    return { engine: st.engine || this._engineKind(), quality, bandwidth, latency };
   }
 
   render() {
@@ -110,6 +163,9 @@ export class DebugPanel {
     const polls = (typeof d.pollCount === 'number') ? `${d.pollCount} (every 10s)` : '—';
     const err = d.error_code ? esc(d.error_code) : 'None';
 
+    const vq = this._videoQuality(v);
+    const eq = this._engineQuality();
+
     const row = (k, val) => `<div class="row"><span class="k">${k}</span><span class="v">${val}</span></div>`;
 
     this.el.innerHTML =
@@ -122,10 +178,17 @@ export class DebugPanel {
       row('Updated by', esc(updatedBy)) +
       row('Status checks', esc(polls)) +
       row('Problem', err) +
+      `<div class="sep"></div><h4>Video quality</h4>` +
+      row('Resolution', esc(vq.res)) +
+      row('Frame rate', esc(vq.fps)) +
+      row('Dropped frames', esc(vq.dropped)) +
+      row('Quality level', esc(eq.quality)) +
+      row('Bandwidth', esc(eq.bandwidth)) +
+      row('Behind live', esc(eq.latency)) +
       `<div class="sep"></div><h4>Technical</h4><div class="tech">` +
       row('Player state', esc(playerState)) +
       row('Video', `ready ${esc(ready)}/4 · paused ${esc(paused)} · muted ${esc(muted)}`) +
-      row('Engine', esc(this._engineKind())) +
+      row('Engine', esc(eq.engine)) +
       row('Stream ID', esc(d.inputId || '—')) +
       row('Video ID', esc(d.videoUID ? `${String(d.videoUID).slice(0, 12)}…` : '—')) +
       `</div>`;
