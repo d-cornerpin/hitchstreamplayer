@@ -178,27 +178,35 @@ class AjaxController {
     // ── Handlers ───────────────────────────────────────────────────
 
     private function handleUpload(): void {
-        if (empty($_FILES['video_file']) || $_FILES['video_file']['error'] !== UPLOAD_ERR_OK) {
-            wp_send_json_error('No valid file uploaded.');
+        if (empty($_FILES['video_file']) || ($_FILES['video_file']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+            $err = $_FILES['video_file']['error'] ?? UPLOAD_ERR_NO_FILE;
+            // Empty $_FILES usually means the file blew past PHP's post_max_size.
+            $msg = ($err === UPLOAD_ERR_INI_SIZE || empty($_FILES))
+                ? 'File is larger than the server upload limit. Raise upload_max_filesize / post_max_size, or upload via the Cloudflare dashboard.'
+                : 'No valid file uploaded.';
+            wp_send_json_error($msg);
+            return;
+        }
+        $name = sanitize_file_name($_FILES['video_file']['name']);
+        if (!preg_match('/\.(mp4|mov|m4v|mkv|webm|avi)$/i', $name)) {
+            wp_send_json_error('Unsupported file type. Upload a video file (mp4, mov, m4v, mkv, webm, avi).');
             return;
         }
         try {
             $client = new \HS\CloudflareClient(Config::cloudflareAccountId());
-            $result = $client->post('media', [
-                'headers' => [
-                    'Tus-Resumable' => '1.0.0',
-                    'Upload-Length' => (string) $_FILES['video_file']['size'],
-                    'Upload-Metadata' => 'filename ' . base64_encode($_FILES['video_file']['name']),
-                ],
-            ]);
-            if ($result['success']) {
-                wp_send_json_success(['location' => $result['body']]);
+            $result = $client->uploadVideoTus($_FILES['video_file']['tmp_name'], $name);
+            if (!empty($result['success'])) {
+                wp_send_json_success([
+                    'message' => 'Uploaded "' . $name . '". It will appear in the library once Cloudflare finishes processing (usually under a minute).',
+                    'uid'     => $result['uid'] ?? '',
+                ]);
+            } else {
+                wp_send_json_error($result['error'] ?? 'Upload failed.');
             }
-            wp_send_json_error('Error creating TUS session: ' . $result['body']);
         } catch (ConfigError $e) {
-            wp_send_json_error('Credentials not configured: ' . $e->getMessage());
+            wp_send_json_error('Cloudflare credentials not configured: ' . $e->getMessage());
         } catch (\Throwable $e) {
-            wp_send_json_error('Error creating TUS session: ' . $e->getMessage());
+            wp_send_json_error('Upload error: ' . $e->getMessage());
         }
     }
 
