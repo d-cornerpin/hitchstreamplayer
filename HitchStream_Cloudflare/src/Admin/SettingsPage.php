@@ -720,9 +720,14 @@ class SettingsPage {
             </div>
             <div class="hscf-stream__col hscf-stream__preview">
                 <h4>Preview</h4>
-                <?php $playerUrl = $player_base . '?live=true&inputId=' . $input->uid; ?>
+                <?php
+                $playerUrl = $player_base . '?live=true&inputId=' . $input->uid;
+                // The pop-out opens with the debug panel on by default; the
+                // embedded iframe above stays clean (no overlay in the small embed).
+                $playerDebugUrl = $playerUrl . '&debug=1';
+                ?>
                 <iframe src="<?= esc_url($playerUrl) ?>" loading="lazy" style="border:none;width:100%;aspect-ratio:16/9;" allow="fullscreen; accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
-                <a href="<?= esc_url($playerUrl) ?>" target="_blank" rel="noopener" class="hscf-preview-pop" title="Open player in a new window"><span class="dashicons dashicons-external"></span></a>
+                <a href="<?= esc_url($playerDebugUrl) ?>" target="_blank" rel="noopener" class="hscf-preview-pop" title="Open player in a new window (with debug panel)"><span class="dashicons dashicons-external"></span></a>
             </div>
         </div>
     </div>
