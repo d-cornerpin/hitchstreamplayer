@@ -81,8 +81,14 @@ export class HSVideoElement extends HTMLElement {
       // the single status surface. Passing null makes StatusOverlay a safe
       // no-op (revert by restoring this.ui.statusMessageEl if you want it back).
       this.statusOverlay = new StatusOverlay(null, this.timers);
-      this.debugPanel = new DebugPanel(this.ui.debugPanelEl);
-      if (this.debugMode && this.debugPanelEl) this.debugPanelEl.style.display = 'block';
+      this.debugPanel = new DebugPanel(this.ui.debugPanelEl, {
+        videoEl: this.videoEl,
+        getPlayerState: () => this.playerState,
+      });
+      if (this.debugMode && this.debugPanelEl) {
+        this.debugPanelEl.style.display = 'block';
+        this.debugPanel.start(); // 1s self-refresh for live video/buffer readout
+      }
       this.posterMgr = new PosterManager();
       this.posterMgr.init(window?.HSPlayerConfig);
       this.gestureUnlock = new GestureUnlock(this);
@@ -210,7 +216,7 @@ export class HSVideoElement extends HTMLElement {
         const { state, isLive, videoUID, hlsUrl, errorCode, source, pollCount } = evt.payload;
         this.debugLog('poll event:', { state, isLive, videoUID, hlsUrl: !!hlsUrl, errorCode, pollCount });
         this.pollCount = pollCount; this.streamCurrentlyLive = isLive;
-        this._updateDebugPanel({ liveStatus: isLive, videoUID, pollCount: this.pollCount, error_code: errorCode, source });
+        this._updateDebugPanel({ liveStatus: isLive, videoUID, pollCount: this.pollCount, error_code: errorCode, source, inputId: this.inputId });
         if (isLive && videoUID) {
           const url = (hlsUrl && HSVideoElement.isValidHlsUrl(hlsUrl)) ? hlsUrl
             : `https://customer-${this.posterMgr.customerCode}.cloudflarestream.com/${videoUID}/manifest/video.m3u8`;

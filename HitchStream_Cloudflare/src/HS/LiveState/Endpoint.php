@@ -107,7 +107,14 @@ class Endpoint
                 }
             }
         } else {
-            $state_data['source'] = 'webhook';
+            // Cache hit. Keep the source stamped when this state was WRITTEN
+            // (a webhook at a transition, or a probe on a refresh) instead of
+            // mislabeling every served-from-cache read as 'webhook' — the old
+            // behaviour reported "webhook" even when no webhook had fired in
+            // minutes, which made the debug panel impossible to trust.
+            if (empty($state_data['source']) || !in_array($state_data['source'], ['webhook', 'probe', 'coalesced'], true)) {
+                $state_data['source'] = 'probe';
+            }
         }
 
         // Enforce §4.1 state → field-population contract.
@@ -280,10 +287,12 @@ class Endpoint
                 break;
         }
 
-        // source MUST always be one of {webhook, probe, coalesced}.
+        // source MUST always be one of {webhook, probe, coalesced}. Default to
+        // 'probe' (the safe "we checked Cloudflare" value), never 'webhook' —
+        // we must not claim a webhook drove a state we can't attribute to one.
         $valid_sources = ['webhook', 'probe', 'coalesced'];
         if (!in_array($data['source'] ?? '', $valid_sources, true)) {
-            $data['source'] = 'webhook';
+            $data['source'] = 'probe';
         }
 
         // ts must be a unix timestamp.
