@@ -69,15 +69,6 @@ export class HSVideoElement extends HTMLElement {
   debugLog(...m) { if (this.debugMode) console.log('[hs-video]', ...m); }
   debugError(...m) { if (this.debugMode) console.error('[hs-video]', ...m); }
 
-  static get observedAttributes() { return ['poster-initial','poster-idle','poster-fatal']; }
-
-  attributeChangedCallback(name, oldV, newV) {
-    safe('attrChanged', () => {
-      const t = { 'poster-initial':'initial','poster-idle':'idle','poster-fatal':'fatal' }[name];
-      if (t && newV) this.setPoster(t, newV);
-    });
-  }
-
   connectedCallback() {
     this.debugLog('connectedCallback');
     safe('connectedCallback', () => {
@@ -93,18 +84,7 @@ export class HSVideoElement extends HTMLElement {
       this.debugPanel = new DebugPanel(this.ui.debugPanelEl);
       if (this.debugMode && this.debugPanelEl) this.debugPanelEl.style.display = 'block';
       this.posterMgr = new PosterManager();
-      const a = {};
-      ['poster-initial','poster-idle','poster-fatal'].forEach(k => {
-        a[k] = this.getAttribute(k);
-      });
-      this.posterMgr.init(window?.HSPlayerConfig, a);
-      // Surface the initial poster on the <video> element immediately so the
-      // viewer sees the poster image before any state machine transition.
-      // Note: we deliberately do NOT set the native <video poster> attribute.
-      // The poster overlay (logo card / poster-img layer) is the real poster;
-      // a native poster would bleed through behind it during crossfades when
-      // the <video> momentarily has no frame (e.g. on engine rebuild).
-      this.ui.setPosterImage(this.posterMgr.initial);
+      this.posterMgr.init(window?.HSPlayerConfig);
       this.gestureUnlock = new GestureUnlock(this);
       // Hook the play button directly (shadow DOM target retargeting hides
       // shadow internals from document-level listeners). Document fallback
@@ -179,11 +159,7 @@ export class HSVideoElement extends HTMLElement {
     });
   }
 
-  setPoster(which, url) {
-    safe('setPoster', () => { this.posterMgr.set(which, url); this.ui.setPosterImage(url); });
-  }
-
-  setApiInfo({ inputId, isLive, autoplay=true, posterInitialURL, posterIdleURL, posterFatalURL }) {
+  setApiInfo({ inputId, isLive, autoplay=true }) {
     this.debugLog('setApiInfo called with:', { inputId, isLive });
     if (this._destroyed) return;
     safe('setApiInfo', () => {
@@ -191,9 +167,6 @@ export class HSVideoElement extends HTMLElement {
       if (!window.HSPlayerConfig?.cloudflare?.customerCode) { this._enterFatal(); return; }
       this.debugLog('API info:', { inputId, isLive, autoplay });
       this.inputId = inputId; this.playerMode = isLive ? 'live' : 'vod'; this.autoplay = autoplay;
-      if (posterInitialURL) this.posterMgr.initial = posterInitialURL;
-      if (posterIdleURL) this.posterMgr.idle = posterIdleURL;
-      if (posterFatalURL) this.posterMgr.fatal = posterFatalURL;
       // Branch on mode. Live mode starts polling; VOD mode loads the video
       // directly. setApiInfo runs AFTER connectedCallback in the typical
       // PHP-driven flow, so connectedCallback can't make this decision —
@@ -628,7 +601,6 @@ export class HSVideoElement extends HTMLElement {
       this._stopStallWatchdog();
       this._recovering = false;
       if (this.videoEl) this.videoEl.controls = false;
-      this.setPoster('fatal', this.posterMgr.fatal);
       this.ui.showPosterInstant(true);
       // Fatal uses the same logo card with a random "refresh" line — dots off,
       // since it's an instruction, not a "working on it" state.
@@ -662,7 +634,6 @@ export class HSVideoElement extends HTMLElement {
       this.videoEl?.pause();
       if (this.videoEl) this.videoEl.controls = false;
       this.playerState = STATE.IDLE;
-      this.setPoster('idle', this.posterMgr.idle);
       this.ui.showPosterInstant(true);
       this._updatePosterMessage();
     });
@@ -798,11 +769,9 @@ export class HSVideoElement extends HTMLElement {
     }
     if (fx.type === 'destroyHls') { this._drainingToIdle = false; this._recovering = false; this._stopDrainToPoster(); this._stopRevealMonitor(); this._stopStallWatchdog(); if (this._currentEngine) { this._currentEngine.destroy(); this._currentEngine = null; } this.videoEl?.pause(); if (this.videoEl) this.videoEl.controls = false; this.currentStreamUrl = null; this._clearFatalTimer(); this.ui.showPosterInstant(true); }
     if (fx.type === 'startPlayback') { this.videoEl?.play(); this._clearFatalTimer(); }
-    if (fx.type === 'setPoster') { this.setPoster(fx.payload.which, fx.payload.url || this.posterMgr[fx.payload.which]); }
-    if (fx.type === 'setErrorPoster') { if (this.videoEl) this.videoEl.poster = this.posterMgr.fatal; }
     if (fx.type === 'showStatus') { this.statusOverlay.updateStatus(fx.payload); }
     if (fx.type === 'startFatal') { this._enterFatal(); }
-    if (fx.type === 'drainToIdle') { this._drainingToIdle = true; if (this.videoEl) this.videoEl.controls = false; this.ui.setPosterImage(this.posterMgr.idle); this._startDrainToPoster(); }
+    if (fx.type === 'drainToIdle') { this._drainingToIdle = true; if (this.videoEl) this.videoEl.controls = false; this._startDrainToPoster(); }
     if (fx.type === 'logError') {
       const msg = fx.payload && DEBUG_ERROR_MESSAGES[fx.payload.errorCode];
       if (msg) this.debugError(`[${fx.payload.errorCode}]`, msg);
