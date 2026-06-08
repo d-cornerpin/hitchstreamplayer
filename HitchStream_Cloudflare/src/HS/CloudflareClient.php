@@ -218,6 +218,93 @@ class CloudflareClient {
         return $this->get('stream/webhook');
     }
 
+    /**
+     * Upload a video to Cloudflare Stream using the TUS resumable protocol.
+     *
+     * Cloudflare requires TUS (not a plain POST) for video uploads:
+     *   1. POST /accounts/{id}/stream  with Tus-Resumable + Upload-Length +
+     *      Upload-Metadata  → 201 Created, `Location` header = the upload URL.
+     *   2. PATCH that URL in chunks with Upload-Offset → 204, new Upload-Offset.
+     *
+     * Runs entirely server-side so the API token never reaches the browser.
+     * Streams the file from disk in chunks so memory use is bounded regardless
+     * of file size. Returns ['success'=>true,'uid'=>...] or ['success'=>false,'error'=>...].
+     */
+    public function uploadVideoTus(string $tmp_path, string $filename): array {
+        if (!is_readable($tmp_path)) {
+            return ['success' => false, 'error' => 'Uploaded file is not readable on the server.'];
+        }
+        $size = filesize($tmp_path);
+        if ($size === false || $size < 1) {
+            return ['success' => false, 'error' => 'Uploaded file is empty.'];
+        }
+
+        // Auth without JSON content-type (TUS sets its own content types).
+        $auth = $this->get_auth_headers();
+        unset($auth['Content-Type']);
+
+        // 1) Create the upload session.
+        $create = wp_remote_post($this->base_url . '/stream', [
+            'headers' => array_merge($auth, [
+                'Tus-Resumable'   => '1.0.0',
+                'Upload-Length'   => (string) $size,
+                'Upload-Metadata' => 'name ' . base64_encode($filename),
+            ]),
+            'body'    => '',
+            'timeout' => 30,
+        ]);
+        if (is_wp_error($create)) {
+            return ['success' => false, 'error' => 'Could not start upload: ' . $create->get_error_message()];
+        }
+        $code = wp_remote_retrieve_response_code($create);
+        if ($code !== 201) {
+            return ['success' => false, 'error' => 'Cloudflare rejected the upload (HTTP ' . $code . '): ' . substr(wp_remote_retrieve_body($create), 0, 300)];
+        }
+        $location = wp_remote_retrieve_header($create, 'location');
+        if (!$location) {
+            return ['success' => false, 'error' => 'Cloudflare did not return an upload URL.'];
+        }
+        $uid = wp_remote_retrieve_header($create, 'stream-media-id');
+        if (!$uid) {
+            $uid = basename((string) parse_url($location, PHP_URL_PATH));
+        }
+
+        // 2) Upload the bytes in chunks (TUS PATCH).
+        $chunk_size = 50 * 1024 * 1024; // 50 MB
+        $fh = @fopen($tmp_path, 'rb');
+        if (!$fh) {
+            return ['success' => false, 'error' => 'Could not open the uploaded file.'];
+        }
+        $offset = 0;
+        while ($offset < $size) {
+            if (fseek($fh, $offset) !== 0) { fclose($fh); return ['success' => false, 'error' => 'Read error at byte ' . $offset]; }
+            $chunk = fread($fh, $chunk_size);
+            if ($chunk === false) { fclose($fh); return ['success' => false, 'error' => 'Read error at byte ' . $offset]; }
+
+            $patch = wp_remote_request($location, [
+                'method'  => 'PATCH',
+                'headers' => array_merge($auth, [
+                    'Tus-Resumable' => '1.0.0',
+                    'Upload-Offset' => (string) $offset,
+                    'Content-Type'  => 'application/offset+octet-stream',
+                ]),
+                'body'    => $chunk,
+                'timeout' => 180,
+            ]);
+            if (is_wp_error($patch)) { fclose($fh); return ['success' => false, 'error' => 'Upload failed: ' . $patch->get_error_message()]; }
+            $pc = wp_remote_retrieve_response_code($patch);
+            if ($pc !== 204) { fclose($fh); return ['success' => false, 'error' => 'Upload chunk rejected (HTTP ' . $pc . '): ' . substr(wp_remote_retrieve_body($patch), 0, 200)]; }
+
+            $new = wp_remote_retrieve_header($patch, 'upload-offset');
+            $new = is_numeric($new) ? (int) $new : -1;
+            if ($new <= $offset) { fclose($fh); return ['success' => false, 'error' => 'Upload stalled at ' . $offset . ' of ' . $size . ' bytes.']; }
+            $offset = $new;
+        }
+        fclose($fh);
+
+        return ['success' => true, 'uid' => $uid];
+    }
+
     // ── Internal ──────────────────────────────────────────────────────
 
     private function log(string $correlation_id, string $method, string $url, ?int $status, float $duration_ms): void {

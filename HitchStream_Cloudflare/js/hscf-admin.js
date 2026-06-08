@@ -35,50 +35,46 @@ jQuery(document).ready(function ($) {
         $('#video-upload-form').off('submit').on('submit', function (e) {
             e.preventDefault();
             var fileInput = $('#video-upload-form input[type=file]')[0];
-            var filePath = fileInput.value;
-            if (filePath) {
-                var allowedExtensions = /(\.mp4|\.mov)$/i;
-                if (!allowedExtensions.exec(filePath)) {
-                    sendToModal('MP4 or MOV file is required.');
-                    return;
-                }
+            var file = fileInput && fileInput.files[0];
+            if (!file) { sendToModal('Choose a video file first.'); return; }
+            if (!/\.(mp4|mov|m4v|mkv|webm|avi)$/i.test(file.name)) {
+                sendToModal('Unsupported file type. Upload mp4, mov, m4v, mkv, webm, or avi.');
+                return;
             }
 
-            var formData = new FormData(this);
-            formData.append('action', 'hscf_upload_video');
-            formData.append('_wpnonce', hscf_ajax.nonce);
+            var $cont = $('#progress-container'), $bar = $('#progress-bar'), $pct = $('#upload-percentage');
+            $cont.show(); $bar.css('width', '0%'); $pct.text('Uploading… 0%');
 
-            // Initial message with progress bar HTML and a placeholder for percentage
-            sendToModal('<div id="progress-container" style="display: block; width: 100%; background: #eee;">' +
-                '<div id="progress-bar" style="height: 20px; width: 0%; background-color: #2271b1;"></div>' +
-                '</div><p id="upload-percentage">Uploading... 0%</p>');
+            var fd = new FormData();
+            fd.append('action', 'hscf_upload_video');
+            fd.append('_wpnonce', hscf_ajax.nonce);
+            fd.append('video_file', file);
 
-            // Create an XMLHttpRequest to send data
             var xhr = new XMLHttpRequest();
             xhr.open('POST', hscf_ajax.ajax_url, true);
-
-            xhr.upload.onprogress = function (event) {
-                if (event.lengthComputable) {
-                    var percentComplete = (event.loaded / event.total) * 100;
-                    $('#progress-bar').width(percentComplete + '%'); // Update the width of the progress bar
-                    $('#upload-percentage').text('Uploading... ' + percentComplete.toFixed(2) + '%'); // Update the percentage text
-                }
+            // Progress reflects the browser→WordPress leg; once that's at 100%,
+            // WordPress is uploading on to Cloudflare (TUS) before it responds.
+            xhr.upload.onprogress = function (ev) {
+                if (!ev.lengthComputable) return;
+                var p = Math.round(ev.loaded / ev.total * 100);
+                $bar.css('width', p + '%');
+                $pct.text(p < 100 ? ('Uploading… ' + p + '%') : 'Sending to Cloudflare…');
             };
-
             xhr.onload = function () {
-                if (xhr.status === 200) {
-                    var response = JSON.parse(xhr.responseText);
-                    sendToModal(response.data); // Display success or error message in modal
+                var resp = null; try { resp = JSON.parse(xhr.responseText); } catch (err) {}
+                if (xhr.status === 200 && resp && resp.success) {
+                    $bar.css('width', '100%'); $pct.text('Done ✓');
+                    fileInput.value = '';
+                    sendToModal((resp.data && resp.data.message) || 'Upload complete.');
+                    // Refresh the library so the new (processing) video shows up.
+                    setTimeout(function () { location.reload(); }, 1800);
                 } else {
-                    sendToModal("Error in upload: " + xhr.statusText); // Display error message in modal
+                    $cont.hide();
+                    sendToModal('Upload failed: ' + ((resp && resp.data) || xhr.statusText || ('HTTP ' + xhr.status)));
                 }
             };
-
-            xhr.onerror = function () {
-                sendToModal("Error in upload: Failed to connect."); // Display error message in modal
-            };
-
-            xhr.send(formData);
+            xhr.onerror = function () { $cont.hide(); sendToModal('Upload failed: connection error.'); };
+            xhr.send(fd);
         });
     }
 

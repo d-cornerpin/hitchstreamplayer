@@ -563,7 +563,7 @@ class SettingsPage {
         <h2 class="hscf-panel__title"><span class="dashicons dashicons-upload"></span> Upload a Video</h2>
         <p class="description">Max file size: <strong><?= esc_html($max_upload) ?></strong> &middot; Max upload time: <strong><?= esc_html($max_exec) ?></strong></p>
         <form id="video-upload-form" method="post" enctype="multipart/form-data" class="hscf-upload">
-            <input type="file" name="video_file" required>
+            <input type="file" name="video_file" accept=".mp4,.mov,.m4v,.mkv,.webm,.avi,video/*" required>
             <button type="submit" name="upload_video" class="button button-primary"><span class="dashicons dashicons-upload"></span> Upload Video</button>
             <span id="upload-percentage" class="hscf-upload__pct"></span>
         </form>
