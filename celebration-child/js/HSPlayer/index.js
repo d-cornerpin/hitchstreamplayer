@@ -5,7 +5,7 @@ import { transition } from './PlayerStateMachine.js';
 import {
   STATE, FATAL_TIMEOUT_MS, MAX_MEDIA_ERROR_RECOVERY_ATTEMPTS,
   MANIFEST_PROBE_MAX_ATTEMPTS, MIN_THROUGHPUT_SAMPLES, MAX_THROUGHPUT_SAMPLES, PREBUFFER_TIMEOUT_MS, GATE_CHECK_INTERVAL_MS,
-  POSTER_CROSSFADE_MS, POSTER_FADEOUT_LEAD_SECONDS, POSTER_REVEAL_MIN_HEIGHT, POSTER_REVEAL_MAX_WAIT_MS, POSTER_MESSAGES, POSTER_MESSAGE_FADE_MS,
+  POSTER_CROSSFADE_MS, VOD_CROSSFADE_MS, POSTER_FADEOUT_LEAD_SECONDS, POSTER_REVEAL_MIN_HEIGHT, POSTER_REVEAL_MAX_WAIT_MS, POSTER_MESSAGES, POSTER_MESSAGE_FADE_MS,
   FAST_RECOVERY_PREBUFFER_SECONDS, FAST_RECOVERY_FADE_MS, STALL_RECOVERY_MS, RECOVERY_BUFFER_FLOOR_SECONDS,
   HLS_ORIGIN_ALLOWLIST_REGEX, DEBUG_ERROR_MESSAGES,
   RECONNECT_WATCHDOG_INTERVAL_MS, RECONNECT_WATCHDOG_BUFFER_THRESHOLD, RECONNECT_WATCHDOG_FATAL_TTL,
@@ -116,6 +116,15 @@ export class HSVideoElement extends HTMLElement {
         this.ui.hidePlayButton();
         if (this.statusOverlay) this.statusOverlay.gestureUnlocked = true;
         this._updatePosterMessage();
+        // VOD is tap-to-play: kick the engine to load (autoStartLoad is off for
+        // the live prebuffer gate) and start playback right here in the gesture
+        // so it plays with sound. Native HLS auto-loads from its src, and its
+        // startLoad(-1) would seek to the live edge, so it's skipped there.
+        // (Live instead starts via the poll → prebuffer gate.)
+        if (this.playerMode === 'vod') {
+          if (this._currentEngine instanceof HlsEngine) this._currentEngine.startLoad(0);
+          this._playWithFallback(this.videoEl);
+        }
       });
       // Set hasPlayedOnce the first time the video actually starts playing.
       // The state machine reads this to flip from initial poster → idle poster
@@ -143,6 +152,14 @@ export class HSVideoElement extends HTMLElement {
             this._revealWhenSharp();
             this._startStallWatchdog();
             this._recovering = false;
+          } else if (this.playerMode === 'vod') {
+            // VOD has no live edge / state machine — promote to PLAYING and
+            // reveal the recording IMMEDIATELY the instant playback starts. Unlike
+            // live we do NOT wait for the HD ramp (_revealWhenSharp), so the poster
+            // clears right after the play tap instead of lingering. Watchdog skipped.
+            this.playerState = STATE.PLAYING;
+            this.ui.fadePoster(0, VOD_CROSSFADE_MS);
+            this.ui.fadePosterMessage(0, 0);
           }
           this._updatePosterMessage();
         });
@@ -282,13 +299,15 @@ export class HSVideoElement extends HTMLElement {
   loadVideoDirectly() {
     safe('loadVideoDirectly', () => {
       const url = `https://customer-${this.posterMgr.customerCode}.cloudflarestream.com/${this.inputId}/manifest/video.m3u8`;
-      this._createEngine(url);
+      // VOD starts at the quality that fits the player rather than live's
+      // conservative lowest-level start (startLevel:0). startLevel:-1 lets ABR
+      // choose, and a high default bandwidth estimate makes that first choice a
+      // sharp level immediately; capLevelToPlayerSize still caps it to the display.
+      this._createEngine(url, { startLevel: -1, abrEwmaDefaultEstimate: 6000000 });
       if (!this._currentEngine) { this._enterFatal(); return; }
-      // Autoplay on manifestParsed for BOTH engines. NativeHlsEngine maps
-      // 'manifestParsed' → the video element's 'loadedmetadata', so Safari/iOS
-      // VOD autoplays too (this was previously gated to HlsEngine and never
-      // fired on native, leaving iPhone/Safari VOD dead).
-      this._currentEngine.on('manifestParsed', () => { this.autoplay && this._attemptAutoplay(); });
+      // VOD is tap-to-play (Option B): the engine loads and waits. The actual
+      // play() fires on the viewer's play-button tap (see the gesture handler)
+      // so it starts WITH sound, and the poster reveals on the 'playing' event.
     });
   }
 
@@ -326,7 +345,7 @@ export class HSVideoElement extends HTMLElement {
     });
   }
 
-  _createEngine(streamUrl) {
+  _createEngine(streamUrl, hlsConfig) {
     safe('_createEngine', () => {
       this._currentEngine = createEngine({
         audioDriftFrameThreshold: this.audioDriftFrameThreshold || 4,
@@ -335,6 +354,7 @@ export class HSVideoElement extends HTMLElement {
         onAudioDrift: () => {}, onThroughputSample: bps => {
           safe('throughput', () => { this.throughputSamples.push(bps); if (this.throughputSamples.length > MAX_THROUGHPUT_SAMPLES) this.throughputSamples.shift(); });
         },
+        hlsConfig,
       });
       this._currentEngine.attachMedia(this.videoEl);
       this._currentEngine.loadSource(streamUrl);
@@ -445,7 +465,7 @@ export class HSVideoElement extends HTMLElement {
       // On a reconnect (already played once) get back fast: short crossfade and
       // don't wait for the HD ramp. The first-ever play still waits for sharp.
       const fast = this._fastRecovery;
-      const fadeMs = fast ? FAST_RECOVERY_FADE_MS : POSTER_CROSSFADE_MS;
+      const fadeMs = fast ? FAST_RECOVERY_FADE_MS : (this.playerMode === 'vod' ? VOD_CROSSFADE_MS : POSTER_CROSSFADE_MS);
       const reveal = () => {
         this._stopRevealMonitor();
         this.ui.fadePoster(0, fadeMs);
@@ -539,7 +559,7 @@ export class HSVideoElement extends HTMLElement {
         // The IDLE "waiting" message only shows before the first-ever play;
         // after that, an idle stream is just the bare logo (no cause claimed).
         if (this.playerState === STATE.PREPARING) key = 'preparing';
-        else if (this.playerState === STATE.IDLE && !this.hasPlayedOnce) key = 'idle';
+        else if (this.playerState === STATE.IDLE && !this.hasPlayedOnce && this.playerMode !== 'vod') key = 'idle';
       }
       // Pick a fresh random line only when the message key changes, so it holds
       // steady while we're in a given state (no re-roll on every poll).
