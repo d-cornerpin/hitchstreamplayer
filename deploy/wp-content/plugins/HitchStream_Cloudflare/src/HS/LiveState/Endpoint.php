@@ -192,7 +192,11 @@ class Endpoint
         }
 
         $lifecycle = json_decode($resp, true);
-        if (!is_array($lifecycle) || !isset($lifecycle['videoUID'])) {
+        // NB: an IDLE input returns {"videoUID":null,...} — the key is present
+        // but null. isset() is false for null, so isset() here wrongly rejected
+        // every idle input (→ 502 instead of an "idle" state). array_key_exists
+        // accepts the null and lets the idle path below handle it.
+        if (!is_array($lifecycle) || !array_key_exists('videoUID', $lifecycle)) {
             return null;
         }
 
