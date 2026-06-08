@@ -132,7 +132,23 @@ class Endpoint
     }
 
     /**
-     * Read flat-file state. Returns null if file doesn't exist or is invalid.
+     * Is a cached state entry still fresh enough to serve without re-probing?
+     *
+     * Critical: the flat-file has NO TTL, so without this it served a stale state
+     * (e.g. "idle") forever, and the probe never re-ran to notice the input went
+     * live. Webhooks were supposed to push updates, but live-input webhooks come
+     * from Cloudflare Notifications (cf-webhook-auth) which isn't wired up — so
+     * the probe must keep itself current. ~12s refreshes state on the player's
+     * normal poll cadence; the single-flight lock keeps /lifecycle calls cheap.
+     */
+    private static function is_fresh($data)
+    {
+        return is_array($data) && !empty($data['state'])
+            && isset($data['ts']) && (time() - (int) $data['ts']) <= 12;
+    }
+
+    /**
+     * Read flat-file state. Returns null if missing, invalid, or stale.
      */
     private static function read_flat_file($input_id)
     {
@@ -140,30 +156,21 @@ class Endpoint
         if (!is_file($file)) {
             return null;
         }
-
         $contents = @file_get_contents($file);
         if ($contents === false) {
             return null;
         }
-
         $data = json_decode($contents, true);
-        if (!is_array($data) || empty($data['state'])) {
-            return null;
-        }
-
-        return $data;
+        return self::is_fresh($data) ? $data : null;
     }
 
     /**
-     * Read transient state.
+     * Read transient state. Returns null if missing or stale.
      */
     private static function read_transient($input_id)
     {
         $data = get_transient("hs_live_state_{$input_id}");
-        if ($data === false) {
-            return null;
-        }
-        return is_array($data) ? $data : null;
+        return self::is_fresh($data) ? $data : null;
     }
 
     /**
