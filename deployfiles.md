@@ -91,7 +91,7 @@ Upload destination: **`/wp-content/themes/celebration-child/`**
 | `js/HSPlayer/HlsEngine.js` | Hls.js wrapper for browsers that need MSE-based HLS. | ☐ |
 | `js/HSPlayer/NativeHlsEngine.js` | Native HLS wrapper for Safari and older iOS. | ☐ |
 | `js/HSPlayer/EngineFactory.js` | Picks the right engine based on browser capability. | ☐ |
-| `js/HSPlayer/PosterManager.js` | Owns the initial / idle / fatal poster state. | ☐ |
+| `js/HSPlayer/PosterManager.js` | Holds the Cloudflare customer code used to build manifest URLs. | ☐ |
 | `js/HSPlayer/StatusOverlay.js` | Top-left status widget. Pre-gesture suppression preserved. | ☐ |
 | `js/HSPlayer/DebugPanel.js` | Top-right debug panel (`?debug=1`). | ☐ |
 | `js/HSPlayer/UiController.js` | Owns the shadow DOM HTML and CSS. | ☐ |
@@ -121,7 +121,7 @@ Upload destination: **`/wp-content/plugins/HitchStream_Cloudflare/`**
 | `src/Plugin.php` | Bootstrap class. Wires AjaxController, SettingsPage, ActivityPage, REST endpoint, schema install. | ☐ |
 | `src/BackwardCompat.php` | Procedural function shims so legacy callers keep working. | ☐ |
 | `src/Admin/AjaxController.php` | Single allowlisted AJAX dispatcher. Every action: nonce + capability + lookup. | ☐ |
-| `src/Admin/SettingsPage.php` | Admin settings UI (Cloudflare creds, webhook secret, posters, alerts). | ☐ |
+| `src/Admin/SettingsPage.php` | Admin settings UI (Cloudflare creds, webhook secret, alerts). | ☐ |
 | `src/Admin/ActivityPage.php` | Tools → HitchStream Activity. Shows webhook log, filters by inputId, CSV export. | ☐ |
 | `src/HS/Config.php` | Typed accessor for every plugin option. Throws if a required option is missing. | ☐ |
 | `src/HS/ConfigError.php` | Exception thrown by Config when required options are missing. | ☐ |
@@ -160,7 +160,7 @@ After all of the above:
 
 | ☐ | Test |
 |---|------|
-| ☐ | Open one wedding page that's currently configured for live streaming. The poster + play button should render. No browser console errors. |
+| ☐ | Open one wedding page that's currently configured for live streaming. The logo poster card (animated backdrop + breathing logo) + play button should render — no image poster. No browser console errors. |
 | ☐ | Click the play button. If a stream is currently live, it should start within ~10 seconds. If idle, the player should show a "waiting" state without crashing. |
 | ☐ | Open Tools → HitchStream Activity. The page should load (it'll be empty until the first webhook arrives). |
 | ☐ | Trigger a Cloudflare test webhook. Confirm a row appears in the activity page within 5 seconds, with `signature_ok` = ✓. |
