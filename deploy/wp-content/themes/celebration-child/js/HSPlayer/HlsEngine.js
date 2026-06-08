@@ -21,7 +21,9 @@ export class HlsEngine {
    */
   constructor(opts = {}) {
     this._Hls = Hls; // global Hls (loaded externally)
-    this._hls = new this._Hls(HLS_CONFIG);
+    // Per-instance config override (e.g. VOD wants a higher-quality startup than
+    // live's conservative startLevel:0) merged over the shared HLS_CONFIG.
+    this._hls = new this._Hls(opts.hlsConfig ? { ...HLS_CONFIG, ...opts.hlsConfig } : HLS_CONFIG);
     this._audioDriftFrameThreshold = opts.audioDriftFrameThreshold || 4;
     this._debugLog = opts.debugLog || (() => {});
     this._debugError = opts.debugError || (() => {});

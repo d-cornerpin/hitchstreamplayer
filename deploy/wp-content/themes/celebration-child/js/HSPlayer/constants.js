@@ -44,6 +44,9 @@ export const GATE_CHECK_INTERVAL_MS = 1000;
 // must remain when a stream stops before we begin fading back to the poster
 // (so the fade completes while there is still video to play under it).
 export const POSTER_CROSSFADE_MS = 5000;
+// VOD is tap-to-play, so its poster→video reveal should feel immediate, not the
+// slow cinematic crossfade live uses while it buffers.
+export const VOD_CROSSFADE_MS = 500;
 export const POSTER_FADEOUT_LEAD_SECONDS = 10;
 // Hold the poster after playback starts until the picture ramps up to at least
 // this many vertical pixels (hides the low-res ABR warm-up), or until the
