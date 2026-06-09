@@ -33,6 +33,14 @@ export const POLL_TIMEOUT_MS = 8000;
 // not fire first, or viewers on weak venue Wi-Fi get a false "please refresh"
 // right as the stream was about to start.
 export const FATAL_TIMEOUT_MS = 75000;
+// FATAL is no longer a dead-end: after this delay the player rebuilds the whole
+// pipeline and resumes polling, indefinitely, so transient failures (a videoUID
+// re-key, a brief outage, a slow start) self-heal with the viewer doing nothing.
+export const FATAL_AUTORETRY_MS = 20000;
+// If the buffer fills to this many seconds while the <video> still can't reach a
+// "ready to play" state, the device's hardware decoder is wedged (not a network
+// problem) — the one failure the player can't fix, so we say so plainly.
+export const DECODE_STALL_BUFFER_SECONDS = 8;
 
 export const PREBUFFER_TIMEOUT_MS = 60000;
 
@@ -99,17 +107,22 @@ export const POSTER_MESSAGES = {
     "Don't go anywhere",
     'Just a quick moment',
   ],
+  // Shown while the player is auto-retrying after a failure — it keeps trying to
+  // reconnect on its own, so we no longer tell the viewer to refresh.
   fatal: [
-    "Something's not quite right — please refresh the page",
-    "Let's try that again — please refresh the page",
-    'We hit a snag — please refresh the page to reconnect',
-    'Lost the connection — please refresh the page to rejoin',
-    'A little hiccup — please refresh the page',
-    'Please refresh the page to rejoin the celebration',
-    'To get back to the love, please refresh the page',
-    'Looks like we stalled — please refresh the page',
-    'Our apologies — please refresh the page to continue',
-    'One quick fix: please refresh the page',
+    'Reconnecting',
+    'Lost the connection — getting you back',
+    'We hit a snag — reconnecting',
+    'Hang tight — rejoining the celebration',
+    'One moment — bringing you back',
+    'Smoothing things out',
+    "Don't go anywhere — reconnecting",
+    'Catching our breath — back shortly',
+  ],
+  // The one failure the player can't fix on its own: the device/browser can't
+  // decode the video (a hung GPU/decoder). An instruction, not a "working" state.
+  decode: [
+    'Trouble playing the video on this device — try fully restarting your browser or your device',
   ],
 };
 // How long the under-logo message takes to fade out as the video reveals
