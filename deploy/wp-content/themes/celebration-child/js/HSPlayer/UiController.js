@@ -27,6 +27,7 @@ export class UiController {
     this.posterMessageEl = shadow.querySelector('.poster-message');
     this.progressEl = shadow.querySelector('.poster-progress');
     this.progressFillEl = shadow.querySelector('.poster-progress-fill');
+    this._progressValue = 0; // monotonic floor for the prebuffer line (see setProgress)
 
     // Mark the poster as having slotted content (a logo/branding card) so the
     // animated backdrop is shown behind it (.poster.has-slot .poster-bg). Without
@@ -53,18 +54,25 @@ export class UiController {
     this.posterMessageEl.classList.toggle('animate', !!text && animate);
   }
 
-  /** Set the prebuffer progress line, 0..1 (the CSS transition eases the motion). */
+  /** Set the prebuffer progress line, 0..1 (the CSS transition eases the motion).
+   *  Monotonic: the line only ever fills, never retreats. The underlying metric
+   *  can wobble (especially native HLS, where it tracks the moving live edge), and
+   *  a bar that jumps backward reads as "broken". Reset via showProgress(). */
   setProgress(ratio) {
     if (!this.progressFillEl) return;
-    const r = Math.max(0, Math.min(1, ratio || 0));
+    let r = Math.max(0, Math.min(1, ratio || 0));
+    if (r < this._progressValue) r = this._progressValue;
+    this._progressValue = r;
     this.progressFillEl.style.transform = `scaleX(${r})`;
   }
 
-  /** Show/hide the prebuffer progress line. Hiding also resets it to empty. */
+  /** Show/hide the prebuffer progress line. Both reset the monotonic floor to
+   *  empty so the next prebuffer cycle fills from scratch. */
   showProgress(visible) {
     if (!this.progressEl) return;
     this.progressEl.classList.toggle('show', !!visible);
-    if (!visible) this.setProgress(0);
+    this._progressValue = 0;
+    if (this.progressFillEl) this.progressFillEl.style.transform = 'scaleX(0)';
   }
 
   /** Fade the under-logo message to a target opacity over a duration. */

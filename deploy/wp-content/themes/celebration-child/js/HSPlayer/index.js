@@ -391,11 +391,33 @@ export class HSVideoElement extends HTMLElement {
       // After the stream has played once, recover fast: a small buffer is enough
       // to resume; Hls.js keeps filling toward the full buffer in the background.
       const minBuf = this._fastRecovery ? FAST_RECOVERY_PREBUFFER_SECONDS : thresholdSecs;
-      this.ui.setProgress(minBuf > 0 ? bufferAhead / minBuf : 0); // fill the "about to start" line toward the play threshold
       const minSegs = this._fastRecovery ? 1 : 3;
-      // Stream is confirmed playable once we have enough buffer (or the prebuffer
-      // timeout elapsed with at least HAVE_FUTURE_DATA).
-      const bufferReady = ready && ((bufferAhead >= minBuf && segs >= minSegs) || prebufferTimedOut);
+      let bufferReady;
+      if (this._currentEngine instanceof NativeHlsEngine) {
+        // Native HLS (iPhone/Safari): the browser runs its OWN adaptive buffering
+        // toward the live edge, so `bufferAhead` tracks the moving edge (stays
+        // small) rather than readiness. Imposing our deep Hls.js-shaped prebuffer
+        // here just delayed the start ~45s for no benefit and made the progress
+        // line meaningless. Trust Safari's readyState instead: HAVE_ENOUGH_DATA
+        // means it's confident it can play through; HAVE_FUTURE_DATA + a few
+        // seconds of buffer is enough to start. The timeout stays as a backstop.
+        bufferReady =
+          v.readyState >= HTMLMediaElement.HAVE_ENOUGH_DATA ||
+          (ready && bufferAhead >= FAST_RECOVERY_PREBUFFER_SECONDS) ||
+          (ready && prebufferTimedOut);
+        // Drive the "about to start" line off native readiness (readyState ramps
+        // 0→4) plus a gentle time creep, so it climbs steadily during Safari's
+        // warm-up instead of sitting at 0 and snapping to 100% when it plays.
+        const byReady = Math.min(1, (v.readyState || 0) / HTMLMediaElement.HAVE_ENOUGH_DATA) * 0.9;
+        const elapsed = this.prebufferStartTs > 0 ? Date.now() - this.prebufferStartTs : 0;
+        const byTime = Math.min(0.9, elapsed / 20000);
+        this.ui.setProgress(Math.max(byReady, byTime));
+      } else {
+        this.ui.setProgress(minBuf > 0 ? bufferAhead / minBuf : 0); // fill the "about to start" line toward the play threshold
+        // Stream is confirmed playable once we have enough buffer (or the prebuffer
+        // timeout elapsed with at least HAVE_FUTURE_DATA).
+        bufferReady = ready && ((bufferAhead >= minBuf && segs >= minSegs) || prebufferTimedOut);
+      }
       // Clear the stuck-in-PREPARING fatal timer as soon as the stream is
       // confirmed playable — even while we wait on the user's gesture, so a
       // viewer who is slow to click doesn't trip the fatal timeout.

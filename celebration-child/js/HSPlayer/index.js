@@ -39,7 +39,7 @@ export class HSVideoElement extends HTMLElement {
     this.debugMode = false;
     this.videoEl = null; this.overlayEl = null; this.debugPanelEl = null;
     this.statusMessageEl = null;
-    this.pendingPlayRequest = false; this.prebufferStartTs = 0; this._gateTimer = null; this._drainMonitorTimer = null; this._revealMonitorTimer = null; this._fastRecovery = false;
+    this.pendingPlayRequest = false; this.prebufferStartTs = 0; this._gateTimer = null; this._drainMonitorTimer = null; this._revealMonitorTimer = null; this._fastRecovery = false; this._nativePlayTriggered = false;
     this._stallWatchdogTimer = null; this._lastBufferEnd = 0; this._lastBufferEndTs = 0; this._recovering = false;
     this._currentMsgKey = null; this._currentMsgText = '';
     this.throughputSamples = []; this.probeAttempts = 0;
@@ -394,24 +394,30 @@ export class HSVideoElement extends HTMLElement {
       const minSegs = this._fastRecovery ? 1 : 3;
       let bufferReady;
       if (this._currentEngine instanceof NativeHlsEngine) {
-        // Native HLS (iPhone/Safari): the browser runs its OWN adaptive buffering
-        // toward the live edge, so `bufferAhead` tracks the moving edge (stays
-        // small) rather than readiness. Imposing our deep Hls.js-shaped prebuffer
-        // here just delayed the start ~45s for no benefit and made the progress
-        // line meaningless. Trust Safari's readyState instead: HAVE_ENOUGH_DATA
-        // means it's confident it can play through; HAVE_FUTURE_DATA + a few
-        // seconds of buffer is enough to start. The timeout stays as a backstop.
-        bufferReady =
-          v.readyState >= HTMLMediaElement.HAVE_ENOUGH_DATA ||
-          (ready && bufferAhead >= FAST_RECOVERY_PREBUFFER_SECONDS) ||
-          (ready && prebufferTimedOut);
-        // Drive the "about to start" line off native readiness (readyState ramps
-        // 0→4) plus a gentle time creep, so it climbs steadily during Safari's
-        // warm-up instead of sitting at 0 and snapping to 100% when it plays.
-        const byReady = Math.min(1, (v.readyState || 0) / HTMLMediaElement.HAVE_ENOUGH_DATA) * 0.9;
+        // Native HLS (iPhone/Safari) runs its OWN buffering, and for a LIVE stream
+        // its readyState stays parked low until play() is actually called — the
+        // element sits at the live edge, outside the buffered window, so it never
+        // reaches HAVE_FUTURE_DATA on its own. Gating on readyState OR on a deep
+        // bufferAhead therefore deadlocked the start until the 60s timeout (the
+        // ~45-60s stall the viewer saw, even with 30s buffered). Instead: once the
+        // user has unlocked the gesture and the manifest has loaded, call play()
+        // and let Safari drive. The 'playing' event promotes to PLAYING, stops the
+        // gate, and reveals — see the 'playing' handler.
+        if (this.gestureUnlock?.isUnlocked &&
+            v.readyState >= HTMLMediaElement.HAVE_METADATA &&
+            !this._nativePlayTriggered) {
+          this._nativePlayTriggered = true;
+          this._playWithFallback(v);
+        }
+        // Keep the gate ticking (don't clear pendingPlayRequest here) only so the
+        // "about to start" line keeps creeping until 'playing' fires and snaps it
+        // to 100%. Native gives no honest prebuffer signal, so the line is purely
+        // time-based: an immediate 8% so the press feels acknowledged, easing to
+        // 92% over ~10s. The 60s timeout below stays as a force-start backstop in
+        // case 'playing' never arrives.
         const elapsed = this.prebufferStartTs > 0 ? Date.now() - this.prebufferStartTs : 0;
-        const byTime = Math.min(0.9, elapsed / 20000);
-        this.ui.setProgress(Math.max(byReady, byTime));
+        this.ui.setProgress(Math.min(0.92, 0.08 + elapsed / 12000));
+        bufferReady = prebufferTimedOut;
       } else {
         this.ui.setProgress(minBuf > 0 ? bufferAhead / minBuf : 0); // fill the "about to start" line toward the play threshold
         // Stream is confirmed playable once we have enough buffer (or the prebuffer
@@ -437,6 +443,7 @@ export class HSVideoElement extends HTMLElement {
   _startPrebufferGate() {
     safe('startPrebufferGate', () => {
       this._stopPrebufferGate();
+      this._nativePlayTriggered = false; // re-arm the native HLS one-shot play() for this cycle
       this.ui.showProgress(true); this.ui.setProgress(0); // "about to start" line tracks the buffer fill
       this._gateTimer = this.timers.setInterval(() => {
         if (!this.pendingPlayRequest) { this._stopPrebufferGate(); return; }
