@@ -192,7 +192,9 @@ export const HLS_CONFIG = {
   maxBufferLength: 90,
   maxMaxBufferLength: 300,
   maxBufferSize: 100 * 1000 * 1000,
-  maxBufferHole: 1,
+  maxBufferHole: 2,            // jump small holes (a dropped segment from an uplink blip) instead of stalling on them
+  highBufferWatchdogPeriod: 2, // nudge sooner when playback sticks with buffer still ahead
+  nudgeMaxRetry: 6,            // and try harder to slip past a stuck point before giving up
   backBufferLength: 120,
   enableWorker: true,
   enableSoftwareAES: true,

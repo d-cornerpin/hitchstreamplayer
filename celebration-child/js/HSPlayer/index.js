@@ -766,6 +766,11 @@ export class HSVideoElement extends HTMLElement {
       newEngine.on('error', (_e, d) => this._onEngineError(d));
       newEngine.on('manifestParsed', () => {
         if (this._destroyed) { newEngine.destroy(); return; }
+        // Re-key handover: the viewer was already watching, so get back FAST — a
+        // ~5s prebuffer + 1s crossfade (no full 30s re-buffer, no HD-ramp wait).
+        // Cuts the seam from ~10-20s to a few seconds. (Reset to full on the next
+        // fresh start from idle via the loadHls effect.)
+        this._fastRecovery = true;
         // Swap engines.
         this._currentEngine = newEngine;
         this.currentStreamUrl = newUrl;
