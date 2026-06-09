@@ -420,9 +420,16 @@ export class HSVideoElement extends HTMLElement {
         bufferReady = prebufferTimedOut;
       } else {
         this.ui.setProgress(minBuf > 0 ? bufferAhead / minBuf : 0); // fill the "about to start" line toward the play threshold
-        // Stream is confirmed playable once we have enough buffer (or the prebuffer
-        // timeout elapsed with at least HAVE_FUTURE_DATA).
-        bufferReady = ready && ((bufferAhead >= minBuf && segs >= minSegs) || prebufferTimedOut);
+        // Stream is confirmed playable once we have enough buffer. We deliberately
+        // do NOT also require readyState >= HAVE_FUTURE_DATA: on iOS Safari (Managed
+        // Media Source — which modern iPhones use via Hls.js, not the native engine)
+        // the element keeps readyState parked below that until play() is actually
+        // called, even with 30s buffered. Requiring it deadlocked the start until
+        // the 60s timeout. A full prebuffer is itself proof there's decodable data;
+        // if the decoder is genuinely wedged, play() won't produce frames and the
+        // fatal timer (→ "restart your device") still catches it.
+        const haveBuffer = bufferAhead >= minBuf && segs >= minSegs;
+        bufferReady = haveBuffer || prebufferTimedOut;
       }
       // Clear the stuck-in-PREPARING fatal timer as soon as the stream is
       // confirmed playable — even while we wait on the user's gesture, so a
