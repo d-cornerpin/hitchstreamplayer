@@ -396,8 +396,7 @@ class SettingsPage {
     }
 
     public static function alert_section_desc(): void {
-        echo '<p>Get an email when something notable happens to a live stream. Pick which events below, set the address, then send a test. '
-            . 'Mail goes out through WordPress (<code>wp_mail</code>), so it automatically uses your Microsoft 365 connection via the WPO365 plugin.</p>';
+        echo '<p>Get an email when something notable happens to a live stream. Pick which events below, set the address(es), then send a test to confirm delivery.</p>';
     }
 
     public static function alert_email_field(): void {

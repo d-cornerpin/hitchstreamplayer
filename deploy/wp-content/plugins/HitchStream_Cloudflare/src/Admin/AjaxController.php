@@ -305,10 +305,10 @@ class AjaxController {
         remove_action('wp_mail_failed', $capture);
 
         if ($sent) {
-            wp_send_json_success('Test email sent to ' . implode(', ', $recipients) . '. Check the inbox (and spam) — if it routes through Microsoft 365, allow a few seconds.');
+            wp_send_json_success('Test email sent to ' . implode(', ', $recipients) . '. Check the inbox (and spam) — delivery can take a few seconds.');
         } else {
             $detail = $mail_error ? ' (' . $mail_error . ')' : '';
-            wp_send_json_error('WordPress could not send the email' . $detail . '. Check your WPO365 / SMTP mailer configuration.');
+            wp_send_json_error('WordPress could not send the email' . $detail . '. Check the site\'s email/mailer configuration.');
         }
     }
 
