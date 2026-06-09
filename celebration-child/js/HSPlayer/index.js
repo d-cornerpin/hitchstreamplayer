@@ -3,7 +3,7 @@
 
 import { transition } from './PlayerStateMachine.js';
 import {
-  STATE, FATAL_TIMEOUT_MS, MAX_MEDIA_ERROR_RECOVERY_ATTEMPTS,
+  STATE, FATAL_TIMEOUT_MS, FATAL_AUTORETRY_MS, DECODE_STALL_BUFFER_SECONDS, MAX_MEDIA_ERROR_RECOVERY_ATTEMPTS,
   MANIFEST_PROBE_MAX_ATTEMPTS, MIN_THROUGHPUT_SAMPLES, MAX_THROUGHPUT_SAMPLES, PREBUFFER_TIMEOUT_MS, GATE_CHECK_INTERVAL_MS,
   POSTER_CROSSFADE_MS, VOD_CROSSFADE_MS, POSTER_FADEOUT_LEAD_SECONDS, POSTER_REVEAL_MIN_HEIGHT, POSTER_REVEAL_MAX_WAIT_MS, POSTER_MESSAGES, POSTER_MESSAGE_FADE_MS,
   FAST_RECOVERY_PREBUFFER_SECONDS, FAST_RECOVERY_FADE_MS, STALL_RECOVERY_MS, RECOVERY_BUFFER_FLOOR_SECONDS,
@@ -47,6 +47,7 @@ export class HSVideoElement extends HTMLElement {
     this.pollCount = 0; this.liveStatus = null; this.videoUID = null;
     this.currentVideoUID = null;
     this._networkErrorRecoveryAttempts = 0; this.fatalTimer = null;
+    this._fatalRetryTimer = null; this._decodeStallSuspected = false;
     this._reconnectWatchdogTimer = null; this._reconnectWatchdogActive = false;
     this._drainingToIdle = false;
     this.mediaErrorRecoveryAttempts = 0; this.currentStatusType = null;
@@ -119,6 +120,7 @@ export class HSVideoElement extends HTMLElement {
       if (this.videoEl) {
         this.videoEl.addEventListener('playing', () => {
           this.hasPlayedOnce = true;
+          this._clearFatalRetry(); this._decodeStallSuspected = false;
           // Hand the viewer native controls (pause, volume/mute, scrubber,
           // fullscreen) the moment playback actually starts — same as the
           // original player. Toggled back off whenever we return to the poster
@@ -369,6 +371,10 @@ export class HSVideoElement extends HTMLElement {
       const v = this.videoEl; if (!v) return;
       const ready = v.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA;
       let bufferAhead = v?.buffered?.length ? Math.max(0, (v.buffered.end(0)||0) - v.currentTime) : 0;
+      // Substantial buffer downloaded but the video still can't become ready ⇒ the
+      // device's decoder is wedged (not a network issue). Flag it so a resulting
+      // FATAL shows the honest "restart your browser/device" message.
+      if (!ready && bufferAhead >= DECODE_STALL_BUFFER_SECONDS) this._decodeStallSuspected = true;
       let segDur = 4, thresholdSecs = 10, headroom = 0;
       if (this._currentEngine instanceof HlsEngine) { const l = this._currentEngine.levels?.[this._currentEngine.currentLevel]; if (l) segDur = l.details?.targetduration || 4; }
       if (this.throughputSamples.length >= MIN_THROUGHPUT_SAMPLES) headroom = this.throughputSamples[this.throughputSamples.length-1] / (this._currentEngine?.levels?.[this._currentEngine.currentLevel]?.bitrate || 1);
@@ -612,18 +618,55 @@ export class HSVideoElement extends HTMLElement {
       this._recovering = false;
       if (this.videoEl) this.videoEl.controls = false;
       this.ui.showPosterInstant(true);
-      // Fatal uses the same logo card with a random "refresh" line — dots off,
-      // since it's an instruction, not a "working on it" state.
-      this.ui.setPosterMessage(this._pickMessage('fatal'), false);
+      // Decode-stall ⇒ an actionable instruction (no dots). Anything else ⇒ a
+      // "reconnecting" line (with dots) because we now auto-retry underneath.
+      const decode = this._decodeStallSuspected;
+      this.ui.setPosterMessage(this._pickMessage(decode ? 'decode' : 'fatal'), !decode);
       this.ui.fadePosterMessage(1, 0);
       this.playerState = STATE.FATAL;
       this.statusOverlay.updateStatus('error');
+      // FATAL is no longer terminal — keep trying to reconnect on our own.
+      this._scheduleFatalRetry();
     });
   }
 
-  // FATAL is terminal ("please refresh"). During live operation (already played
-  // once) most failures are just the stream being down — fall back to the idle
-  // logo and keep polling instead, so we re-acquire when it returns.
+  _scheduleFatalRetry() {
+    safe('scheduleFatalRetry', () => {
+      if (this._fatalRetryTimer || this._destroyed) return;
+      this._fatalRetryTimer = this.timers.setTimeout(() => {
+        this._fatalRetryTimer = null;
+        this._retryFromFatal();
+      }, FATAL_AUTORETRY_MS);
+    });
+  }
+
+  _clearFatalRetry() {
+    if (this._fatalRetryTimer) { this.timers.clearTimeout(this._fatalRetryTimer); this._fatalRetryTimer = null; }
+  }
+
+  // FATAL is NOT a dead-end. After a delay we tear down, reset, and resume polling,
+  // which re-drives IDLE → PREPARING → play. Transient failures (a videoUID re-key,
+  // a brief outage, a slow start) self-heal with the viewer doing nothing; a truly
+  // wedged decoder keeps showing the "restart your device" message and resumes the
+  // instant it clears. Repeats indefinitely.
+  _retryFromFatal() {
+    safe('retryFromFatal', () => {
+      if (this._destroyed || this.playerState !== STATE.FATAL) return;
+      if (this._currentEngine) { this._currentEngine.destroy(); this._currentEngine = null; }
+      this.mediaErrorRecoveryAttempts = 0;
+      this._networkErrorRecoveryAttempts = 0;
+      this._decodeStallSuspected = false;
+      this._recovering = false;
+      this.playerState = STATE.IDLE;
+      this.ui.showPosterInstant(true);
+      this._updatePosterMessage();
+      this.startPolling(); // next live poll re-drives IDLE → PREPARING → play
+    });
+  }
+
+  // During live operation (already played once) most failures are just the stream
+  // being down — fall back to the idle logo and keep polling so we re-acquire when
+  // it returns. Otherwise enter FATAL (which now auto-retries rather than dead-ends).
   _failOrIdle() {
     if (this.hasPlayedOnce) this._recoverToIdle();
     else this._enterFatal();
