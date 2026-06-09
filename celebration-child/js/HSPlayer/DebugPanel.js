@@ -16,10 +16,10 @@ const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => (
 
 // Player state machine value → plain-language sentence.
 const PLAYER_PLAIN = {
-  IDLE: 'Waiting for the stream to start',
+  IDLE: 'Waiting for the stream',
   PREPARING: 'Getting the video ready…',
   PLAYING: 'Playing',
-  FATAL: 'Stopped — please refresh the page',
+  FATAL: 'Reconnecting…',
 };
 
 // Where the state we're showing actually came from (honest after the server fix).
@@ -43,6 +43,7 @@ export class DebugPanel {
     this._getPlayerState = typeof opts.getPlayerState === 'function' ? opts.getPlayerState : () => null;
     this._getEngineStats = typeof opts.getEngineStats === 'function' ? opts.getEngineStats : () => null;
     this._frame = { lastTotal: 0, lastTime: 0, fps: null }; // for deriving FPS from the decoded-frame counter
+    this._everLive = false; // have we seen the stream live at least once this session?
     this._timer = null;
   }
 
@@ -53,6 +54,7 @@ export class DebugPanel {
   /** Merge in event-driven data (a poll result) and re-render. */
   update(overrides) {
     Object.assign(this._data, overrides || {});
+    if (overrides && overrides.liveStatus === true) this._everLive = true;
     this.render();
   }
 
@@ -155,6 +157,7 @@ export class DebugPanel {
     const isLive = d.liveStatus === true;
     const stream = (playerState === 'FATAL') ? '⚠ Problem'
       : isLive ? '● Live now'
+      : this._everLive ? '○ Offline — between segments'
       : '○ Not started yet';
 
     const playerPlain = PLAYER_PLAIN[playerState] || playerState;
