@@ -693,7 +693,7 @@ class SettingsPage {
         $status_label = $input->status_details ?? 'Status unavailable';
         $rtmpKey      = $input->rtmp_details->streamKey ?? '';
         ?>
-    <div class="hscf-stream">
+    <div class="hscf-stream is-collapsed">
         <div class="hscf-stream__head">
             <button type="button" class="hscf-stream__chevron" title="Collapse / expand" aria-label="Collapse / expand this stream"><span class="dashicons dashicons-arrow-down-alt2"></span></button>
             <strong class="hscf-stream__name"><?= esc_html($input_name) ?></strong>

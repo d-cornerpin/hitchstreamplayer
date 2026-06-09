@@ -47,7 +47,7 @@
 /* ── Streams toolbar ── */
 .hscf-toolbar { display: flex; flex-wrap: wrap; gap: 16px; justify-content: space-between; align-items: center; margin: 18px 0 22px; padding: 14px 16px; background: #fff; border: 1px solid #dcdcde; border-radius: 6px; }
 .hscf-toolbar__group { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; }
-.hscf-create { display: flex; gap: 6px; align-items: center; }
+.hscf-create { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .hscf-ll { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 600; color: #50575e; white-space: nowrap; cursor: pointer; }
 .hscf-ll input { margin: 0; }
 .hscf-create input[type=text] { min-width: 200px; }
@@ -127,7 +127,12 @@
 .hscf-icon-delete .dashicons:hover { color: #d63638; }
 
 @media (max-width: 1100px) { .hscf-stream__grid { grid-template-columns: repeat(2, 1fr); } }
-@media (max-width: 640px) { .hscf-stream__grid { grid-template-columns: 1fr; } .hscf-toolbar { flex-direction: column; align-items: stretch; } }
+@media (max-width: 640px) { .hscf-stream__grid { grid-template-columns: 1fr; } .hscf-toolbar { flex-direction: column; align-items: stretch; }
+  /* Stack the create-stream form: full-width name on its own row, then the
+     Low-Latency toggle + Create button below so nothing dangles off-screen. */
+  .hscf-create { width: 100%; }
+  .hscf-create input[type=text] { flex: 1 1 100%; min-width: 0; }
+}
 
 /* ── Video library ── */
 .hscf-panel { background: #fff; border: 1px solid #dcdcde; border-radius: 6px; padding: 16px; margin-top: 16px; }
