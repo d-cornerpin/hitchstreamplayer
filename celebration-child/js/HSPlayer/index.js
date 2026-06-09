@@ -390,6 +390,7 @@ export class HSVideoElement extends HTMLElement {
       // After the stream has played once, recover fast: a small buffer is enough
       // to resume; Hls.js keeps filling toward the full buffer in the background.
       const minBuf = this._fastRecovery ? FAST_RECOVERY_PREBUFFER_SECONDS : thresholdSecs;
+      this.ui.setProgress(minBuf > 0 ? bufferAhead / minBuf : 0); // fill the "about to start" line toward the play threshold
       const minSegs = this._fastRecovery ? 1 : 3;
       // Stream is confirmed playable once we have enough buffer (or the prebuffer
       // timeout elapsed with at least HAVE_FUTURE_DATA).
@@ -413,6 +414,7 @@ export class HSVideoElement extends HTMLElement {
   _startPrebufferGate() {
     safe('startPrebufferGate', () => {
       this._stopPrebufferGate();
+      this.ui.showProgress(true); this.ui.setProgress(0); // "about to start" line tracks the buffer fill
       this._gateTimer = this.timers.setInterval(() => {
         if (!this.pendingPlayRequest) { this._stopPrebufferGate(); return; }
         this.tryStartPlayback();
@@ -423,6 +425,7 @@ export class HSVideoElement extends HTMLElement {
   _stopPrebufferGate() {
     safe('stopPrebufferGate', () => {
       if (this._gateTimer) { this.timers.clearInterval(this._gateTimer); this._gateTimer = null; }
+      this.ui.showProgress(false);
     });
   }
 

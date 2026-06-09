@@ -10,6 +10,8 @@ export class UiController {
     this.statusMessageEl = null;
     this.posterEl = null;
     this.posterMessageEl = null;
+    this.progressEl = null;
+    this.progressFillEl = null;
     this._bgPauseTimer = null;
   }
 
@@ -23,6 +25,8 @@ export class UiController {
     this.statusMessageEl = shadow.querySelector('.status-message');
     this.posterEl = shadow.querySelector('.poster');
     this.posterMessageEl = shadow.querySelector('.poster-message');
+    this.progressEl = shadow.querySelector('.poster-progress');
+    this.progressFillEl = shadow.querySelector('.poster-progress-fill');
 
     // Mark the poster as having slotted content (a logo/branding card) so the
     // animated backdrop is shown behind it (.poster.has-slot .poster-bg). Without
@@ -47,6 +51,20 @@ export class UiController {
     if (!this.posterMessageEl) return;
     this.posterMessageEl.textContent = text || '';
     this.posterMessageEl.classList.toggle('animate', !!text && animate);
+  }
+
+  /** Set the prebuffer progress line, 0..1 (the CSS transition eases the motion). */
+  setProgress(ratio) {
+    if (!this.progressFillEl) return;
+    const r = Math.max(0, Math.min(1, ratio || 0));
+    this.progressFillEl.style.transform = `scaleX(${r})`;
+  }
+
+  /** Show/hide the prebuffer progress line. Hiding also resets it to empty. */
+  showProgress(visible) {
+    if (!this.progressEl) return;
+    this.progressEl.classList.toggle('show', !!visible);
+    if (!visible) this.setProgress(0);
   }
 
   /** Fade the under-logo message to a target opacity over a duration. */
@@ -163,6 +181,11 @@ export class UiController {
         .poster-message::after { content: ''; display: inline-block; width: 1.6em; text-align: left; }
         .poster-message.animate::after { animation: hs-ellipsis 1.6s linear infinite; }
         @keyframes hs-ellipsis { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } 100% { content: ''; } }
+        /* Thin "about to start" line under the message — fills with the real
+           prebuffer load so the wait has a visible, reassuring end. */
+        .poster-progress { width: clamp(120px, 32%, 280px); height: 2px; margin-top: 3.5%; background: rgba(255,255,255,0.18); border-radius: 2px; overflow: hidden; opacity: 0; transition: opacity 0.45s ease; }
+        .poster-progress.show { opacity: 1; }
+        .poster-progress-fill { height: 100%; width: 100%; background: #fff; transform: scaleX(0); transform-origin: left center; transition: transform 0.5s ease; will-change: transform; }
         .overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: none; z-index: 10; cursor: pointer; background: transparent; }
         .play-button { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: auto; height: 40%; padding: 0; border: none; background: transparent; cursor: pointer; z-index: 20; display: none; }
         .play-button svg { display: block; height: 100%; width: auto; filter: drop-shadow(20px 10px 16px rgba(0, 0, 0, 1)); }
@@ -185,7 +208,7 @@ export class UiController {
           <div class="obj pDark1 person pMega1"></div><div class="obj pDark4 person pMega2"></div>
           <div class="poster-bg-ov"></div>
         </div>
-        <div class="poster-slot"><slot name="poster"></slot><div class="poster-message"></div></div>
+        <div class="poster-slot"><slot name="poster"></slot><div class="poster-message"></div><div class="poster-progress"><div class="poster-progress-fill"></div></div></div>
       </div>
       <div class="overlay"></div>
       <button class="play-button" aria-label="Play"><svg viewBox="0 0 162.83 182.99" xmlns="http://www.w3.org/2000/svg"><path fill="#fff" d="M154.62,105.71L24.62,180.77C13.68,187.08,0,179.19,0,166.55V16.44C0,3.8,13.68-4.09,24.62,2.22l130,75.06c10.94,6.32,10.94,22.11,0,28.43Z"/></svg></button>
