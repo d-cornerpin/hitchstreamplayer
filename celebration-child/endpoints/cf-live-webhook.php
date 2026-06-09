@@ -251,14 +251,30 @@ function hs_dispatch_alert(string $event_key, string $input_id, string $event_ty
     }
     set_transient($throttle_key, true, 300);
 
+    // The live-stream lifecycle alerts include a one-click link to the player
+    // with the debug panel open (same URL as the plugin's "open in new window"
+    // button), so the recipient can jump straight to checking the stream. The
+    // account-level alerts (storage / subscription) don't — the action there is
+    // the Cloudflare dashboard, not the player.
+    $with_link = ['live_stream_started', 'live_stream_ended', 'live_stream_reconnected', 'live_stream_error'];
+    $debug_url = '';
+    if (in_array($event_key, $with_link, true) && $input_id) {
+        $debug_url = home_url('/player/') . '?live=true&inputId=' . rawurlencode($input_id) . '&debug=1';
+    }
+
     $site = wp_specialchars_decode(get_bloginfo('name'), ENT_QUOTES);
     $subject = "[HitchStream] {$label}";
     $lines = [
         $desc,
         '',
-        "Stream input: {$input_id}",
-        'Time: ' . current_time('mysql'),
     ];
+    if ($debug_url) {
+        $lines[] = 'Check on the stream (opens the player with the debug panel):';
+        $lines[] = $debug_url;
+        $lines[] = '';
+    }
+    $lines[] = "Stream input: {$input_id}";
+    $lines[] = 'Time: ' . current_time('mysql');
     if ($error_code) {
         $lines[] = "Error code: {$error_code}";
     }

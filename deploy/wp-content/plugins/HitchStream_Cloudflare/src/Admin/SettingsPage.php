@@ -20,12 +20,12 @@ class SettingsPage {
      * 'default' marks the two critical events that are pre-checked.
      */
     public const ALERT_EVENTS = [
-        'storage_full'        => ['Storage Full',            'Cloudflare Stream storage is full — recordings and streams may fail.', true],
-        'no_subscription'     => ['No Cloudflare Subscription', 'The Cloudflare Stream subscription is missing or inactive.', true],
-        'stream_error'        => ['Stream Error',            'A live input failed to connect or reconnect.', false],
-        'stream_started'      => ['Stream Started',          'A streamer connected and the live stream went live.', false],
-        'stream_ended'        => ['Stream Ended (streamer disconnected)', 'The streamer disconnected and the stream ended.', false],
-        'stream_reconnecting' => ['Streamer Reconnecting',   'The streamer connection dropped and is reconnecting (can be noisy on a weak uplink).', false],
+        'storage_full'            => ['Storage Full',            'Cloudflare Stream storage is full — recordings and streams may fail.', true],
+        'no_subscription'         => ['No Cloudflare Subscription', 'The Cloudflare Stream subscription is missing or inactive.', true],
+        'live_stream_started'     => ['Live Stream Started',     'A live stream went live (a feed connected to the live input).', false],
+        'live_stream_ended'       => ['Live Stream Ended',       'The live stream feed disconnected and the stream ended.', false],
+        'live_stream_reconnected' => ['Live Stream Reconnected', 'A live stream dropped and then successfully reconnected.', false],
+        'live_stream_error'       => ['Live Stream Error',       'A live stream feed failed to connect or reconnect.', false],
     ];
 
     /** Register all settings sections and fields. */
