@@ -22,6 +22,22 @@ if (is_readable($hs_blocks_file)) {
     require_once $hs_blocks_file;
 }
 
+// (was the parent theme's boldthemes_get_image_html tweak) Child override of the
+// pluggable image renderer so the [bt_image] alt = caption fix survives a theme
+// update. Must be required here (before the parent functions.php) so the parent's
+// function_exists() guard skips its own copy.
+$hs_btimage_fix = get_stylesheet_directory() . '/inc/bt-image-fix.php';
+if (is_readable($hs_btimage_fix)) {
+    require_once $hs_btimage_fix;
+}
+
+// Tier 2: child-owned RapidComposer builder mappings for the hs_ blocks, so they
+// stay editable in the visual builder even after a parent plugin update/reinstall.
+$hs_block_mappings = get_stylesheet_directory() . '/inc/hs-block-mappings.php';
+if (is_readable($hs_block_mappings)) {
+    require_once $hs_block_mappings;
+}
+
 // ─── Migrated from the parent theme so they survive a parent update/reinstall ───
 // NB: the search-engine verification meta tags (Bing/Google) are NOT migrated here
 // on purpose — those are Search Console / Google Site Kit plugin territory, not a
