@@ -230,7 +230,7 @@ export class HSVideoElement extends HTMLElement {
             this._drainingToIdle = false;
             this._stopDrainToPoster();
             const vEl = this.videoEl;
-            const ahead = vEl?.buffered?.length ? Math.max(0, (vEl.buffered.end(0) || 0) - vEl.currentTime) : 0;
+            const ahead = HSVideoElement.bufferAhead(vEl);
             if (this._currentEngine && ahead > 2) {
               // Stream returned while we still have buffer playing — keep the
               // engine and buffer, just stop showing the poster. Hls.js resumes
@@ -377,13 +377,7 @@ export class HSVideoElement extends HTMLElement {
       if (!this.pendingPlayRequest) return;
       const v = this.videoEl; if (!v) return;
       const ready = v.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA;
-      // Measure from the LAST buffered range, not the first. iOS Safari (Managed
-      // Media Source) buffers into a disjoint range ahead of a small range at the
-      // play head, so end(0) stays stuck near zero while the real buffer grows in
-      // end(last). Using end(0) here made the gate (and the progress bar) freeze
-      // and never satisfy the play threshold until the 60s timeout. This matches
-      // what the debug panel reports, so the bar tracks the number the viewer sees.
-      let bufferAhead = v?.buffered?.length ? Math.max(0, (v.buffered.end(v.buffered.length - 1)||0) - v.currentTime) : 0;
+      let bufferAhead = HSVideoElement.bufferAhead(v);
       // Substantial buffer downloaded but the video still can't become ready ⇒ the
       // device's decoder is wedged (not a network issue). Flag it so a resulting
       // FATAL shows the honest "restart your browser/device" message.
@@ -454,7 +448,7 @@ export class HSVideoElement extends HTMLElement {
       if (this._drainMonitorTimer) return;
       this._drainMonitorTimer = this.timers.setInterval(() => {
         const v = this.videoEl;
-        const ahead = (v?.buffered?.length) ? Math.max(0, (v.buffered.end(0) || 0) - v.currentTime) : 0;
+        const ahead = HSVideoElement.bufferAhead(v);
         if (ahead <= POSTER_FADEOUT_LEAD_SECONDS) {
           this.ui.fadePoster(1, POSTER_CROSSFADE_MS);
           this._stopDrainToPoster();
@@ -736,7 +730,7 @@ export class HSVideoElement extends HTMLElement {
         if (!this._reconnectWatchdogActive) return;
         const v = this.videoEl;
         if (!v?.buffered?.length) return;
-        const ahead = Math.max(0, (v.buffered.end(0)||0) - v.currentTime);
+        const ahead = HSVideoElement.bufferAhead(v);
         if (ahead < RECONNECT_WATCHDOG_BUFFER_THRESHOLD) {
           this.timers.clearTimeout(this.fatalTimer); this.fatalTimer = null;
           this.timers.setTimeout(() => this._failOrIdle(), RECONNECT_WATCHDOG_FATAL_TTL);
@@ -832,8 +826,8 @@ export class HSVideoElement extends HTMLElement {
   // ── Helpers ──
 
   _ctx() {
-    const v = this.videoEl; let ba = 0;
-    if (v?.buffered?.length) ba = Math.max(0, (v.buffered.end(0)||0) - v.currentTime);
+    const v = this.videoEl;
+    const ba = HSVideoElement.bufferAhead(v);
     return { hasPlayedOnce: !!this.hasPlayedOnce, userGestureUnlocked: !!this.gestureUnlock?.isUnlocked, bufferAhead: ba, hasBufferedContent: !!this.latestLiveHlsUrl, currentVideoUID: this.currentVideoUID };
   }
 
@@ -911,6 +905,18 @@ export class HSVideoElement extends HTMLElement {
   }
 
   static isValidHlsUrl(url) { return typeof url === 'string' && HLS_ORIGIN_ALLOWLIST_REGEX.test(url); }
+
+  // Seconds of playable media buffered ahead of the play head. ALWAYS measure
+  // from the LAST buffered range, never end(0): iOS Safari (Managed Media Source)
+  // buffers into a disjoint range ahead of a tiny range at the play head, so
+  // end(0) reads near-zero while the real buffer lives in end(last). Reading
+  // end(0) made iOS think the buffer was empty — the prebuffer gate stalled, the
+  // stream dropped to the poster instantly on stop, the reconnect watchdog
+  // false-tripped, etc. Matches what DebugPanel reports. Use this everywhere.
+  static bufferAhead(v) {
+    if (!v?.buffered?.length) return 0;
+    return Math.max(0, (v.buffered.end(v.buffered.length - 1) || 0) - v.currentTime);
+  }
 }
 
 // ── Registration ──
