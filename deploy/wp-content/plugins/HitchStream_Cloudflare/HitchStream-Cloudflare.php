@@ -51,7 +51,7 @@ add_action('admin_enqueue_scripts', function ($hook) {
     ]);
     // Console styles + dashicons, only on our admin page.
     if ($hook === 'toplevel_page_HitchStream_Cloudflare') {
-        wp_enqueue_style('hscf-admin-style', plugin_dir_url(__FILE__) . 'css/hscf-admin.css', ['dashicons'], '2.23');
+        wp_enqueue_style('hscf-admin-style', plugin_dir_url(__FILE__) . 'css/hscf-admin.css', ['dashicons'], '2.24');
     }
 });
 

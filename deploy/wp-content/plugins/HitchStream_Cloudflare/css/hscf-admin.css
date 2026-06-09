@@ -111,11 +111,13 @@
 .hscf-output .delete-output-link { color: #b32d2e; }
 /* Cap the recordings list at ~7 rows, then scroll. A sliver of the next row
    peeks under the cap to signal there's more. Short lists show in full. */
-.hscf-recordings-list { max-height: 220px; overflow-y: auto; padding-right: 6px; }
-.hscf-recordings-list::-webkit-scrollbar { width: 8px; }
-.hscf-recordings-list::-webkit-scrollbar-thumb { background: #c3c4c7; border-radius: 4px; }
+.hscf-recordings-list { max-height: 220px; overflow-y: auto; padding-right: 3px; }
+.hscf-recordings-list::-webkit-scrollbar { width: 6px; }
+.hscf-recordings-list::-webkit-scrollbar-thumb { background: #c3c4c7; border-radius: 3px; }
 .hscf-recordings-list::-webkit-scrollbar-track { background: transparent; }
-.hscf-recording { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 0; border-bottom: 1px solid #f0f0f1; font-size: 13px; }
+.hscf-recording { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 5px 0; border-bottom: 1px solid #f0f0f1; font-size: 13px; }
+/* Keep the date link on one line — the scrollbar narrows the column. */
+.hscf-recording > a { font-size: 12px; white-space: nowrap; }
 .hscf-recording__actions { display: inline-flex; gap: 10px; align-items: center; }
 /* Shared action icons — used by stream recordings AND the Video Library grid. */
 .hscf-icon-btn { display: inline-flex; text-decoration: none; }
