@@ -163,53 +163,112 @@ function hs_state_ttl($state) {
     }
 }
 
-// --- B5.6: Critical-error email alert ---
+// --- B5.6: Email alerts for notable live-stream events ---
 
 /**
- * B5.6: Send critical-error email if error_code matches configured alert codes.
- *
- * Reads HSCF_alert_email and HSCF_alert_codes from options.
- * Default alert codes: ERR_STORAGE_QUOTA_EXHAUSTED,ERR_MISSING_SUBSCRIPTION.
+ * Plain-English alert catalog: key => [label, description].
+ * Keys MUST match SettingsPage::ALERT_EVENTS in the HitchStream_Cloudflare
+ * plugin (that's where the admin checkboxes are defined). Keep them in sync.
  */
-function self_send_error_alert(string $error_code, string $input_id, string $event_type, string $correlation_id): void {
+function hs_alert_events_catalog(): array {
+    return [
+        'storage_full'        => ['Storage Full', 'Cloudflare Stream storage is full — recordings and live streams may fail until space is freed or the plan is upgraded.'],
+        'no_subscription'     => ['No Cloudflare Subscription', 'The Cloudflare Stream subscription is missing or inactive. Streaming will not work until it is restored.'],
+        'stream_error'        => ['Stream Error', 'A live input reported an error (failed to connect or reconnect).'],
+        'stream_started'      => ['Stream Started', 'A streamer connected and the live stream is now active.'],
+        'stream_ended'        => ['Stream Ended', 'The streamer disconnected and the live stream has ended.'],
+        'stream_reconnecting' => ['Streamer Reconnecting', 'The streamer connection dropped and is attempting to reconnect.'],
+    ];
+}
+
+/**
+ * Which alert events are enabled (array of keys). Reads HSCF_alert_events; falls
+ * back to migrating the legacy HSCF_alert_codes CSV, else the two critical defaults.
+ */
+function hs_alert_enabled_events(): array {
+    $val = get_option('HSCF_alert_events', null);
+    if (is_array($val)) {
+        return $val;
+    }
+    $legacy = get_option('HSCF_alert_codes', null);
+    if (is_string($legacy) && $legacy !== '') {
+        $events = [];
+        if (strpos($legacy, 'ERR_STORAGE_QUOTA_EXHAUSTED') !== false) $events[] = 'storage_full';
+        if (strpos($legacy, 'ERR_MISSING_SUBSCRIPTION') !== false)    $events[] = 'no_subscription';
+        return $events ?: ['storage_full', 'no_subscription'];
+    }
+    return ['storage_full', 'no_subscription'];
+}
+
+/**
+ * Map a webhook outcome to a single alert event key (or '' for none).
+ * $prev_state is the state stored BEFORE this event, so start/end/reconnect only
+ * fire on an actual transition rather than on every repeated webhook.
+ */
+function hs_alert_key_for(?string $normalized, string $error_code, string $prev_state): string {
+    if ($error_code === 'ERR_STORAGE_QUOTA_EXHAUSTED') return 'storage_full';
+    if ($error_code === 'ERR_MISSING_SUBSCRIPTION')    return 'no_subscription';
+    if ($normalized === 'error')                       return 'stream_error';
+    if ($normalized === 'live' && $prev_state !== 'live')                          return 'stream_started';
+    if ($normalized === 'idle' && in_array($prev_state, ['live', 'reconnecting'], true)) return 'stream_ended';
+    if ($normalized === 'reconnecting' && $prev_state !== 'reconnecting')          return 'stream_reconnecting';
+    return '';
+}
+
+/**
+ * Send an alert email for a notable event, if it's enabled and not throttled.
+ * Uses wp_mail(), so it routes through whatever mailer is active (WPO365 / M365).
+ * Throttle: at most one email per event per input per 5 minutes.
+ */
+function hs_dispatch_alert(string $event_key, string $input_id, string $event_type, string $error_code, string $correlation_id): void {
+    if ($event_key === '') {
+        return;
+    }
+
     $alert_email = get_option('HSCF_alert_email', '');
-    if (!$alert_email) {
+    if (!$alert_email || !is_email($alert_email)) {
         return;
     }
 
-    $codes_raw = get_option('HSCF_alert_codes', 'ERR_STORAGE_QUOTA_EXHAUSTED,ERR_MISSING_SUBSCRIPTION');
-    $alert_codes = array_map('trim', explode(',', $codes_raw));
-    if (empty($alert_codes)) {
+    if (!in_array($event_key, hs_alert_enabled_events(), true)) {
         return;
     }
 
-    if (!in_array($error_code, $alert_codes, true)) {
+    $catalog = hs_alert_events_catalog();
+    if (!isset($catalog[$event_key])) {
         return;
     }
+    [$label, $desc] = $catalog[$event_key];
 
-    // Throttle: don't send more than one alert per input_id per 5 minutes.
-    $throttle_key = "hs_alert_throttle_{$error_code}_{$input_id}";
+    $throttle_key = "hs_alert_throttle_{$event_key}_{$input_id}";
     if (get_transient($throttle_key)) {
         return;
     }
     set_transient($throttle_key, true, 300);
 
-    $subject = "[HitchStream] Critical Error: {$error_code}";
-    $body = sprintf(
-        "A critical error was detected during a live stream.\n\n"
-        . "Error Code: %s\n"
-        . "Input ID: %s\n"
-        . "Event Type: %s\n"
-        . "Correlation ID: %s\n\n"
-        . "Check the Activity page in WP Admin for full details.\n",
-        $error_code,
-        $input_id,
-        $event_type,
-        $correlation_id
-    );
+    $site = wp_specialchars_decode(get_bloginfo('name'), ENT_QUOTES);
+    $subject = "[HitchStream] {$label}";
+    $lines = [
+        $desc,
+        '',
+        "Stream input: {$input_id}",
+        'Time: ' . current_time('mysql'),
+    ];
+    if ($error_code) {
+        $lines[] = "Error code: {$error_code}";
+    }
+    $lines[] = "Event: {$event_type}";
+    $lines[] = "Reference: {$correlation_id}";
+    $lines[] = '';
+    $lines[] = "Site: {$site}";
+    $lines[] = 'See the Activity page in WP Admin for full details.';
+    $body = implode("\n", $lines) . "\n";
 
-    wp_mail($alert_email, $subject, $body, ['Content-Type: text/plain; charset=utf-8']);
-    error_log("[HitchStream] B5.6: Critical alert sent to {$alert_email} for {$error_code} on {$input_id} (corr: {$correlation_id})");
+    $sent = wp_mail($alert_email, $subject, $body, ['Content-Type: text/plain; charset=utf-8']);
+    error_log(
+        '[HitchStream] alert email ' . ($sent ? 'sent' : 'FAILED')
+        . " to {$alert_email} for {$event_key} on {$input_id} (corr: {$correlation_id})"
+    );
 }
 // --- Main ---
 
@@ -397,6 +456,11 @@ if ($normalized === 'live' && $lifecycle_failed) {
     exit;
 }
 
+// Capture the prior state (before we overwrite it) so Stream Started/Ended
+// alerts only fire on an actual transition, not on every repeated webhook.
+$prev = get_transient("hs_live_state_{$input_id}");
+$prev_state = is_array($prev) ? (string) ($prev['state'] ?? '') : '';
+
 // Normal path: update transient.
 $ttl = hs_state_ttl($normalized);
 $correlation_id = wp_generate_uuid4();
@@ -432,10 +496,11 @@ $log_data = [
 ];
 hs_webhook_log_insert($log_data);
 
-// B5.6: Critical-error email alert.
-if ($error_code) {
-    self_send_error_alert($error_code, $input_id, $event_type, $correlation_id);
-}
+// B5.6: Email alerts for notable events (errors + state transitions).
+hs_dispatch_alert(
+    hs_alert_key_for($normalized, (string) $error_code, $prev_state),
+    $input_id, $event_type, (string) $error_code, $correlation_id
+);
 // Log for debugging.
 error_log("[HitchStream] Webhook: input={$input_id} event={$event_type} state={$normalized} videoUID={$video_uid} corr={$correlation_id}");
 

@@ -13,6 +13,21 @@ use HS\ConfigError;
 
 class SettingsPage {
 
+    /**
+     * Catalog of alertable events: key => [label, description].
+     * The keys are the contract shared with the webhook receiver
+     * (celebration-child/endpoints/cf-live-webhook.php) — keep them in sync.
+     * 'default' marks the two critical events that are pre-checked.
+     */
+    public const ALERT_EVENTS = [
+        'storage_full'        => ['Storage Full',            'Cloudflare Stream storage is full — recordings and streams may fail.', true],
+        'no_subscription'     => ['No Cloudflare Subscription', 'The Cloudflare Stream subscription is missing or inactive.', true],
+        'stream_error'        => ['Stream Error',            'A live input failed to connect or reconnect.', false],
+        'stream_started'      => ['Stream Started',          'A streamer connected and the live stream went live.', false],
+        'stream_ended'        => ['Stream Ended (streamer disconnected)', 'The streamer disconnected and the stream ended.', false],
+        'stream_reconnecting' => ['Streamer Reconnecting',   'The streamer connection dropped and is reconnecting (can be noisy on a weak uplink).', false],
+    ];
+
     /** Register all settings sections and fields. */
     public static function register(): void {
         add_action('admin_init', [__CLASS__, 'registerCloudflareSettings']);
@@ -144,11 +159,23 @@ class SettingsPage {
 
     public static function registerAlertSettings(): void {
         register_setting('HSCF_alert_settings', 'HSCF_alert_email');
-        register_setting('HSCF_alert_settings', 'HSCF_alert_codes');
+        register_setting('HSCF_alert_settings', 'HSCF_alert_events', [
+            'type'              => 'array',
+            'sanitize_callback' => [__CLASS__, 'sanitizeAlertEvents'],
+            'default'           => ['storage_full', 'no_subscription'],
+        ]);
 
         add_settings_section('HSCF_alert_settings_section', 'Alerts', [__CLASS__, 'alert_section_desc'], 'HitchStream_Cloudflare');
         add_settings_field('HSCF_alert_email_field', 'Alert Email', [__CLASS__, 'alert_email_field'], 'HitchStream_Cloudflare', 'HSCF_alert_settings_section');
-        add_settings_field('HSCF_alert_codes_field', 'Alert Codes', [__CLASS__, 'alert_codes_field'], 'HitchStream_Cloudflare', 'HSCF_alert_settings_section');
+        add_settings_field('HSCF_alert_events_field', 'Send an email when…', [__CLASS__, 'alert_events_field'], 'HitchStream_Cloudflare', 'HSCF_alert_settings_section');
+        add_settings_field('HSCF_alert_test_field', 'Test delivery', [__CLASS__, 'alert_test_field'], 'HitchStream_Cloudflare', 'HSCF_alert_settings_section');
+    }
+
+    /** Sanitize the alert-events checkbox array against the known catalog. */
+    public static function sanitizeAlertEvents($value): array {
+        if (!is_array($value)) return [];
+        $allowed = array_keys(self::ALERT_EVENTS);
+        return array_values(array_intersect($allowed, array_map('sanitize_key', $value)));
     }
 
     // ── Field callbacks ────────────────────────────────────────────
@@ -357,19 +384,39 @@ class SettingsPage {
     }
 
     public static function alert_section_desc(): void {
-        echo '<p>Email alerts are sent when critical webhook error_codes are received during a live stream.</p>';
+        echo '<p>Get an email when something notable happens to a live stream. Pick which events below, set the address, then send a test. '
+            . 'Mail goes out through WordPress (<code>wp_mail</code>), so it automatically uses your Microsoft 365 connection via the WPO365 plugin.</p>';
     }
 
     public static function alert_email_field(): void {
         $val = get_option('HSCF_alert_email', '');
-        echo '<input type="email" name="HSCF_alert_email" value="' . esc_attr($val) . '" style="width:100%;max-width:600px;" placeholder="admin@example.com" />';
-        echo '<p class="description">Leave blank to disable critical error email alerts.</p>';
+        echo '<input type="email" id="hscf-alert-email" name="HSCF_alert_email" value="' . esc_attr($val) . '" style="width:100%;max-width:600px;" placeholder="admin@example.com" />';
+        echo '<p class="description">Leave blank to turn off all email alerts.</p>';
     }
 
-    public static function alert_codes_field(): void {
-        $val = get_option('HSCF_alert_codes', 'ERR_STORAGE_QUOTA_EXHAUSTED,ERR_MISSING_SUBSCRIPTION');
-        echo '<input type="text" name="HSCF_alert_codes" value="' . esc_attr($val) . '" style="width:100%;max-width:600px;" placeholder="Comma-separated error codes" />';
-        echo '<p class="description">Default: <code>ERR_STORAGE_QUOTA_EXHAUSTED,ERR_MISSING_SUBSCRIPTION</code>. These codes are also reflected in the player error messages.</p>';
+    public static function alert_events_field(): void {
+        $enabled = Config::alertEvents();
+        echo '<fieldset>';
+        foreach (self::ALERT_EVENTS as $key => [$label, $desc, $default]) {
+            $checked = in_array($key, $enabled, true) ? ' checked' : '';
+            echo '<label style="display:block;margin:0 0 .5em;">'
+                . '<input type="checkbox" name="HSCF_alert_events[]" value="' . esc_attr($key) . '"' . $checked . ' /> '
+                . '<strong>' . esc_html($label) . '</strong>'
+                . '<span class="description" style="display:block;margin:.1em 0 0 1.8em;">' . esc_html($desc) . '</span>'
+                . '</label>';
+        }
+        echo '</fieldset>';
+        echo '<p class="description">“Stream Started/Ended” fire once per actual change of state, and every alert is throttled to at most one email per event every 5 minutes.</p>';
+    }
+
+    public static function alert_test_field(): void {
+        echo '<p><button type="button" class="button" id="hscf-alert-test-btn">Send Test Email</button> <span id="hscf-alert-test-result" class="hscf-test-result"></span></p>';
+        echo '<p class="description">Sends a sample alert to the address above (uses the value currently in the box — no need to save first).</p>';
+        // Pass the live value of the email field so it can be tested before saving.
+        echo self::testButtonScript(
+            'hscf-alert-test-btn', 'hscf-alert-test-result', 'hscf_test_alert_email', 'Send Test Email',
+            '_data.email = $("#hscf-alert-email").val();'
+        );
     }
 
     // ── Admin page rendering ───────────────────────────────────────
