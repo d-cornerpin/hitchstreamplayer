@@ -14,6 +14,14 @@ const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]
 ));
 
+// Format a duration in ms as H:MM:SS (or M:SS under an hour).
+const fmtDur = (ms) => {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  const p = (n) => String(n).padStart(2, '0');
+  return h > 0 ? `${h}:${p(m)}:${p(sec)}` : `${m}:${p(sec)}`;
+};
+
 // Player state machine value → plain-language sentence.
 const PLAYER_PLAIN = {
   IDLE: 'Waiting for the stream',
@@ -44,6 +52,7 @@ export class DebugPanel {
     this._getEngineStats = typeof opts.getEngineStats === 'function' ? opts.getEngineStats : () => null;
     this._frame = { lastTotal: 0, lastTime: 0, fps: null }; // for deriving FPS from the decoded-frame counter
     this._everLive = false; // have we seen the stream live at least once this session?
+    this._uidCurrent = null; this._uidSince = 0; this._uidRestarts = 0; // current videoUID, when it started, how many times it has changed
     this._timer = null;
   }
 
@@ -55,7 +64,20 @@ export class DebugPanel {
   update(overrides) {
     Object.assign(this._data, overrides || {});
     if (overrides && overrides.liveStatus === true) this._everLive = true;
+    this._trackUid();
     this.render();
+  }
+
+  // Track the current videoUID. When it changes to a new one, that's a new stream
+  // session (a re-key/glitch or an intentional restart) — bump the restart counter
+  // and reset the uptime clock so it always reflects the *current* UID.
+  _trackUid() {
+    const uid = this._data.videoUID || null;
+    if (uid && uid !== this._uidCurrent) {
+      if (this._uidCurrent) this._uidRestarts++; // a real change, not the first appearance
+      this._uidCurrent = uid;
+      this._uidSince = Date.now();
+    }
   }
 
   /** Begin the 1s self-refresh. Call only in debug mode. */
@@ -159,6 +181,8 @@ export class DebugPanel {
       : isLive ? '● Live now'
       : this._everLive ? '○ Offline — between segments'
       : '○ Not started yet';
+    // Uptime of the CURRENT videoUID (resets each new session); '—' while offline.
+    const uptime = (isLive && this._uidSince) ? fmtDur(Date.now() - this._uidSince) : '—';
 
     const playerPlain = PLAYER_PLAIN[playerState] || playerState;
     const sound = (soundOn === null) ? '—' : (soundOn ? 'On' : 'Muted — tap the video for sound');
@@ -174,6 +198,8 @@ export class DebugPanel {
     this.el.innerHTML =
       `<h4>What's happening</h4>` +
       row('Stream', esc(stream)) +
+      row('Stream uptime', esc(uptime)) +
+      row('Stream restarts', esc(String(this._uidRestarts))) +
       row('Player', esc(playerPlain)) +
       row('Picture', esc(picture)) +
       row('Sound', esc(sound)) +
