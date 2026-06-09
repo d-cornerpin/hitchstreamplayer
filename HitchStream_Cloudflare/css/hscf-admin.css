@@ -109,6 +109,12 @@
 .hscf-output { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 1px solid #f0f0f1; font-size: 13px; }
 .hscf-output span { flex: 1; word-break: break-all; }
 .hscf-output .delete-output-link { color: #b32d2e; }
+/* Cap the recordings list at ~7 rows, then scroll. A sliver of the next row
+   peeks under the cap to signal there's more. Short lists show in full. */
+.hscf-recordings-list { max-height: 220px; overflow-y: auto; padding-right: 6px; }
+.hscf-recordings-list::-webkit-scrollbar { width: 8px; }
+.hscf-recordings-list::-webkit-scrollbar-thumb { background: #c3c4c7; border-radius: 4px; }
+.hscf-recordings-list::-webkit-scrollbar-track { background: transparent; }
 .hscf-recording { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 0; border-bottom: 1px solid #f0f0f1; font-size: 13px; }
 .hscf-recording__actions { display: inline-flex; gap: 10px; align-items: center; }
 /* Shared action icons — used by stream recordings AND the Video Library grid. */

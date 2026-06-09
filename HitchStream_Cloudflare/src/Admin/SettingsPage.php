@@ -751,6 +751,7 @@ class SettingsPage {
             </div>
             <div class="hscf-stream__col">
                 <h4>Recordings</h4>
+                <div class="hscf-recordings-list">
                 <?php $filteredVideos = self::getVideosByStreamName($input_name);
                 if (is_array($filteredVideos) && !empty($filteredVideos)): foreach ($filteredVideos as $video):
                     if (!is_array($video) || !isset($video['uid'])) { continue; }
@@ -775,6 +776,7 @@ class SettingsPage {
                         </span>
                     </div>
                 <?php endforeach; else: ?><p class="description">No recordings for this stream.</p><?php endif; ?>
+                </div>
             </div>
             <div class="hscf-stream__col hscf-stream__preview">
                 <h4>Preview</h4>

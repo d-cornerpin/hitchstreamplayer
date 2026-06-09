@@ -271,7 +271,7 @@ class AjaxController {
 
     /**
      * Send a sample alert email to verify delivery (routes through wp_mail, so
-     * it uses WPO365 / Microsoft 365 if that plugin is active). Uses the address
+     * it uses whatever mailer the site has configured). Uses the address(es)
      * posted from the field so it works before the setting is saved.
      */
     private function handleTestAlertEmail(): void {
