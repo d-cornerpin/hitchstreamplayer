@@ -158,7 +158,11 @@ class SettingsPage {
     }
 
     public static function registerAlertSettings(): void {
-        register_setting('HSCF_alert_settings', 'HSCF_alert_email');
+        register_setting('HSCF_alert_settings', 'HSCF_alert_email', [
+            'type'              => 'string',
+            'sanitize_callback' => [__CLASS__, 'sanitizeAlertEmail'],
+            'default'           => '',
+        ]);
         register_setting('HSCF_alert_settings', 'HSCF_alert_events', [
             'type'              => 'array',
             'sanitize_callback' => [__CLASS__, 'sanitizeAlertEvents'],
@@ -166,9 +170,17 @@ class SettingsPage {
         ]);
 
         add_settings_section('HSCF_alert_settings_section', 'Alerts', [__CLASS__, 'alert_section_desc'], 'HitchStream_Cloudflare');
-        add_settings_field('HSCF_alert_email_field', 'Alert Email', [__CLASS__, 'alert_email_field'], 'HitchStream_Cloudflare', 'HSCF_alert_settings_section');
+        add_settings_field('HSCF_alert_email_field', 'Alert Email(s)', [__CLASS__, 'alert_email_field'], 'HitchStream_Cloudflare', 'HSCF_alert_settings_section');
         add_settings_field('HSCF_alert_events_field', 'Send an email when…', [__CLASS__, 'alert_events_field'], 'HitchStream_Cloudflare', 'HSCF_alert_settings_section');
         add_settings_field('HSCF_alert_test_field', 'Test delivery', [__CLASS__, 'alert_test_field'], 'HitchStream_Cloudflare', 'HSCF_alert_settings_section');
+    }
+
+    /** Tidy the alert-email list on save (trim + normalize separators to ", ")
+     *  without dropping entries, so a typo is visible rather than silently lost. */
+    public static function sanitizeAlertEmail($value): string {
+        if (!is_string($value)) return '';
+        $parts = array_filter(array_map('trim', preg_split('/[,;\s]+/', $value) ?: []), 'strlen');
+        return implode(', ', array_map('sanitize_text_field', $parts));
     }
 
     /** Sanitize the alert-events checkbox array against the known catalog. */
@@ -390,8 +402,8 @@ class SettingsPage {
 
     public static function alert_email_field(): void {
         $val = get_option('HSCF_alert_email', '');
-        echo '<input type="email" id="hscf-alert-email" name="HSCF_alert_email" value="' . esc_attr($val) . '" style="width:100%;max-width:600px;" placeholder="admin@example.com" />';
-        echo '<p class="description">Leave blank to turn off all email alerts.</p>';
+        echo '<input type="text" id="hscf-alert-email" name="HSCF_alert_email" value="' . esc_attr($val) . '" style="width:100%;max-width:600px;" placeholder="you@example.com, partner@example.com" />';
+        echo '<p class="description">One or more addresses, separated by commas — every alert goes to all of them. Leave blank to turn off all email alerts.</p>';
     }
 
     public static function alert_events_field(): void {

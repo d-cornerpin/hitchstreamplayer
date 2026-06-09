@@ -230,8 +230,8 @@ function hs_dispatch_alert(string $event_key, string $input_id, string $event_ty
         return;
     }
 
-    $alert_email = get_option('HSCF_alert_email', '');
-    if (!$alert_email || !is_email($alert_email)) {
+    $recipients = hs_parse_email_list(get_option('HSCF_alert_email', ''));
+    if (empty($recipients)) {
         return;
     }
 
@@ -285,11 +285,26 @@ function hs_dispatch_alert(string $event_key, string $input_id, string $event_ty
     $lines[] = 'See the Activity page in WP Admin for full details.';
     $body = implode("\n", $lines) . "\n";
 
-    $sent = wp_mail($alert_email, $subject, $body, ['Content-Type: text/plain; charset=utf-8']);
+    $sent = wp_mail($recipients, $subject, $body, ['Content-Type: text/plain; charset=utf-8']);
     error_log(
         '[HitchStream] alert email ' . ($sent ? 'sent' : 'FAILED')
-        . " to {$alert_email} for {$event_key} on {$input_id} (corr: {$correlation_id})"
+        . ' to ' . implode(', ', $recipients) . " for {$event_key} on {$input_id} (corr: {$correlation_id})"
     );
+}
+
+/** Split a free-form string into a list of valid, unique email addresses. */
+function hs_parse_email_list($raw): array {
+    if (!is_string($raw) || $raw === '') {
+        return [];
+    }
+    $out = [];
+    foreach (preg_split('/[,;\s]+/', $raw) ?: [] as $candidate) {
+        $candidate = trim($candidate);
+        if ($candidate !== '' && is_email($candidate)) {
+            $out[] = $candidate;
+        }
+    }
+    return array_values(array_unique($out));
 }
 // --- Main ---
 
