@@ -136,6 +136,7 @@ export class HSVideoElement extends HTMLElement {
             this.pendingPlayRequest = false;
             this._stopPrebufferGate();
             this._stopDrainToPoster();
+            this.ui.setProgress(1); // buffer's ready — show the line full while the card lingers over the warming video
             // Keep the poster + "Preparing…" up until the picture ramps up to a
             // sharp resolution, then crossfade in — hides the low-res warm-up.
             this._revealWhenSharp();
@@ -425,7 +426,9 @@ export class HSVideoElement extends HTMLElement {
   _stopPrebufferGate() {
     safe('stopPrebufferGate', () => {
       if (this._gateTimer) { this.timers.clearInterval(this._gateTimer); this._gateTimer = null; }
-      this.ui.showProgress(false);
+      // NB: we do NOT hide the progress line here. It stays full while the logo
+      // card lingers over the warming video, and fades out WITH the card (it lives
+      // inside the poster). Hidden instead on idle/fatal and after the reveal.
     });
   }
 
@@ -470,6 +473,9 @@ export class HSVideoElement extends HTMLElement {
         // Fade the under-logo message out a touch faster than the poster, so it
         // dissolves gracefully as the video appears (instead of vanishing).
         this.ui.fadePosterMessage(0, POSTER_MESSAGE_FADE_MS);
+        // The progress line fades out with the card (it's inside the poster). Once
+        // the card is gone, reset it so it can't reappear on a later poster.
+        this.timers.setTimeout(() => this.ui.showProgress(false), fadeMs);
         this.statusOverlay.updateStatus('live');
       };
       const check = () => {
@@ -543,7 +549,7 @@ export class HSVideoElement extends HTMLElement {
   _updatePosterMessage() {
     safe('updatePosterMessage', () => {
       // Settling back to idle (e.g. stream truly ended) clears recovery state.
-      if (this.playerState === STATE.IDLE) this._recovering = false;
+      if (this.playerState === STATE.IDLE) { this._recovering = false; this.ui.showProgress(false); }
       // PLAYING: the reveal crossfade owns the fade-out. FATAL: _enterFatal owns
       // its own message. Don't disturb either here.
       if (this.playerState === STATE.PLAYING || this.playerState === STATE.FATAL) return;
@@ -627,6 +633,7 @@ export class HSVideoElement extends HTMLElement {
       this._recovering = false;
       if (this.videoEl) this.videoEl.controls = false;
       this.ui.showPosterInstant(true);
+      this.ui.showProgress(false);
       // Decode-stall ⇒ an actionable instruction (no dots). Anything else ⇒ a
       // "reconnecting" line (with dots) because we now auto-retry underneath.
       const decode = this._decodeStallSuspected;

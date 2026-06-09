@@ -178,6 +178,9 @@ export class UiController {
            the logo + message stay hidden, then fade in once play is pressed. */
         .poster.pre-play .poster-slot { opacity: 0; }
         .poster-message { margin-top: 2.5%; min-height: 1.3em; max-width: 84%; text-align: center; color: #fff; font-family: 'Josefin Sans', sans-serif; font-weight: 300; font-size: clamp(14px, 2.2vw, 22px); letter-spacing: 0.18em; text-transform: uppercase; opacity: 1; }
+        /* Balance the trailing ellipsis space with an equal lead, so the visible
+           text stays truly centered (and lines up with the logo + progress line). */
+        .poster-message::before { content: ''; display: inline-block; width: 1.6em; }
         .poster-message::after { content: ''; display: inline-block; width: 1.6em; text-align: left; }
         .poster-message.animate::after { animation: hs-ellipsis 1.6s linear infinite; }
         @keyframes hs-ellipsis { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } 100% { content: ''; } }
