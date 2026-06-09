@@ -250,6 +250,12 @@ export class HSVideoElement extends HTMLElement {
         } else {
           const ev = errorCode ? { type:'poll', payload:{ state:'error', errorCode, source } }
             : { type:'poll', payload:{ state:'idle', videoUID:null, hlsUrl:null } };
+          // Stream confirmed offline (intermission / ended / brief drop) — this is
+          // NOT a mid-stream stall, so drop any recovery state. That keeps the
+          // poster on the calm idle message and never flashes "reconnecting" during
+          // an intermission. "Reconnecting"/"one sec" stays reserved for a feed that
+          // stalls while the stream is still reported live.
+          if (!errorCode) this._recovering = false;
           this.ingestFalseCount = (this.ingestFalseCount||0)+1;
           this._stopReconnectWatchdog();
           const r = transition({ currentState: this.playerState, event: ev, context: this._ctx() });
