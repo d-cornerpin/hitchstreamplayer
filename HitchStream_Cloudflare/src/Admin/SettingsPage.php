@@ -732,22 +732,21 @@ class SettingsPage {
             </div>
             <div class="hscf-stream__col">
                 <h4>Social streams</h4>
-                <form class="create-output-form hscf-output-form">
-                    <input type="hidden" name="input_id" value="<?= esc_attr($input->uid) ?>">
-                    <input type="text" id="stream-key-input" name="stream_key" placeholder="Stream Key" required>
-                    <input type="text" id="stream-url-input" name="url" placeholder="URL" required>
-                    <button type="submit" class="button">Add Output</button>
-                </form>
+                <div class="hscf-output-providers">
+                    <?php foreach (self::OUTPUT_PROVIDERS as $pkey => [$plabel, $purl, $pcolor]): ?>
+                        <button type="button" class="hscf-add-output hscf-provider-<?= esc_attr($pkey) ?>"
+                            data-input-id="<?= esc_attr($input->uid) ?>" data-provider="<?= esc_attr($pkey) ?>"
+                            data-provider-label="<?= esc_attr($plabel) ?>" data-ingest-url="<?= esc_attr($purl) ?>"
+                            title="Add <?= esc_attr($plabel) ?> output"><?= self::providerIcon($pkey) ?><span><?= esc_html($plabel) ?></span></button>
+                    <?php endforeach; ?>
+                </div>
+                <div class="hscf-output-list" data-input-id="<?= esc_attr($input->uid) ?>">
                 <?php $outputs = self::getLiveInputOutputs($input->uid);
-                if (is_array($outputs) && !empty($outputs)): foreach ($outputs as $output): ?>
-                    <div class="hscf-output">
-                        <span><?php $ourl = $output['url'] ?? ''; if (strpos($ourl, 'youtube') !== false) echo 'YouTube';
-                            elseif (strpos($ourl, 'facebook') !== false) echo 'Facebook';
-                            else echo esc_html($ourl); ?></span>
-                        <label class="switch"><input type="checkbox" class="output-toggle" data-output-id="<?= esc_attr($output['uid'] ?? '') ?>" data-input-id="<?= esc_attr($input->uid) ?>" <?= !empty($output['enabled']) ? 'checked' : '' ?>><span class="slider round"></span></label>
-                        <a href="#" class="delete-output-link" data-output-id="<?= esc_attr($output['uid'] ?? '') ?>" data-input-id="<?= esc_attr($input->uid) ?>" title="Delete output"><span class="dashicons dashicons-no-alt"></span></a>
-                    </div>
-                <?php endforeach; else: ?><p class="description">No social streams.</p><?php endif; ?>
+                if (is_array($outputs) && !empty($outputs)): foreach ($outputs as $output):
+                    if (!is_array($output) || empty($output['uid'])) { continue; }
+                    echo self::renderOutputRow($output, $input->uid);
+                endforeach; else: ?><p class="description hscf-no-outputs">No social streams.</p><?php endif; ?>
+                </div>
             </div>
             <div class="hscf-stream__col">
                 <h4>Recordings</h4>
@@ -828,6 +827,61 @@ class SettingsPage {
         } catch (\Throwable $e) {
             return 'Unable to load outputs.';
         }
+    }
+
+    /**
+     * Social-stream providers: key => [label, ingest URL, accent color].
+     * The keys are the contract with OutputMeta + the JS. RTMP is the custom
+     * catch-all (no preset URL).
+     */
+    public const OUTPUT_PROVIDERS = [
+        'youtube'  => ['YouTube',  'rtmp://a.rtmp.youtube.com/live2',          '#ff0000'],
+        'facebook' => ['Facebook', 'rtmps://live-api-s.facebook.com:443/rtmp/', '#1877f2'],
+        'rtmp'     => ['RTMP',     '',                                          '#2271b1'],
+    ];
+
+    /** Inline brand/RTMP icon (currentColor) for a provider key. */
+    public static function providerIcon(string $provider): string {
+        $icons = [
+            'youtube'  => '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M23 7.5a3 3 0 0 0-2.1-2.1C19 5 12 5 12 5s-7 0-8.9.4A3 3 0 0 0 1 7.5 31 31 0 0 0 .6 12 31 31 0 0 0 1 16.5a3 3 0 0 0 2.1 2.1C5 19 12 19 12 19s7 0 8.9-.4a3 3 0 0 0 2.1-2.1A31 31 0 0 0 23.4 12 31 31 0 0 0 23 7.5zM9.8 15.3V8.7l5.7 3.3z"/></svg>',
+            'facebook' => '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M22 12a10 10 0 1 0-11.6 9.9v-7H7.9V12h2.5V9.8c0-2.5 1.5-3.8 3.8-3.8 1.1 0 2.2.2 2.2.2v2.4h-1.2c-1.2 0-1.6.8-1.6 1.6V12h2.7l-.4 2.9h-2.3v7A10 10 0 0 0 22 12z"/></svg>',
+            'rtmp'     => '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM8.5 8.5 7.1 7.1a7 7 0 0 0 0 9.8l1.4-1.4a5 5 0 0 1 0-7zm7 0a5 5 0 0 1 0 7l1.4 1.4a7 7 0 0 0 0-9.8zM5.6 5.6 4.2 4.2a11 11 0 0 0 0 15.6l1.4-1.4a9 9 0 0 1 0-12.8zm12.8 0a9 9 0 0 1 0 12.8l1.4 1.4a11 11 0 0 0 0-15.6z"/></svg>',
+        ];
+        return $icons[$provider] ?? $icons['rtmp'];
+    }
+
+    /**
+     * Render one social-stream output row (icon + name + toggle + edit + delete).
+     * Single source of truth — used by the initial page render AND the AJAX
+     * create/update responses. $output is the Cloudflare output array.
+     */
+    public static function renderOutputRow(array $output, string $input_id): string {
+        $uid     = (string) ($output['uid'] ?? '');
+        $url     = (string) ($output['url'] ?? '');
+        $key     = (string) ($output['streamKey'] ?? '');
+        $enabled = !empty($output['enabled']);
+
+        $meta     = \HS\OutputMeta::get($uid);
+        $provider = $meta['provider'] ?? \HS\OutputMeta::providerFromUrl($url);
+        $label    = self::OUTPUT_PROVIDERS[$provider][0] ?? 'RTMP';
+        $name     = $meta['name'] ?? '';
+        if ($name === '') { $name = $label !== '' ? $label : ($url ?: 'Output'); }
+
+        ob_start(); ?>
+        <div class="hscf-output" data-output-id="<?= esc_attr($uid) ?>" data-input-id="<?= esc_attr($input_id) ?>"
+             data-provider="<?= esc_attr($provider) ?>" data-name="<?= esc_attr($name) ?>"
+             data-url="<?= esc_attr($url) ?>" data-stream-key="<?= esc_attr($key) ?>"
+             data-enabled="<?= $enabled ? '1' : '0' ?>">
+            <span class="hscf-output__icon hscf-provider-<?= esc_attr($provider) ?>"><?= self::providerIcon($provider) ?></span>
+            <span class="hscf-output__name"><?= esc_html($name) ?></span>
+            <span class="hscf-output__actions">
+                <label class="switch" title="Enable / disable"><input type="checkbox" class="output-toggle" data-output-id="<?= esc_attr($uid) ?>" data-input-id="<?= esc_attr($input_id) ?>" <?= $enabled ? 'checked' : '' ?>><span class="slider round"></span></label>
+                <a href="#" class="edit-output-link hscf-icon-btn" data-output-id="<?= esc_attr($uid) ?>" data-input-id="<?= esc_attr($input_id) ?>" title="Edit output"><span class="dashicons dashicons-edit"></span></a>
+                <a href="#" class="delete-output-link hscf-icon-btn" data-output-id="<?= esc_attr($uid) ?>" data-input-id="<?= esc_attr($input_id) ?>" title="Delete output"><span class="dashicons dashicons-trash"></span></a>
+            </span>
+        </div>
+        <?php
+        return trim(ob_get_clean());
     }
 
     private static function getVideosByStreamName(string $stream_name): array {

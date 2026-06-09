@@ -33,6 +33,7 @@ class AjaxController {
         'hscf_check_live_input_status'  => 'handleCheckLiveInputStatus',
         'hscf_delete_output'            => 'handleDeleteOutput',
         'hscf_create_output'            => 'handleCreateOutput',
+        'hscf_update_output'            => 'handleUpdateOutput',
         'hscf_toggle_output'            => 'handleToggleOutput',
         'hscf_create_download'          => 'handleCreateDownload',
         'hscf_check_download_status'    => 'handleCheckDownloadStatus',
@@ -484,19 +485,103 @@ class AjaxController {
         $input_id   = sanitize_text_field($_POST['input_id'] ?? '');
         $output_id  = sanitize_text_field($_POST['output_id'] ?? '');
         $result     = $this->liveInput->deleteOutput($input_id, $output_id);
-        wp_send_json_success($result['success'] ? 'Output deleted successfully.' : 'Failed to delete output.');
+        if (!empty($result['success'])) {
+            \HS\OutputMeta::remove($output_id);
+            wp_send_json_success('Output deleted successfully.');
+        }
+        wp_send_json_error('Failed to delete output.');
+    }
+
+    /** Format a Cloudflare errors array into a single readable string. */
+    private function cfErrorText($errors): string {
+        if (is_string($errors)) return $errors;
+        if (!is_array($errors)) return 'unknown error';
+        $msgs = [];
+        foreach ($errors as $e) {
+            $msgs[] = is_array($e) ? ($e['message'] ?? wp_json_encode($e)) : (string) $e;
+        }
+        return $msgs ? implode('; ', $msgs) : 'unknown error';
+    }
+
+    /** Validate + normalise a provider key + name against the catalog. */
+    private function normaliseProvider(string $provider, string $name): array {
+        if (!array_key_exists($provider, SettingsPage::OUTPUT_PROVIDERS)) $provider = 'rtmp';
+        if ($name === '') $name = SettingsPage::OUTPUT_PROVIDERS[$provider][0] ?? 'Output';
+        return [$provider, $name];
     }
 
     private function handleCreateOutput(): void {
         $input_id  = sanitize_text_field($_POST['input_id'] ?? '');
         $streamKey = sanitize_text_field($_POST['stream_key'] ?? '');
-        $url       = sanitize_text_field($_POST['stream_url'] ?? '');
+        $url       = sanitize_text_field($_POST['url'] ?? ($_POST['stream_url'] ?? ''));
+        [$provider, $name] = $this->normaliseProvider(sanitize_key($_POST['provider'] ?? 'rtmp'), sanitize_text_field($_POST['name'] ?? ''));
         if (!$input_id || !$streamKey || !$url) {
-            wp_send_json_error('Missing required information');
+            wp_send_json_error('Please fill in the name, URL, and stream key.');
             return;
         }
         $result = $this->liveInput->createOutput($input_id, $streamKey, $url);
-        wp_send_json_success($result['success'] ? 'Output created successfully.' : 'Failed to create output.');
+        if (empty($result['success'])) {
+            wp_send_json_error('Cloudflare rejected the output: ' . $this->cfErrorText($result['result'] ?? []));
+            return;
+        }
+        $uid = $result['result']['uid'] ?? '';
+        if ($uid) { \HS\OutputMeta::set($uid, $name, $provider); }
+        $output = ['uid' => $uid, 'url' => $url, 'streamKey' => $streamKey, 'enabled' => true];
+        wp_send_json_success([
+            'message' => 'Output added.',
+            'uid'     => $uid,
+            'html'    => SettingsPage::renderOutputRow($output, $input_id),
+        ]);
+    }
+
+    /**
+     * Edit an existing output. Name/provider are stored in WP. Because Cloudflare
+     * outputs are immutable except for `enabled`, changing the URL or stream key
+     * deletes + recreates the output (preserving its enabled state) and migrates
+     * the stored name to the new uid.
+     */
+    private function handleUpdateOutput(): void {
+        $input_id  = sanitize_text_field($_POST['input_id'] ?? '');
+        $output_id = sanitize_text_field($_POST['output_id'] ?? '');
+        $streamKey = sanitize_text_field($_POST['stream_key'] ?? '');
+        $url       = sanitize_text_field($_POST['url'] ?? '');
+        $origUrl   = sanitize_text_field($_POST['orig_url'] ?? '');
+        $origKey   = sanitize_text_field($_POST['orig_stream_key'] ?? '');
+        $enabled   = filter_var($_POST['enabled'] ?? true, FILTER_VALIDATE_BOOLEAN);
+        [$provider, $name] = $this->normaliseProvider(sanitize_key($_POST['provider'] ?? 'rtmp'), sanitize_text_field($_POST['name'] ?? ''));
+        if (!$input_id || !$output_id || !$url) {
+            wp_send_json_error('Missing required information.');
+            return;
+        }
+
+        $urlChanged = ($url !== $origUrl);
+        $keyChanged = ($streamKey !== '' && $streamKey !== $origKey);
+        $uid = $output_id;
+
+        if ($urlChanged || $keyChanged) {
+            if ($streamKey === '') {
+                wp_send_json_error('Enter the stream key to change the URL or key.');
+                return;
+            }
+            $this->liveInput->deleteOutput($input_id, $output_id);
+            $created = $this->liveInput->createOutput($input_id, $streamKey, $url);
+            if (empty($created['success'])) {
+                wp_send_json_error('Cloudflare rejected the change: ' . $this->cfErrorText($created['result'] ?? []));
+                return;
+            }
+            $uid = $created['result']['uid'] ?? '';
+            \HS\OutputMeta::moveUid($output_id, $uid);
+            // Recreated outputs come back enabled; restore the prior state if it was off.
+            if (!$enabled && $uid) { $this->liveInput->toggleOutput($input_id, $uid, false); }
+        }
+        if ($uid) { \HS\OutputMeta::set($uid, $name, $provider); }
+
+        $output = ['uid' => $uid, 'url' => $url, 'streamKey' => ($streamKey ?: $origKey), 'enabled' => $enabled];
+        wp_send_json_success([
+            'message' => 'Output updated.',
+            'uid'     => $uid,
+            'html'    => SettingsPage::renderOutputRow($output, $input_id),
+        ]);
     }
 
     private function handleToggleOutput(): void {

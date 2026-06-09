@@ -225,8 +225,14 @@ jQuery(document).ready(function ($) {
                 },
                 success: function (response) {
                     if (response.success) {
-                        //                        sendToModal("Output deleted successfully.");
-                        location.reload(); // Reload the page to update the output list
+                        var $row = $('.hscf-output[data-output-id="' + outputId + '"]');
+                        var $list = $row.closest('.hscf-output-list');
+                        $row.fadeOut(180, function () {
+                            $(this).remove();
+                            if ($list.find('.hscf-output').length === 0) {
+                                $list.append('<p class="description hscf-no-outputs">No social streams.</p>');
+                            }
+                        });
                     } else {
                         sendToModal("Failed to delete output: " + response.data);
                     }
@@ -235,48 +241,123 @@ jQuery(document).ready(function ($) {
         }
     });
 
-    // Create Output
-    $(document).on('submit', '.create-output-form', function (e) {
-        e.preventDefault();
+    // ── Social-stream outputs: add via a provider icon, edit via the pencil ──
+    // Both open the same modal; the only difference is add posts to
+    // hscf_create_output and edit posts to hscf_update_output.
+    function openOutputModal(ctx) {
+        var isEdit = ctx.mode === 'edit';
+        var title = (isEdit ? 'Edit ' : 'Add ') + (ctx.providerLabel || 'RTMP') + ' output';
+        var html =
+            '<h2 class="hscf-modal-title">' + escHtml(title) + '</h2>' +
+            '<form class="hscf-output-modal-form">' +
+              '<label>Name<input type="text" class="ho-name" placeholder="' + escHtml(ctx.providerLabel || 'Output') + '"></label>' +
+              '<label>Server / Ingest URL<input type="text" class="ho-url" placeholder="rtmp://…"></label>' +
+              '<label>Stream key<input type="text" class="ho-key" placeholder="' + (isEdit ? 'Leave blank to keep current key' : 'Paste your stream key') + '"></label>' +
+              '<p class="ho-error" role="alert"></p>' +
+              '<div class="hscf-output-modal-actions">' +
+                '<button type="submit" class="button button-primary">' + (isEdit ? 'Save changes' : 'Add output') + '</button>' +
+              '</div>' +
+            '</form>';
+        openModalHTML(html, true);
+        var $m = $('#cfModal');
+        $m.find('.ho-name').val(ctx.name || '');
+        $m.find('.ho-url').val(ctx.url || ctx.ingestUrl || '');
+        $m.find('.ho-key').val(ctx.streamKey || '');
+        // Stash context on the form for the submit handler.
+        $m.find('.hscf-output-modal-form').data('ctx', ctx);
+        $m.find('.ho-name').trigger('focus');
+    }
 
-        var form = $(this);
-        var streamKey = form.find('#stream-key-input').val().trim();
-        var streamUrl = form.find('#stream-url-input').val().trim();
-        var inputId = form.find('input[name="input_id"]').val();
-
-        if (!streamKey || !streamUrl) {
-            sendToModal('Please enter both Stream Key and Stream URL.');
-            return;
-        }
-
-        $.ajax({
-            url: hscf_ajax.ajax_url,
-            type: 'POST',
-            data: {
-                'action': 'hscf_create_output',
-                'input_id': inputId,
-                'stream_key': streamKey,
-                'stream_url': streamUrl,
-                '_wpnonce': hscf_ajax.nonce
-            },
-            success: function (response) {
-                if (response.success) {
-                    //                    sendToModal("Output Created Successfully");
-                    location.reload(); // Reload page to show new output
-                } else {
-                    sendToModal("Failed to Create Output: " + response.data);
-                }
-            },
-            error: function (xhr, status, error) {
-                sendToModal("Error: " + xhr.responseText);
-            }
+    // Add: click a provider icon.
+    $(document).on('click', '.hscf-add-output', function () {
+        openOutputModal({
+            mode: 'add',
+            inputId: $(this).data('input-id'),
+            provider: $(this).data('provider'),
+            providerLabel: $(this).data('provider-label'),
+            ingestUrl: $(this).data('ingest-url'),
+            name: $(this).data('provider-label')
         });
     });
 
+    // Edit: click the pencil on a row.
+    $(document).on('click', '.edit-output-link', function (e) {
+        e.preventDefault();
+        var $row = $(this).closest('.hscf-output');
+        openOutputModal({
+            mode: 'edit',
+            inputId: $row.data('input-id'),
+            outputId: $row.data('output-id'),
+            provider: $row.data('provider'),
+            providerLabel: $row.find('.hscf-output__name').text() || $row.data('provider'),
+            name: $row.data('name'),
+            url: String($row.data('url') || ''),
+            streamKey: String($row.data('stream-key') || ''),
+            origUrl: String($row.data('url') || ''),
+            origKey: String($row.data('stream-key') || ''),
+            enabled: String($row.data('enabled')) === '1'
+        });
+    });
+
+    // Submit (add or edit).
+    $(document).on('submit', '.hscf-output-modal-form', function (e) {
+        e.preventDefault();
+        var $form = $(this), ctx = $form.data('ctx') || {};
+        var name = $form.find('.ho-name').val().trim();
+        var url = $form.find('.ho-url').val().trim();
+        var key = $form.find('.ho-key').val().trim();
+        var $err = $form.find('.ho-error');
+        $err.text('');
+        if (!url || (ctx.mode === 'add' && !key)) {
+            $err.text('Please fill in the URL and stream key.');
+            return;
+        }
+        var $btn = $form.find('button[type=submit]').prop('disabled', true).text('Saving…');
+        var data = {
+            _wpnonce: hscf_ajax.nonce,
+            input_id: ctx.inputId,
+            provider: ctx.provider,
+            name: name,
+            url: url,
+            stream_key: key
+        };
+        if (ctx.mode === 'edit') {
+            data.action = 'hscf_update_output';
+            data.output_id = ctx.outputId;
+            data.orig_url = ctx.origUrl;
+            data.orig_stream_key = ctx.origKey;
+            data.enabled = ctx.enabled ? '1' : '0';
+        } else {
+            data.action = 'hscf_create_output';
+        }
+        $.ajax({ url: hscf_ajax.ajax_url, type: 'POST', data: data })
+            .done(function (resp) {
+                if (resp && resp.success && resp.data && resp.data.html) {
+                    var $list = $('.hscf-output-list[data-input-id="' + ctx.inputId + '"]');
+                    $list.find('.hscf-no-outputs').remove();
+                    if (ctx.mode === 'edit') {
+                        $list.find('.hscf-output[data-output-id="' + ctx.outputId + '"]').replaceWith(resp.data.html);
+                    } else {
+                        $list.append(resp.data.html);
+                    }
+                    cfmodal.style.display = 'none';
+                    clearModal();
+                } else {
+                    $btn.prop('disabled', false).text(ctx.mode === 'edit' ? 'Save changes' : 'Add output');
+                    $err.text((resp && resp.data) ? resp.data : 'Something went wrong.');
+                }
+            })
+            .fail(function (xhr) {
+                $btn.prop('disabled', false).text(ctx.mode === 'edit' ? 'Save changes' : 'Add output');
+                $err.text('Request failed: ' + (xhr.responseText || 'unknown error'));
+            });
+    });
+
     $(document).on('change', '.output-toggle', function () {
-        var outputId = $(this).data('output-id');
-        var inputId = $(this).data('input-id');
-        var isEnabled = $(this).is(':checked');
+        var $cb = $(this);
+        var outputId = $cb.data('output-id');
+        var inputId = $cb.data('input-id');
+        var isEnabled = $cb.is(':checked');
 
         $.ajax({
             url: hscf_ajax.ajax_url,
@@ -290,14 +371,15 @@ jQuery(document).ready(function ($) {
             },
             success: function (response) {
                 if (response.success) {
-                    // Display message based on toggle state
-                    var message = isEnabled ? "Output Enabled" : "Output Disabled";
-                    sendToModal(message);
+                    // Keep the row's stored state in sync so Edit prefills correctly.
+                    $cb.closest('.hscf-output').attr('data-enabled', isEnabled ? '1' : '0');
                 } else {
+                    $cb.prop('checked', !isEnabled); // revert the switch
                     sendToModal("Failed to update output: " + response.data);
                 }
             },
             error: function (xhr, status, error) {
+                $cb.prop('checked', !isEnabled);
                 sendToModal("Error: " + xhr.responseText);
             }
         });
