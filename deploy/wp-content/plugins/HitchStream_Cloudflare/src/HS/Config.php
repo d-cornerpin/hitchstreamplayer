@@ -91,8 +91,27 @@ class Config {
         return self::optional('HSCF_alert_email', '');
     }
 
-    public static function alertCodes(): string {
-        return self::optional('HSCF_alert_codes', 'ERR_STORAGE_QUOTA_EXHAUSTED,ERR_MISSING_SUBSCRIPTION');
+    /**
+     * Which alert events are enabled, as an array of event keys (see
+     * SettingsPage::ALERT_EVENTS). Falls back to the two critical defaults, and
+     * migrates the legacy comma-separated HSCF_alert_codes option if present.
+     *
+     * @return string[]
+     */
+    public static function alertEvents(): array {
+        $val = get_option('HSCF_alert_events', null);
+        if (is_array($val)) {
+            return array_values(array_filter(array_map('strval', $val)));
+        }
+        // Legacy migration: old installs stored raw error codes as a CSV string.
+        $legacy = get_option('HSCF_alert_codes', null);
+        if (is_string($legacy) && $legacy !== '') {
+            $events = [];
+            if (strpos($legacy, 'ERR_STORAGE_QUOTA_EXHAUSTED') !== false) $events[] = 'storage_full';
+            if (strpos($legacy, 'ERR_MISSING_SUBSCRIPTION') !== false)    $events[] = 'no_subscription';
+            return $events ?: ['storage_full', 'no_subscription'];
+        }
+        return ['storage_full', 'no_subscription'];
     }
 
     // ── Internal ───────────────────────────────────────────────────

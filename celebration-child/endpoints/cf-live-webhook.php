@@ -172,12 +172,12 @@ function hs_state_ttl($state) {
  */
 function hs_alert_events_catalog(): array {
     return [
-        'storage_full'        => ['Storage Full', 'Cloudflare Stream storage is full — recordings and live streams may fail until space is freed or the plan is upgraded.'],
-        'no_subscription'     => ['No Cloudflare Subscription', 'The Cloudflare Stream subscription is missing or inactive. Streaming will not work until it is restored.'],
-        'stream_error'        => ['Stream Error', 'A live input reported an error (failed to connect or reconnect).'],
-        'stream_started'      => ['Stream Started', 'A streamer connected and the live stream is now active.'],
-        'stream_ended'        => ['Stream Ended', 'The streamer disconnected and the live stream has ended.'],
-        'stream_reconnecting' => ['Streamer Reconnecting', 'The streamer connection dropped and is attempting to reconnect.'],
+        'storage_full'            => ['Storage Full', 'Cloudflare Stream storage is full — recordings and live streams may fail until space is freed or the plan is upgraded.'],
+        'no_subscription'         => ['No Cloudflare Subscription', 'The Cloudflare Stream subscription is missing or inactive. Streaming will not work until it is restored.'],
+        'live_stream_started'     => ['Live Stream Started', 'A live stream went live — a feed connected to the live input.'],
+        'live_stream_ended'       => ['Live Stream Ended', 'The live stream feed disconnected and the stream has ended.'],
+        'live_stream_reconnected' => ['Live Stream Reconnected', 'A live stream dropped and successfully reconnected.'],
+        'live_stream_error'       => ['Live Stream Error', 'A live stream feed reported an error (failed to connect or reconnect).'],
     ];
 }
 
@@ -208,10 +208,15 @@ function hs_alert_enabled_events(): array {
 function hs_alert_key_for(?string $normalized, string $error_code, string $prev_state): string {
     if ($error_code === 'ERR_STORAGE_QUOTA_EXHAUSTED') return 'storage_full';
     if ($error_code === 'ERR_MISSING_SUBSCRIPTION')    return 'no_subscription';
-    if ($normalized === 'error')                       return 'stream_error';
-    if ($normalized === 'live' && $prev_state !== 'live')                          return 'stream_started';
-    if ($normalized === 'idle' && in_array($prev_state, ['live', 'reconnecting'], true)) return 'stream_ended';
-    if ($normalized === 'reconnecting' && $prev_state !== 'reconnecting')          return 'stream_reconnecting';
+    if ($normalized === 'error')                       return 'live_stream_error';
+    if ($normalized === 'live') {
+        // A return to 'live' from 'reconnecting' is a recovery; from anything
+        // else (idle / error / first connect) it's a fresh start.
+        if ($prev_state === 'reconnecting') return 'live_stream_reconnected';
+        if ($prev_state !== 'live')         return 'live_stream_started';
+        return '';
+    }
+    if ($normalized === 'idle' && in_array($prev_state, ['live', 'reconnecting'], true)) return 'live_stream_ended';
     return '';
 }
 
