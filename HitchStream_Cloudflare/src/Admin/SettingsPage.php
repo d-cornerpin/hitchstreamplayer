@@ -731,7 +731,7 @@ class SettingsPage {
                 </div>
             </div>
             <div class="hscf-stream__col">
-                <h4>Social streams</h4>
+                <h4>Restream</h4>
                 <div class="hscf-output-providers">
                     <?php foreach (self::OUTPUT_PROVIDERS as $pkey => [$plabel, $purl, $pcolor]): ?>
                         <button type="button" class="hscf-add-output hscf-provider-<?= esc_attr($pkey) ?>"
@@ -745,7 +745,7 @@ class SettingsPage {
                 if (is_array($outputs) && !empty($outputs)): foreach ($outputs as $output):
                     if (!is_array($output) || empty($output['uid'])) { continue; }
                     echo self::renderOutputRow($output, $input->uid);
-                endforeach; else: ?><p class="description hscf-no-outputs">No social streams.</p><?php endif; ?>
+                endforeach; else: ?><p class="description hscf-no-outputs">No restreams yet.</p><?php endif; ?>
                 </div>
             </div>
             <div class="hscf-stream__col">
