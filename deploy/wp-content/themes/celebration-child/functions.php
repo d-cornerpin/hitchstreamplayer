@@ -21,6 +21,24 @@ $hs_blocks_file = get_stylesheet_directory() . '/inc/hs-blocks.php';
 if (is_readable($hs_blocks_file)) {
     require_once $hs_blocks_file;
 }
+
+// ─── Migrated from the parent theme so they survive a parent update/reinstall ───
+
+// (was in parent header.php) Search-engine site verification meta. Added via wp_head
+// rather than forking header.php, so the parent header keeps getting upstream updates.
+add_action('wp_head', function () {
+    echo '<meta name="msvalidate.01" content="9B85D4248E53AED27855187A4CF59A1D" />' . "\n";
+    echo '<meta name="google-site-verification" content="fyRD1tOvQNcS_hcAV58UWlIwuFIWV2fd8iSdt277ij4" />' . "\n";
+}, 1);
+
+// (was in parent functions.php) Only load Google reCAPTCHA on the pages that use it
+// (keeps it off every other page). Harmless if the parent still also dequeues it.
+add_action('wp_print_scripts', function () {
+    if ( ! is_page( array( 'themes', 'hitch-up', 'payment' ) ) ) {
+        wp_dequeue_script( 'google-recaptcha' );
+        wp_dequeue_script( 'google-invisible-recaptcha' );
+    }
+});
 function get_status_ajax_callback() {
     global $post;
     $post_id = intval( $_POST['post_id'] );
