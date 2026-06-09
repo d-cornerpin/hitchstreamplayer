@@ -92,6 +92,29 @@ class Config {
     }
 
     /**
+     * The configured alert recipients as a de-duplicated list of valid
+     * addresses. The HSCF_alert_email option may hold several, separated by
+     * commas/semicolons/whitespace.
+     *
+     * @return string[]
+     */
+    public static function alertEmails(): array {
+        return self::parseEmailList(self::alertEmail());
+    }
+
+    /** Split a free-form string into a list of valid, unique email addresses. */
+    public static function parseEmailList(string $raw): array {
+        $out = [];
+        foreach (preg_split('/[,;\s]+/', $raw) ?: [] as $candidate) {
+            $candidate = trim($candidate);
+            if ($candidate !== '' && is_email($candidate)) {
+                $out[] = $candidate;
+            }
+        }
+        return array_values(array_unique($out));
+    }
+
+    /**
      * Which alert events are enabled, as an array of event keys (see
      * SettingsPage::ALERT_EVENTS). Falls back to the two critical defaults, and
      * migrates the legacy comma-separated HSCF_alert_codes option if present.

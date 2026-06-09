@@ -275,12 +275,12 @@ class AjaxController {
      * posted from the field so it works before the setting is saved.
      */
     private function handleTestAlertEmail(): void {
-        $email = sanitize_email((string) ($_POST['email'] ?? ''));
-        if ($email === '' || !is_email($email)) {
-            $email = Config::alertEmail();
+        $recipients = Config::parseEmailList((string) ($_POST['email'] ?? ''));
+        if (empty($recipients)) {
+            $recipients = Config::alertEmails();
         }
-        if ($email === '' || !is_email($email)) {
-            wp_send_json_error('Enter a valid email address first.');
+        if (empty($recipients)) {
+            wp_send_json_error('Enter at least one valid email address first.');
             return;
         }
 
@@ -293,10 +293,11 @@ class AjaxController {
 
         $site = wp_specialchars_decode(get_bloginfo('name'), ENT_QUOTES);
         $sent = wp_mail(
-            $email,
+            $recipients,
             '[HitchStream] Test alert email',
             "This is a test from the HitchStream alerts settings on \"{$site}\".\n\n"
-            . "If you received this, email alerts are working and will be delivered to this address.\n\n"
+            . "If you received this, email alerts are working and will be delivered to these addresses.\n\n"
+            . 'Recipients: ' . implode(', ', $recipients) . "\n"
             . 'Sent: ' . current_time('mysql') . "\n",
             ['Content-Type: text/plain; charset=utf-8']
         );
@@ -304,7 +305,7 @@ class AjaxController {
         remove_action('wp_mail_failed', $capture);
 
         if ($sent) {
-            wp_send_json_success('Test email sent to ' . $email . '. Check the inbox (and spam) — if it routes through Microsoft 365, allow a few seconds.');
+            wp_send_json_success('Test email sent to ' . implode(', ', $recipients) . '. Check the inbox (and spam) — if it routes through Microsoft 365, allow a few seconds.');
         } else {
             $detail = $mail_error ? ' (' . $mail_error . ')' : '';
             wp_send_json_error('WordPress could not send the email' . $detail . '. Check your WPO365 / SMTP mailer configuration.');
