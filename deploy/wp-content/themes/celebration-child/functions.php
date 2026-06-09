@@ -23,13 +23,9 @@ if (is_readable($hs_blocks_file)) {
 }
 
 // ─── Migrated from the parent theme so they survive a parent update/reinstall ───
-
-// (was in parent header.php) Search-engine site verification meta. Added via wp_head
-// rather than forking header.php, so the parent header keeps getting upstream updates.
-add_action('wp_head', function () {
-    echo '<meta name="msvalidate.01" content="9B85D4248E53AED27855187A4CF59A1D" />' . "\n";
-    echo '<meta name="google-site-verification" content="fyRD1tOvQNcS_hcAV58UWlIwuFIWV2fd8iSdt277ij4" />' . "\n";
-}, 1);
+// NB: the search-engine verification meta tags (Bing/Google) are NOT migrated here
+// on purpose — those are Search Console / Google Site Kit plugin territory, not a
+// theme customization. They stay where they were.
 
 // (was in parent functions.php) Only load Google reCAPTCHA on the pages that use it
 // (keeps it off every other page). Harmless if the parent still also dequeues it.
