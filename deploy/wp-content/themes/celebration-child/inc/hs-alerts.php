@@ -212,8 +212,19 @@ function hs_check_error_pending($input_id): void {
     $input_id = (string) $input_id;
     $p = get_transient("hs_error_pending_{$input_id}");
     if (!is_array($p)) {
-        return; // nothing pending — cheap no-op
+        return; // nothing pending — cheap no-op (the common case on every poll)
     }
+
+    // Single-flight: this runs on EVERY viewer's live-state poll, so during an
+    // error with many concurrent viewers we must not stampede the lifecycle probe
+    // or duplicate emails. Let one check run per ~8s; the rest bail instantly,
+    // keeping player polls fast. Whoever holds the lock reschedules the next
+    // check, so the watch chain is preserved. 8s < the 10s debounce / 12s cron.
+    $lock = "hs_error_check_lock_{$input_id}";
+    if (get_transient($lock)) {
+        return;
+    }
+    set_transient($lock, 1, 8);
 
     if (hs_probe_is_live($input_id)) {
         if (!empty($p['emailed'])) {
