@@ -117,6 +117,15 @@ class Endpoint
             }
         }
 
+        // Drive the debounced-error / recovery alert check off the player's
+        // polling — a reliable ~10s tick during a live stream, more dependable
+        // than wp-cron's loopback. Cheap no-op unless a watch is pending for this
+        // input (the handler early-returns). Defined in the child theme's
+        // inc/hs-alerts.php, loaded on every request via functions.php.
+        if (function_exists('hs_check_error_pending')) {
+            hs_check_error_pending($input_id);
+        }
+
         // Enforce §4.1 state → field-population contract.
         $state_data = self::enforce_contract($input_id, $state_data);
 

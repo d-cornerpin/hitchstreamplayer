@@ -442,6 +442,14 @@ class AjaxController {
         $webhook_configured = (string) get_option('HSCF_webhook_secret', '') !== '';
         if ($ids && $webhook_configured) {
             foreach ($this->webhook->latestStatesByInput($ids) as $uid => $state) {
+                // A webhook 'error' is sticky: Cloudflare sends no recovery event
+                // when a transient error clears, so the log stays 'error' while the
+                // stream is actually live again. Verify against the live lifecycle
+                // (the same ground truth the player uses) so the badge self-heals.
+                if ($state === 'error') {
+                    $real = $this->liveInput->probeLiveStatus($uid);
+                    if ($real !== '') { $state = $real; }
+                }
                 $statuses[$uid] = ['status' => self::mapStateToBadge($state), 'source' => 'webhook'];
             }
         }

@@ -38,6 +38,14 @@ if (is_readable($hs_block_mappings)) {
     require_once $hs_block_mappings;
 }
 
+// Email alerts (shared with the webhook receiver). Loaded here on every request
+// so the wp-cron 'hs_error_recheck' handler is always registered (debounced
+// error + recovery emails). See inc/hs-alerts.php.
+$hs_alerts = get_stylesheet_directory() . '/inc/hs-alerts.php';
+if (is_readable($hs_alerts)) {
+    require_once $hs_alerts;
+}
+
 // ─── Migrated from the parent theme so they survive a parent update/reinstall ───
 // NB: the search-engine verification meta tags (Bing/Google) are NOT migrated here
 // on purpose — those are Search Console / Google Site Kit plugin territory, not a
