@@ -156,6 +156,13 @@ export const MAX_MEDIA_ERROR_RECOVERY_ATTEMPTS = 3;
 export const MAX_NETWORK_ERROR_RECOVERY_ATTEMPTS = 2;
 export const NETWORK_ERROR_RECOVERY_BACKOFF_MS = [2000, 5000];
 
+// A transient Cloudflare 'errored'/'idle' poll while the stream is actually fine
+// (common with LiveU — it self-recovers on the next poll) used to start covering
+// a healthy, still-playing stream with the poster. Require this many CONSECUTIVE
+// not-live polls before reacting, so a single blip is ignored while we coast on
+// the buffer. 2 ≈ ignore the first, act on the second (~one poll interval later).
+export const OFFLINE_POLL_CONFIRM = 2;
+
 export const RECONNECT_WATCHDOG_INTERVAL_MS = 1000;
 export const RECONNECT_WATCHDOG_BUFFER_THRESHOLD = 2.0;
 export const RECONNECT_WATCHDOG_FATAL_TTL = 90000;

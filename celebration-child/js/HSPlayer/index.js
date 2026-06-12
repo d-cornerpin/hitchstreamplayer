@@ -262,7 +262,15 @@ export class HSVideoElement extends HTMLElement {
           this._offlinePollStreak = (this._offlinePollStreak || 0) + 1;
           const canCoast = this.playerState === STATE.PLAYING && ctx.hasBufferedContent && ctx.bufferAhead > 2;
           if (canCoast && this._offlinePollStreak < OFFLINE_POLL_CONFIRM) {
-            this.debugLog('Transient not-live poll held (streak ' + this._offlinePollStreak + '/' + OFFLINE_POLL_CONFIRM + ') — keep playing');
+            // We're optimistically treating the stream as still live during the
+            // hold — so KEEP the stall watchdog armed (it's gated on
+            // streamCurrentlyLive). That way, if the feed actually does stall
+            // while we're coasting on a thin buffer, the watchdog still recovers
+            // at the buffer floor (~5s) instead of letting it freeze until the
+            // next poll. The debounce only suppresses the cosmetic poll-driven
+            // poster cover; real playback stalls remain covered.
+            this.streamCurrentlyLive = true;
+            this.debugLog('Transient not-live poll held (streak ' + this._offlinePollStreak + '/' + OFFLINE_POLL_CONFIRM + ') — keep playing, watchdog armed');
           } else {
             const ev = errorCode ? { type:'poll', payload:{ state:'error', errorCode, source } }
               : { type:'poll', payload:{ state:'idle', videoUID:null, hlsUrl:null } };
