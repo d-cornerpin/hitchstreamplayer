@@ -74,6 +74,9 @@
 .hscf-badge--live { background: #edfaef; color: #008a20; }
 .hscf-badge--off { background: #fcf0f1; color: #d63638; }
 .hscf-badge--unknown { background: #f0f0f1; color: #646970; }
+/* Live viewer count chip — shown next to the status badge only while live. */
+.hscf-viewers { display: inline-flex; align-items: center; gap: 3px; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; background: #eef4fb; color: #2271b1; }
+.hscf-viewers .dashicons { font-size: 14px; width: 14px; height: 14px; }
 .hscf-stream__grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; padding: 16px; }
 .hscf-stream__col h4 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: #646970; }
 .hscf-stream__col h4:not(:first-child) { margin-top: 16px; }

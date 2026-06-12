@@ -41,7 +41,7 @@ export class HSVideoElement extends HTMLElement {
     this.videoEl = null; this.overlayEl = null; this.debugPanelEl = null;
     this.statusMessageEl = null;
     this.pendingPlayRequest = false; this.prebufferStartTs = 0; this._gateTimer = null; this._drainMonitorTimer = null; this._revealMonitorTimer = null; this._fastRecovery = false;
-    this._stallWatchdogTimer = null; this._lastBufferEnd = 0; this._lastBufferEndTs = 0; this._recovering = false; this._offlinePollStreak = 0;
+    this._stallWatchdogTimer = null; this._lastBufferEnd = 0; this._lastBufferEndTs = 0; this._recovering = false; this._offlinePollStreak = 0; this._viewerCountTimer = null;
     this._currentMsgKey = null; this._currentMsgText = '';
     this.throughputSamples = []; this.probeAttempts = 0;
     this.currentStreamUrl = null; this.ingestFalseCount = 0; this.hasPlayedOnce = false;
@@ -91,6 +91,7 @@ export class HSVideoElement extends HTMLElement {
       if (this.debugMode && this.debugPanelEl) {
         this.debugPanelEl.style.display = 'block';
         this.debugPanel.start(); // 1s self-refresh for live video/buffer readout
+        this._startViewerCountPoll(); // debug-only: poll Cloudflare's live viewer count
       }
       this.posterMgr = new PosterManager();
       this.posterMgr.init(window?.HSPlayerConfig);
@@ -884,6 +885,34 @@ export class HSVideoElement extends HTMLElement {
   }); }
 
   _updateDebugPanel(d) { safe('debugPanel', () => { if (this.debugPanelEl) this.debugPanel.update({ state: this.playerState, ...d }); }); }
+
+  // ── Live viewer count (debug panel only) ──
+  // Cloudflare exposes the real-time concurrent viewer count at
+  // customer-<code>.cloudflarestream.com/<videoUID>/views → { liveViewers }.
+  // CORS-open, no auth. Runs ONLY when ?debug=1 — zero overhead for viewers.
+  _startViewerCountPoll() {
+    safe('viewerCountPoll', () => {
+      this._stopViewerCountPoll();
+      const tick = () => safe('viewerCount', () => {
+        const uid = this.currentVideoUID;
+        const code = this.posterMgr?.customerCode;
+        if (!uid || !code || this.playerState !== STATE.PLAYING) {
+          this._updateDebugPanel({ liveViewers: null });
+          return;
+        }
+        fetch(`https://customer-${code}.cloudflarestream.com/${uid}/views`, { cache: 'no-store' })
+          .then(r => r.ok ? r.json() : null)
+          .then(j => { if (j && typeof j.liveViewers === 'number') this._updateDebugPanel({ liveViewers: j.liveViewers }); })
+          .catch(() => {});
+      });
+      tick();
+      this._viewerCountTimer = this.timers.setInterval(tick, 12000);
+    });
+  }
+
+  _stopViewerCountPoll() {
+    if (this._viewerCountTimer) { this.timers.clearInterval(this._viewerCountTimer); this._viewerCountTimer = null; }
+  }
 
   _attemptAutoplay() { safe('autoplay', () => { this._playWithFallback(this.videoEl); }); }
 

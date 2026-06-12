@@ -475,6 +475,16 @@ class AjaxController {
             }
         }
 
+        // Attach Cloudflare's live viewer count for any input that's currently
+        // connected/live (skips offline inputs to avoid needless probes).
+        foreach ($statuses as $uid => &$st) {
+            if (($st['status'] ?? '') === 'connected') {
+                $vc = $this->liveInput->liveViewerCount($uid);
+                if ($vc !== null) { $st['viewers'] = $vc; }
+            }
+        }
+        unset($st);
+
         wp_send_json_success($statuses);
     }
 

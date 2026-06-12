@@ -700,6 +700,7 @@ class SettingsPage {
             <span class="hscf-badge <?= $is_connected ? 'hscf-badge--live' : 'hscf-badge--off' ?>" id="badge-<?= esc_attr($input->uid) ?>">
                 <span class="dashicons <?= $is_connected ? 'dashicons-controls-play' : 'dashicons-controls-pause' ?>"></span><span class="hscf-badge__text"><?= esc_html($status_label) ?></span>
             </span>
+            <span class="hscf-viewers" id="viewers-<?= esc_attr($input->uid) ?>" style="display:none;" title="People watching right now"><span class="dashicons dashicons-visibility"></span><span class="hscf-viewers__n"></span></span>
             <a href="<?= esc_url($delete_link) ?>" class="hscf-stream__delete" title="Delete stream" onclick="return confirm('Delete <?= esc_js($input_name) ?>? This cannot be undone.')"><span class="dashicons dashicons-trash"></span></a>
         </div>
         <div class="hscf-stream__grid">
