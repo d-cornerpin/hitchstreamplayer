@@ -164,148 +164,12 @@ function hs_state_ttl($state) {
 }
 
 // --- B5.6: Email alerts for notable live-stream events ---
+// The alert helpers (catalog, dispatch, debounced-error + recovery) live in the
+// child theme's inc/hs-alerts.php so they're also loaded on normal requests and
+// wp-cron (for the recovery timer). functions.php already required it via
+// wp-load above; this require_once is a defensive no-op in case of load order.
+require_once __DIR__ . '/../inc/hs-alerts.php';
 
-/**
- * Plain-English alert catalog: key => [label, description].
- * Keys MUST match SettingsPage::ALERT_EVENTS in the HitchStream_Cloudflare
- * plugin (that's where the admin checkboxes are defined). Keep them in sync.
- */
-function hs_alert_events_catalog(): array {
-    return [
-        'storage_full'            => ['Storage Full', 'Cloudflare Stream storage is full — recordings and live streams may fail until space is freed or the plan is upgraded.'],
-        'no_subscription'         => ['No Cloudflare Subscription', 'The Cloudflare Stream subscription is missing or inactive. Streaming will not work until it is restored.'],
-        'live_stream_started'     => ['Live Stream Started', 'A live stream went live — a feed connected to the live input.'],
-        'live_stream_ended'       => ['Live Stream Ended', 'The live stream feed disconnected and the stream has ended.'],
-        'live_stream_reconnected' => ['Live Stream Reconnected', 'A live stream dropped and successfully reconnected.'],
-        'live_stream_error'       => ['Live Stream Error', 'A live stream feed reported an error (failed to connect or reconnect).'],
-    ];
-}
-
-/**
- * Which alert events are enabled (array of keys). Reads HSCF_alert_events; falls
- * back to migrating the legacy HSCF_alert_codes CSV, else the two critical defaults.
- */
-function hs_alert_enabled_events(): array {
-    $val = get_option('HSCF_alert_events', null);
-    if (is_array($val)) {
-        return $val;
-    }
-    $legacy = get_option('HSCF_alert_codes', null);
-    if (is_string($legacy) && $legacy !== '') {
-        $events = [];
-        if (strpos($legacy, 'ERR_STORAGE_QUOTA_EXHAUSTED') !== false) $events[] = 'storage_full';
-        if (strpos($legacy, 'ERR_MISSING_SUBSCRIPTION') !== false)    $events[] = 'no_subscription';
-        return $events ?: ['storage_full', 'no_subscription'];
-    }
-    return ['storage_full', 'no_subscription'];
-}
-
-/**
- * Map a webhook outcome to a single alert event key (or '' for none).
- * $prev_state is the state stored BEFORE this event, so start/end/reconnect only
- * fire on an actual transition rather than on every repeated webhook.
- */
-function hs_alert_key_for(?string $normalized, string $error_code, string $prev_state): string {
-    if ($error_code === 'ERR_STORAGE_QUOTA_EXHAUSTED') return 'storage_full';
-    if ($error_code === 'ERR_MISSING_SUBSCRIPTION')    return 'no_subscription';
-    if ($normalized === 'error')                       return 'live_stream_error';
-    if ($normalized === 'live') {
-        // A return to 'live' from 'reconnecting' is a recovery; from anything
-        // else (idle / error / first connect) it's a fresh start.
-        if ($prev_state === 'reconnecting') return 'live_stream_reconnected';
-        if ($prev_state !== 'live')         return 'live_stream_started';
-        return '';
-    }
-    if ($normalized === 'idle' && in_array($prev_state, ['live', 'reconnecting'], true)) return 'live_stream_ended';
-    return '';
-}
-
-/**
- * Send an alert email for a notable event, if it's enabled and not throttled.
- * Uses wp_mail(), so it routes through whatever mailer is active (WPO365 / M365).
- * Throttle: at most one email per event per input per 5 minutes.
- */
-function hs_dispatch_alert(string $event_key, string $input_id, string $event_type, string $error_code, string $correlation_id): void {
-    if ($event_key === '') {
-        return;
-    }
-
-    $recipients = hs_parse_email_list(get_option('HSCF_alert_email', ''));
-    if (empty($recipients)) {
-        return;
-    }
-
-    if (!in_array($event_key, hs_alert_enabled_events(), true)) {
-        return;
-    }
-
-    $catalog = hs_alert_events_catalog();
-    if (!isset($catalog[$event_key])) {
-        return;
-    }
-    [$label, $desc] = $catalog[$event_key];
-
-    $throttle_key = "hs_alert_throttle_{$event_key}_{$input_id}";
-    if (get_transient($throttle_key)) {
-        return;
-    }
-    set_transient($throttle_key, true, 300);
-
-    // The live-stream lifecycle alerts include a one-click link to the player
-    // with the debug panel open (same URL as the plugin's "open in new window"
-    // button), so the recipient can jump straight to checking the stream. The
-    // account-level alerts (storage / subscription) don't — the action there is
-    // the Cloudflare dashboard, not the player.
-    $with_link = ['live_stream_started', 'live_stream_ended', 'live_stream_reconnected', 'live_stream_error'];
-    $debug_url = '';
-    if (in_array($event_key, $with_link, true) && $input_id) {
-        $debug_url = home_url('/player/') . '?live=true&inputId=' . rawurlencode($input_id) . '&debug=1';
-    }
-
-    $site = wp_specialchars_decode(get_bloginfo('name'), ENT_QUOTES);
-    $subject = "[HitchStream] {$label}";
-    $lines = [
-        $desc,
-        '',
-    ];
-    if ($debug_url) {
-        $lines[] = 'Check on the stream (opens the player with the debug panel):';
-        $lines[] = $debug_url;
-        $lines[] = '';
-    }
-    $lines[] = "Stream input: {$input_id}";
-    $lines[] = 'Time: ' . current_time('mysql');
-    if ($error_code) {
-        $lines[] = "Error code: {$error_code}";
-    }
-    $lines[] = "Event: {$event_type}";
-    $lines[] = "Reference: {$correlation_id}";
-    $lines[] = '';
-    $lines[] = "Site: {$site}";
-    $lines[] = 'See the Activity page in WP Admin for full details.';
-    $body = implode("\n", $lines) . "\n";
-
-    $sent = wp_mail($recipients, $subject, $body, ['Content-Type: text/plain; charset=utf-8']);
-    error_log(
-        '[HitchStream] alert email ' . ($sent ? 'sent' : 'FAILED')
-        . ' to ' . implode(', ', $recipients) . " for {$event_key} on {$input_id} (corr: {$correlation_id})"
-    );
-}
-
-/** Split a free-form string into a list of valid, unique email addresses. */
-function hs_parse_email_list($raw): array {
-    if (!is_string($raw) || $raw === '') {
-        return [];
-    }
-    $out = [];
-    foreach (preg_split('/[,;\s]+/', $raw) ?: [] as $candidate) {
-        $candidate = trim($candidate);
-        if ($candidate !== '' && is_email($candidate)) {
-            $out[] = $candidate;
-        }
-    }
-    return array_values(array_unique($out));
-}
 // --- Main ---
 
 // Read the raw POST body for signature verification.
@@ -533,10 +397,23 @@ $log_data = [
 hs_webhook_log_insert($log_data);
 
 // B5.6: Email alerts for notable events (errors + state transitions).
-hs_dispatch_alert(
-    hs_alert_key_for($normalized, (string) $error_code, $prev_state),
-    $input_id, $event_type, (string) $error_code, $correlation_id
-);
+$alert_key = hs_alert_key_for($normalized, (string) $error_code, $prev_state);
+if ($alert_key === 'live_stream_error') {
+    // Don't email immediately — transient errors (common with LiveU) self-recover.
+    // Start a watch; we email only if it stays down past the debounce, and send a
+    // "recovered" email when it returns. See inc/hs-alerts.php.
+    hs_begin_error_watch($input_id, $event_type, (string) $error_code, $correlation_id);
+} else {
+    if ($alert_key !== '') {
+        hs_dispatch_alert($alert_key, $input_id, $event_type, (string) $error_code, $correlation_id);
+    }
+    // If the stream just came back live, resolve any pending error watch so a
+    // recovery email goes out (covers the case where Cloudflare DOES send a
+    // connect event after an error).
+    if ($normalized === 'live') {
+        hs_check_error_pending($input_id);
+    }
+}
 // Log for debugging.
 error_log("[HitchStream] Webhook: input={$input_id} event={$event_type} state={$normalized} videoUID={$video_uid} corr={$correlation_id}");
 

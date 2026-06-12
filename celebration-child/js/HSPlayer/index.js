@@ -9,6 +9,7 @@ import {
   FAST_RECOVERY_PREBUFFER_SECONDS, FAST_RECOVERY_FADE_MS, STALL_RECOVERY_MS, RECOVERY_BUFFER_FLOOR_SECONDS,
   HLS_ORIGIN_ALLOWLIST_REGEX, DEBUG_ERROR_MESSAGES,
   RECONNECT_WATCHDOG_INTERVAL_MS, RECONNECT_WATCHDOG_BUFFER_THRESHOLD, RECONNECT_WATCHDOG_FATAL_TTL,
+  OFFLINE_POLL_CONFIRM,
 } from './constants.js';
 import { createLivePoller } from './LivePoller.js';
 import { probeManifest } from './ManifestProbe.js';
@@ -40,7 +41,7 @@ export class HSVideoElement extends HTMLElement {
     this.videoEl = null; this.overlayEl = null; this.debugPanelEl = null;
     this.statusMessageEl = null;
     this.pendingPlayRequest = false; this.prebufferStartTs = 0; this._gateTimer = null; this._drainMonitorTimer = null; this._revealMonitorTimer = null; this._fastRecovery = false;
-    this._stallWatchdogTimer = null; this._lastBufferEnd = 0; this._lastBufferEndTs = 0; this._recovering = false;
+    this._stallWatchdogTimer = null; this._lastBufferEnd = 0; this._lastBufferEndTs = 0; this._recovering = false; this._offlinePollStreak = 0;
     this._currentMsgKey = null; this._currentMsgText = '';
     this.throughputSamples = []; this.probeAttempts = 0;
     this.currentStreamUrl = null; this.ingestFalseCount = 0; this.hasPlayedOnce = false;
@@ -225,6 +226,7 @@ export class HSVideoElement extends HTMLElement {
           const url = (hlsUrl && HSVideoElement.isValidHlsUrl(hlsUrl)) ? hlsUrl
             : `https://customer-${this.posterMgr.customerCode}.cloudflarestream.com/${videoUID}/manifest/video.m3u8`;
           this.latestLiveHlsUrl = url; this.ingestFalseCount = 0; this.currentVideoUID = videoUID;
+          this._offlinePollStreak = 0; // a live poll clears the transient-blip streak
           this._stopReconnectWatchdog();
           if (this._drainingToIdle) {
             this._drainingToIdle = false;
@@ -249,18 +251,32 @@ export class HSVideoElement extends HTMLElement {
             this.playerState = r.nextState; this._dispatchEffects(r.sideEffects);
           }
         } else {
-          const ev = errorCode ? { type:'poll', payload:{ state:'error', errorCode, source } }
-            : { type:'poll', payload:{ state:'idle', videoUID:null, hlsUrl:null } };
-          // Stream confirmed offline (intermission / ended / brief drop) — this is
-          // NOT a mid-stream stall, so drop any recovery state. That keeps the
-          // poster on the calm idle message and never flashes "reconnecting" during
-          // an intermission. "Reconnecting"/"one sec" stays reserved for a feed that
-          // stalls while the stream is still reported live.
-          if (!errorCode) this._recovering = false;
-          this.ingestFalseCount = (this.ingestFalseCount||0)+1;
-          this._stopReconnectWatchdog();
-          const r = transition({ currentState: this.playerState, event: ev, context: this._ctx() });
-          this.playerState = r.nextState; this._dispatchEffects(r.sideEffects);
+          // Debounce a transient single not-live poll. A momentary Cloudflare
+          // 'errored' (common with LiveU — it self-recovers on the next poll)
+          // would otherwise start covering a healthy, still-playing stream with
+          // the poster (the restart counter never moved because the video never
+          // actually restarted). While we're PLAYING with a healthy buffer to
+          // coast on, ignore the FIRST not-live poll and wait for a second
+          // consecutive one to confirm a real stop.
+          const ctx = this._ctx();
+          this._offlinePollStreak = (this._offlinePollStreak || 0) + 1;
+          const canCoast = this.playerState === STATE.PLAYING && ctx.hasBufferedContent && ctx.bufferAhead > 2;
+          if (canCoast && this._offlinePollStreak < OFFLINE_POLL_CONFIRM) {
+            this.debugLog('Transient not-live poll held (streak ' + this._offlinePollStreak + '/' + OFFLINE_POLL_CONFIRM + ') — keep playing');
+          } else {
+            const ev = errorCode ? { type:'poll', payload:{ state:'error', errorCode, source } }
+              : { type:'poll', payload:{ state:'idle', videoUID:null, hlsUrl:null } };
+            // Stream confirmed offline (intermission / ended / sustained drop) — this is
+            // NOT a mid-stream stall, so drop any recovery state. That keeps the
+            // poster on the calm idle message and never flashes "reconnecting" during
+            // an intermission. "Reconnecting"/"one sec" stays reserved for a feed that
+            // stalls while the stream is still reported live.
+            if (!errorCode) this._recovering = false;
+            this.ingestFalseCount = (this.ingestFalseCount||0)+1;
+            this._stopReconnectWatchdog();
+            const r = transition({ currentState: this.playerState, event: ev, context: this._ctx() });
+            this.playerState = r.nextState; this._dispatchEffects(r.sideEffects);
+          }
         }
         if (state === 'reconnecting' && this.playerState === STATE.PLAYING) {
           this._startReconnectWatchdog();
