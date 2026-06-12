@@ -230,7 +230,7 @@ jQuery(document).ready(function ($) {
                         $row.fadeOut(180, function () {
                             $(this).remove();
                             if ($list.find('.hscf-output').length === 0) {
-                                $list.append('<p class="description hscf-no-outputs">No social streams.</p>');
+                                $list.append('<p class="description hscf-no-outputs">No restreams yet.</p>');
                             }
                         });
                     } else {

@@ -80,6 +80,24 @@ class LiveInputService {
         return 'Failed to delete live input: ' . json_encode($data['errors'] ?? []);
     }
 
+    /**
+     * Ground-truth "is this input producing playable video right now", via the
+     * public lifecycle endpoint. Used to reconcile a sticky webhook 'error'
+     * state — Cloudflare sends no recovery event when a transient error clears,
+     * so the webhook log stays 'error' while the stream is actually live again.
+     *
+     * @return string 'live' | 'idle' | '' (empty if the probe failed)
+     */
+    public function probeLiveStatus(string $input_id): string {
+        $cust = (string) get_option('HSCF_customer_id', '');
+        if ($cust === '' || $input_id === '') return '';
+        $resp = wp_remote_get("https://customer-{$cust}.cloudflarestream.com/{$input_id}/lifecycle", ['timeout' => 6]);
+        if (is_wp_error($resp)) return '';
+        $data = json_decode(wp_remote_retrieve_body($resp), true);
+        if (!is_array($data)) return '';
+        return !empty($data['live']) ? 'live' : 'idle';
+    }
+
     /** Get outputs for a live input. */
     public function getOutputs(string $input_id): array {
         $result = $this->client->get("stream/live_inputs/{$input_id}/outputs");
