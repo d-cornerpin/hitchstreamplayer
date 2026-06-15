@@ -26,6 +26,16 @@ jQuery(document).ready(function ($) {
                           .addClass(connected ? 'hscf-badge--live' : (disconnected ? 'hscf-badge--off' : 'hscf-badge--unknown'));
                     $badge.find('.dashicons').attr('class', 'dashicons ' + (connected ? 'dashicons-controls-play' : 'dashicons-controls-pause'));
                     $badge.find('.hscf-badge__text').text(status);
+                    // Live viewer count (only present when the input is live).
+                    var $viewers = $('#viewers-' + uid);
+                    if ($viewers.length) {
+                        if (info && typeof info === 'object' && typeof info.viewers === 'number') {
+                            $viewers.find('.hscf-viewers__n').text(info.viewers);
+                            $viewers.css('display', '');
+                        } else {
+                            $viewers.css('display', 'none');
+                        }
+                    }
                 });
             }
         });

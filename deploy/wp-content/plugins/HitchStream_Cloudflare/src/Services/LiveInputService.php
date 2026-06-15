@@ -98,6 +98,25 @@ class LiveInputService {
         return !empty($data['live']) ? 'live' : 'idle';
     }
 
+    /**
+     * Cloudflare's real-time concurrent live viewer count for an input, or null
+     * if it's not currently live / unavailable. Two public lifecycle/views calls
+     * (no auth): lifecycle gives the current session's videoUID, then
+     * customer-<code>.cloudflarestream.com/<videoUID>/views → { liveViewers }.
+     */
+    public function liveViewerCount(string $input_id): ?int {
+        $cust = (string) get_option('HSCF_customer_id', '');
+        if ($cust === '' || $input_id === '') return null;
+        $lc = wp_remote_get("https://customer-{$cust}.cloudflarestream.com/{$input_id}/lifecycle", ['timeout' => 4]);
+        if (is_wp_error($lc)) return null;
+        $ld = json_decode(wp_remote_retrieve_body($lc), true);
+        if (!is_array($ld) || empty($ld['live']) || empty($ld['videoUID'])) return null;
+        $vr = wp_remote_get("https://customer-{$cust}.cloudflarestream.com/{$ld['videoUID']}/views", ['timeout' => 4]);
+        if (is_wp_error($vr)) return null;
+        $vd = json_decode(wp_remote_retrieve_body($vr), true);
+        return (is_array($vd) && isset($vd['liveViewers'])) ? (int) $vd['liveViewers'] : null;
+    }
+
     /** Get outputs for a live input. */
     public function getOutputs(string $input_id): array {
         $result = $this->client->get("stream/live_inputs/{$input_id}/outputs");

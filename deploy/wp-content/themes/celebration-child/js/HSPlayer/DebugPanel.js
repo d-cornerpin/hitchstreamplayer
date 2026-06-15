@@ -200,6 +200,7 @@ export class DebugPanel {
       row('Stream', esc(stream)) +
       row('Stream uptime', esc(uptime)) +
       row('Stream restarts', esc(String(this._uidRestarts))) +
+      row('Live viewers', (typeof d.liveViewers === 'number') ? esc(String(d.liveViewers)) : '—') +
       row('Player', esc(playerPlain)) +
       row('Picture', esc(picture)) +
       row('Sound', esc(sound)) +
