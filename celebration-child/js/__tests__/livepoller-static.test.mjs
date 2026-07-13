@@ -37,9 +37,11 @@ function run({ responses, pollerOpts, until }) {
   return new Promise((resolve) => {
     const events = [];
     const urls = [];
+    const fetchOpts = [];
     let i = 0;
-    globalThis.fetch = async (url) => {
+    globalThis.fetch = async (url, opts) => {
       urls.push(String(url));
+      fetchOpts.push(opts || {});
       const r = responses[Math.min(i++, responses.length - 1)];
       if (r.reject) throw new Error(r.reject);
       return mkRes(r);
@@ -49,12 +51,12 @@ function run({ responses, pollerOpts, until }) {
       endpoint: 'https://site.test/wp-json/hitchstream/v1/live-state',
       onEvent: (e) => {
         events.push(e);
-        if (until(events)) { poller.destroy(); resolve({ events, urls }); }
+        if (until(events)) { poller.destroy(); resolve({ events, urls, fetchOpts }); }
       },
       ...pollerOpts,
     });
     poller.start();
-    realSetTimeout(() => { poller.destroy(); resolve({ events, urls }); }, 4000); // safety net
+    realSetTimeout(() => { poller.destroy(); resolve({ events, urls, fetchOpts }); }, 4000); // safety net
   });
 }
 
@@ -63,13 +65,14 @@ const liveBody = { state: 'live', videoUID: 'uid1', hlsUrl: 'https://x/m.m3u8', 
 
 // A. file mode: URL shape + live poll event
 {
-  const { events, urls } = await run({
+  const { events, urls, fetchOpts } = await run({
     responses: [{ status: 200, body: liveBody, etag: '"e1"' }],
     pollerOpts: { fileEndpoint: FILE_BASE },
     until: (ev) => ev.some((e) => e.type === 'poll'),
   });
   const p = events.find((e) => e.type === 'poll');
   assert(urls[0] === `${FILE_BASE}abc123.json`, 'A1: file mode fetches {base}{inputId}.json');
+  assert(fetchOpts[0] && fetchOpts[0].cache === 'no-store', 'A4: poll fetch uses cache no-store (browser cache can never answer a poll)');
   assert(p && p.payload.isLive === true && p.payload.videoUID === 'uid1', 'A2: live file body → isLive poll event');
   assert(p && p.payload.source === 'webhook', 'A3: source passed through from file');
 }
