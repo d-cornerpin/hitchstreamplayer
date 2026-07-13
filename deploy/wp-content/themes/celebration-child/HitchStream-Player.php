@@ -28,6 +28,12 @@ $hs_player_nonce  = wp_create_nonce('hs_player_action');
 // endpoints/live-state.php shim, which bootstraps WordPress just to 301 to
 // this same REST route — doubling the PHP cost of every viewer poll.
 $live_state_url   = esc_url(rest_url('hitchstream/v1/live-state'));
+// Static flat-file poll target (wp-content/hs-state/{inputId}.json), written by
+// the webhook receiver + REST probe (StateWriter) and kept fresh by the droplet
+// refresher. Apache serves it with ZERO PHP, so a 200-guest wedding polling
+// every 10s costs static-file prices instead of 20 WP bootstraps per second.
+// The REST URL above remains for the stall watchdog's ground-truth check.
+$live_state_file_base = esc_url(content_url('hs-state') . '/');
 
 // Read player defaults from admin settings. NO silent fallback to a hardcoded
 // customer code — if HSCF_customer_id is unset, the player will fatal loudly,
@@ -55,7 +61,8 @@ if ($input_id_for_server && function_exists('hs_compute_server_live_state')) {
         // reads at startup. Shape per HitchStream_Player_v2.md §4 / §5.
         window.HSPlayerConfig = {
             endpoints: {
-                liveState: <?php echo wp_json_encode($live_state_url); ?>
+                liveState: <?php echo wp_json_encode($live_state_url); ?>,
+                liveStateFileBase: <?php echo wp_json_encode($live_state_file_base); ?>
             },
             cloudflare: {
                 customerCode: <?php echo wp_json_encode($cf_customer_id); ?>

@@ -202,6 +202,10 @@ export class HSVideoElement extends HTMLElement {
         this._livePoller = createLivePoller({
           inputId: this.inputId,
           endpoint: window.HSPlayerConfig.endpoints.liveState,
+          // Static flat-file polling (wp-content/hs-state/{id}.json): Apache
+          // serves it with zero PHP, so viewer count doesn't scale WP load.
+          // Absent from config → poller falls back to the REST endpoint.
+          fileEndpoint: window.HSPlayerConfig.endpoints.liveStateFileBase,
           onEvent: (e) => this._handlePollEvent(e),
           debugLog: (...m) => this.debugLog(...m),
           debugError: (...m) => this.debugError(...m),
@@ -580,9 +584,12 @@ export class HSVideoElement extends HTMLElement {
 
   // Ground-truth "is this input still live right now?" — used by the stall
   // watchdog to confirm a stall is recoverable (vs the stream having stopped)
-  // before it rebuilds. Reuses the same WP live-state endpoint the poller hits
-  // (same-origin, no CORS). Resolves false on any failure (the safe direction:
-  // don't rebuild → at worst a brief freeze, never a replay).
+  // before it rebuilds. DELIBERATELY hits the REST endpoint, not the static
+  // hs-state file the poller reads: this check must be fresher than the file
+  // (REST re-probes Cloudflare when its cache is stale), and it only fires on
+  // the rare drained-buffer recovery path, so the PHP cost is negligible.
+  // Resolves false on any failure (the safe direction: don't rebuild → at
+  // worst a brief freeze, never a replay).
   _isStreamStillLive() {
     const ep = window?.HSPlayerConfig?.endpoints?.liveState;
     if (!ep || !this.inputId) return Promise.resolve(false);
