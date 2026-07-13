@@ -37,6 +37,9 @@ class LiveInputService {
             if ($detail_result['success'] && ($detail_data->success ?? false) && isset($detail_data->result)) {
                 $input->srt_details    = $detail_data->result->srt ?? null;
                 $input->rtmp_details   = $detail_data->result->rtmps ?? null;
+                // Surfaced by the event-day checklist: low-latency mode is a
+                // known breaker for LiveU bonded encoders (2026-06-10 incident).
+                $input->prefer_low_latency = $detail_data->result->preferLowLatency ?? null;
                 // Cloudflare returns status as a nested object {current:{state}};
                 // the public docs show a flat string. Handle both so a shape
                 // change can't silently blank every status badge.

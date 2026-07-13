@@ -2,14 +2,16 @@
 /**
  * ChecklistService — the event-day checklist as one button.
  *
- * Automates RUNBOOK-live-state.md's pre-event checks from the admin UI:
- * primes EVERY input Cloudflare knows about (closing the new-input gap — a
- * brand-new Live Input gets its hs-state file created and is thereby enrolled
- * in the droplet refresher), verifies the static files viewers poll, the
- * cache header, refresher liveness, webhook wiring, and alert config.
+ * Automates RUNBOOK-live-state.md's pre-event checks from the admin UI, plus
+ * server-health checks: primes EVERY input Cloudflare knows about (closing the
+ * new-input gap — a brand-new Live Input gets its hs-state file created and is
+ * thereby enrolled in the droplet refresher), verifies the static files viewers
+ * poll, the guest-facing player page, response times, server load, disk, SSL
+ * expiry, wp-cron, the placeholder streamer, webhook wiring, and alert config.
  *
  * Each check returns a row: ['label','status' (pass|warn|fail),'detail'].
  * Fail = will break the viewer experience; warn = degraded-but-safe.
+ * Every check is defensive — a broken subsystem must produce a row, not a fatal.
  */
 
 namespace HS\Services;
@@ -18,6 +20,10 @@ class ChecklistService {
 
     private LiveInputService $liveInput;
     private WebhookService $webhook;
+
+    /** Response-time samples (ms), piggybacked on requests the checks already make. */
+    private array $restMs = [];
+    private array $staticMs = [];
 
     public function __construct(?LiveInputService $liveInput = null, ?WebhookService $webhook = null) {
         $this->liveInput = $liveInput ?? new LiveInputService();
@@ -35,26 +41,45 @@ class ChecklistService {
         $rows[] = $this->checkRefresherHeartbeat();
 
         // 2. Cloudflare API + input list (everything else needs it).
-        [$inputsRow, $inputs] = $this->checkCloudflareInputs();
+        [$inputsRow, $inputs, $lowLatencyRow] = $this->checkCloudflareInputs();
         $rows[] = $inputsRow;
 
         if ($inputs) {
-            // 3. Prime every input via the real REST route (same path the
+            // 3. Low-latency mode audit (known LiveU breaker).
+            $rows[] = $lowLatencyRow;
+
+            // 4. Prime every input via the real REST route (same path the
             //    refresher uses — also creates files for brand-new inputs).
             $rows[] = $this->primeInputs($inputs);
 
-            // 4+5. Verify the static files viewers poll + the cache header.
+            // 5+6. Verify the static files viewers poll + the cache header.
             [$filesRow, $headerRow] = $this->checkStaticFiles($inputs);
             $rows[] = $filesRow;
             $rows[] = $headerRow;
+
+            // 7. The guest-facing player page itself.
+            $rows[] = $this->checkPlayerPage(array_key_first($inputs));
         }
 
-        // 6. Live webhook wiring (instant transitions).
+        // 8. Server responsiveness (from the timings gathered above).
+        $rows[] = $this->checkResponseTimes();
+
+        // 9-12. Box health: load, disk, SSL, wp-cron.
+        $rows[] = $this->checkServerLoad();
+        $rows[] = $this->checkDiskSpace();
+        $rows[] = $this->checkSslCertificate();
+        $rows[] = $this->checkWpCron();
+
+        // 13. Placeholder streamer service.
+        $rows[] = $this->checkStreamerService();
+
+        // 14. Live webhook wiring (instant transitions).
         $rows[] = $this->checkWebhook();
 
-        // 7. Alert emails.
+        // 15. Alert emails.
         $rows[] = $this->checkAlerts();
 
+        $rows = array_values(array_filter($rows));
         $ok = !array_filter($rows, fn($r) => $r['status'] === 'fail');
         return ['rows' => $rows, 'ok' => $ok];
     }
@@ -82,28 +107,35 @@ class ChecklistService {
             'detail' => sprintf('Newest state write is %ds old. The droplet refresher looks DOWN — on the server run: systemctl status hs-live-state-refresher (webhooks still push transitions, but the probe backstop is gone).', $age)];
     }
 
-    /** @return array{0:array,1:array} [row, inputs(uid=>name)] */
+    /** @return array{0:array,1:array,2:?array} [row, inputs(uid=>name), lowLatencyRow] */
     private function checkCloudflareInputs(): array {
         try {
             $list = $this->liveInput->listWithDetails();
         } catch (\Throwable $e) {
-            return [['label' => 'Cloudflare API', 'status' => 'fail', 'detail' => 'Could not list live inputs: ' . $e->getMessage()], []];
+            return [['label' => 'Cloudflare API', 'status' => 'fail', 'detail' => 'Could not list live inputs: ' . $e->getMessage()], [], null];
         }
-        if (!is_array($list)) {
-            return [['label' => 'Cloudflare API', 'status' => 'fail', 'detail' => 'Could not list live inputs (unexpected response).'], []];
+        if (!is_array($list) || isset($list['error'])) {
+            return [['label' => 'Cloudflare API', 'status' => 'fail', 'detail' => 'Could not list live inputs' . (is_array($list) && isset($list['error']) ? ': ' . $list['error'] : ' (unexpected response).')], [], null];
         }
         $inputs = [];
+        $lowLatency = [];
         foreach ($list as $in) {
-            $uid = is_object($in) ? ($in->uid ?? '') : ($in['uid'] ?? '');
-            if ($uid === '') continue;
-            $name = is_object($in) ? ($in->meta->name ?? $uid) : ($in['meta']['name'] ?? $uid);
-            $inputs[$uid] = $name;
+            if (!is_object($in) || empty($in->uid)) continue;
+            $name = $in->meta->name ?? $in->uid;
+            $inputs[$in->uid] = $name;
+            if (!empty($in->prefer_low_latency)) $lowLatency[] = $name;
         }
         if (!$inputs) {
-            return [['label' => 'Cloudflare API', 'status' => 'warn', 'detail' => 'Reachable, but no live inputs exist yet.'], []];
+            return [['label' => 'Cloudflare API', 'status' => 'warn', 'detail' => 'Reachable, but no live inputs exist yet.'], [], null];
         }
-        return [['label' => 'Cloudflare API', 'status' => 'pass',
-            'detail' => count($inputs) . ' live input(s): ' . implode(', ', array_values($inputs)) . '.'], $inputs];
+        $row = ['label' => 'Cloudflare API', 'status' => 'pass',
+            'detail' => count($inputs) . ' live input(s): ' . implode(', ', array_values($inputs)) . '.'];
+        $llRow = $lowLatency
+            ? ['label' => 'Latency mode', 'status' => 'warn',
+               'detail' => 'Low-Latency mode is ON for: ' . implode(', ', $lowLatency) . ' — known to break LiveU bonded encoders (stream connects but never goes playable). Turn it off unless you are sure the encoder supports it.']
+            : ['label' => 'Latency mode', 'status' => 'pass',
+               'detail' => 'All inputs use standard latency (the reliable choice for LiveU).'];
+        return [$row, $inputs, $llRow];
     }
 
     /** Prime each input through the real REST route (loopback). */
@@ -111,7 +143,9 @@ class ChecklistService {
         $failed = [];
         foreach ($inputs as $uid => $name) {
             $url = rest_url('hitchstream/v1/live-state') . '?inputId=' . rawurlencode($uid);
+            $t0 = microtime(true);
             $resp = wp_remote_get($url, ['timeout' => 8]);
+            $this->restMs[] = (microtime(true) - $t0) * 1000;
             $code = is_wp_error($resp) ? 0 : wp_remote_retrieve_response_code($resp);
             $body = is_wp_error($resp) ? [] : json_decode(wp_remote_retrieve_body($resp), true);
             if ($code !== 200 || empty($body['state'])) {
@@ -132,7 +166,9 @@ class ChecklistService {
         $cacheHeader = null;
         foreach ($inputs as $uid => $name) {
             $url = content_url('hs-state/' . rawurlencode($uid) . '.json');
+            $t0 = microtime(true);
             $resp = wp_remote_get($url, ['timeout' => 5]);
+            $this->staticMs[] = (microtime(true) - $t0) * 1000;
             if (is_wp_error($resp)) { $failed[] = "{$name} (" . $resp->get_error_message() . ')'; continue; }
             $code = wp_remote_retrieve_response_code($resp);
             $data = json_decode(wp_remote_retrieve_body($resp), true);
@@ -159,6 +195,132 @@ class ChecklistService {
                 'detail' => 'Cache-Control: no-cache is missing (got: ' . ($cacheHeader !== '' && $cacheHeader !== null ? $cacheHeader : 'nothing') . '). Degraded-but-safe — the player forces no-store client-side — but fix per the runbook STOP gate (mod_headers / vhost) when convenient.'];
         }
         return [$filesRow, $headerRow];
+    }
+
+    /** The page guests actually load. If this is broken, nothing else matters. */
+    private function checkPlayerPage(string $uid): array {
+        $url = home_url('/player/') . '?live=true&inputId=' . rawurlencode($uid);
+        $t0 = microtime(true);
+        $resp = wp_remote_get($url, ['timeout' => 10]);
+        $ms = (int) round((microtime(true) - $t0) * 1000);
+        if (is_wp_error($resp)) {
+            return ['label' => 'Player page', 'status' => 'fail', 'detail' => 'The guest-facing player page did not load: ' . $resp->get_error_message() . '.'];
+        }
+        $code = wp_remote_retrieve_response_code($resp);
+        $body = (string) wp_remote_retrieve_body($resp);
+        if ($code !== 200 || strpos($body, 'HSPlayerConfig') === false) {
+            return ['label' => 'Player page', 'status' => 'fail',
+                'detail' => "The guest-facing player page is broken (HTTP {$code}" . (strpos($body, 'HSPlayerConfig') === false ? ', player config missing from page' : '') . '). Guests would not be able to watch — fix before anything else.'];
+        }
+        return ['label' => 'Player page', 'status' => 'pass',
+            'detail' => "Loads with the player config present ({$ms}ms) — this is the page guests hit."];
+    }
+
+    /** From the timings piggybacked on the prime + static checks — no extra requests. */
+    private function checkResponseTimes(): array {
+        if (!$this->restMs && !$this->staticMs) {
+            return ['label' => 'Response times', 'status' => 'warn', 'detail' => 'No timing samples (no inputs to check against).'];
+        }
+        $avg = fn(array $a) => $a ? (int) round(array_sum($a) / count($a)) : 0;
+        $restAvg = $avg($this->restMs);
+        $restMax = $this->restMs ? (int) round(max($this->restMs)) : 0;
+        $statAvg = $avg($this->staticMs);
+        $detail = sprintf('WordPress %dms avg / %dms max; static state files %dms avg. (First WordPress hit may include a Cloudflare probe.)', $restAvg, $restMax, $statAvg);
+        if ($restAvg >= 4000 || $statAvg >= 1500) {
+            return ['label' => 'Response times', 'status' => 'fail', 'detail' => $detail . ' The server is responding very slowly — investigate load before the event.'];
+        }
+        if ($restAvg >= 1500 || $statAvg >= 400) {
+            return ['label' => 'Response times', 'status' => 'warn', 'detail' => $detail . ' Slower than usual — keep an eye on it.'];
+        }
+        return ['label' => 'Response times', 'status' => 'pass', 'detail' => $detail];
+    }
+
+    private function checkServerLoad(): array {
+        if (!function_exists('sys_getloadavg')) {
+            return ['label' => 'Server load', 'status' => 'warn', 'detail' => 'Load average unavailable on this host.'];
+        }
+        $load = sys_getloadavg();
+        $five = $load[1] ?? $load[0];
+        $cores = 1;
+        $cpuinfo = @file_get_contents('/proc/cpuinfo');
+        if (is_string($cpuinfo) && ($n = substr_count($cpuinfo, "\nprocessor")) >= 0) {
+            $cores = max(1, $n + (strpos($cpuinfo, 'processor') === 0 ? 1 : 0));
+        }
+        $ratio = $five / $cores;
+        $detail = sprintf('Load %.2f over 5 min on %d core(s).', $five, $cores);
+        if ($ratio >= 1.5) return ['label' => 'Server load', 'status' => 'fail', 'detail' => $detail . ' The box is overloaded — find what is eating CPU before the event (top / Virtualmin).'];
+        if ($ratio >= 0.8) return ['label' => 'Server load', 'status' => 'warn', 'detail' => $detail . ' Busier than comfortable; keep an eye on it.'];
+        return ['label' => 'Server load', 'status' => 'pass', 'detail' => $detail];
+    }
+
+    private function checkDiskSpace(): array {
+        $free = @disk_free_space(WP_CONTENT_DIR);
+        $total = @disk_total_space(WP_CONTENT_DIR);
+        if (!$free || !$total) {
+            return ['label' => 'Disk space', 'status' => 'warn', 'detail' => 'Could not read disk usage.'];
+        }
+        $freeGb = $free / (1024 ** 3);
+        $pct = (int) round(100 * $free / $total);
+        $writable = is_writable(WP_CONTENT_DIR . '/hs-state') || is_writable(WP_CONTENT_DIR);
+        $detail = sprintf('%.1f GB free (%d%%).', $freeGb, $pct);
+        if (!$writable) {
+            return ['label' => 'Disk space', 'status' => 'fail', 'detail' => $detail . ' hs-state is NOT writable — state updates will fail.'];
+        }
+        if ($freeGb < 0.5) return ['label' => 'Disk space', 'status' => 'fail', 'detail' => $detail . ' Critically low — a full disk breaks state writes, logs, and uploads.'];
+        if ($freeGb < 2)   return ['label' => 'Disk space', 'status' => 'warn', 'detail' => $detail . ' Getting low; free some space when convenient.'];
+        return ['label' => 'Disk space', 'status' => 'pass', 'detail' => $detail];
+    }
+
+    private function checkSslCertificate(): array {
+        $host = parse_url(home_url(), PHP_URL_HOST);
+        if (!$host || !function_exists('openssl_x509_parse')) {
+            return ['label' => 'SSL certificate', 'status' => 'warn', 'detail' => 'Could not check the certificate on this host.'];
+        }
+        $ctx = stream_context_create(['ssl' => ['capture_peer_cert' => true, 'SNI_enabled' => true, 'verify_peer' => false, 'verify_peer_name' => false]]);
+        $client = @stream_socket_client("ssl://{$host}:443", $errno, $errstr, 5, STREAM_CLIENT_CONNECT, $ctx);
+        if (!$client) {
+            return ['label' => 'SSL certificate', 'status' => 'fail', 'detail' => "Could not make an SSL connection to {$host}: {$errstr}."];
+        }
+        $params = stream_context_get_params($client);
+        fclose($client);
+        $cert = isset($params['options']['ssl']['peer_certificate']) ? openssl_x509_parse($params['options']['ssl']['peer_certificate']) : null;
+        if (!$cert || empty($cert['validTo_time_t'])) {
+            return ['label' => 'SSL certificate', 'status' => 'warn', 'detail' => 'Connected, but could not parse the certificate.'];
+        }
+        $days = (int) floor(($cert['validTo_time_t'] - time()) / 86400);
+        if ($days < 3)  return ['label' => 'SSL certificate', 'status' => 'fail', 'detail' => "Certificate for {$host} expires in {$days} day(s)! An expired cert blocks every guest. Renew NOW (Let's Encrypt auto-renew may have failed)."];
+        if ($days < 14) return ['label' => 'SSL certificate', 'status' => 'warn', 'detail' => "Certificate for {$host} expires in {$days} days — check that auto-renew is working."];
+        return ['label' => 'SSL certificate', 'status' => 'pass', 'detail' => "Valid for {$days} more days."];
+    }
+
+    private function checkWpCron(): array {
+        if (!function_exists('_get_cron_array')) {
+            return ['label' => 'Scheduled tasks', 'status' => 'warn', 'detail' => 'Could not read the wp-cron queue.'];
+        }
+        $cron = _get_cron_array();
+        if (!is_array($cron) || !$cron) {
+            return ['label' => 'Scheduled tasks', 'status' => 'pass', 'detail' => 'wp-cron queue is empty.'];
+        }
+        $oldest = min(array_keys($cron));
+        $overdue = time() - $oldest;
+        if ($overdue > 600) {
+            return ['label' => 'Scheduled tasks', 'status' => 'warn',
+                'detail' => sprintf('wp-cron has tasks %d minutes overdue — background jobs (alert re-checks, cleanup) may not be firing. The refresher normally keeps this moving.', (int) round($overdue / 60))];
+        }
+        return ['label' => 'Scheduled tasks', 'status' => 'pass', 'detail' => 'wp-cron is keeping up.'];
+    }
+
+    private function checkStreamerService(): array {
+        try {
+            $r = (new StreamerService())->listVideos();
+        } catch (\Throwable $e) {
+            return ['label' => 'Placeholder streamer', 'status' => 'warn', 'detail' => 'Could not check: ' . $e->getMessage() . '. Only matters if you use placeholder streams today.'];
+        }
+        if (isset($r['error'])) {
+            return ['label' => 'Placeholder streamer', 'status' => 'warn',
+                'detail' => 'Streamer service unreachable (' . $r['error'] . '). Only matters if you plan to run a placeholder stream today.'];
+        }
+        return ['label' => 'Placeholder streamer', 'status' => 'pass', 'detail' => 'streamer1 is reachable and authenticated.'];
     }
 
     private function checkWebhook(): array {
