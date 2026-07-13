@@ -39,11 +39,33 @@ class StateWriter
         if (!is_dir($dir)) {
             wp_mkdir_p($dir);
         }
+        self::ensure_htaccess($dir);
 
         $tmp = "{$dir}/{$input_id}.json.tmp";
         $final = "{$dir}/{$input_id}.json";
 
         file_put_contents($tmp, json_encode($data, JSON_UNESCAPED_SLASHES));
         rename($tmp, $final); // atomic on same filesystem
+    }
+
+    /**
+     * Self-heal the hs-state/.htaccess. Viewers poll these JSON files directly
+     * (static, zero PHP), so they must revalidate every poll: Cache-Control
+     * no-cache makes the browser send If-None-Match each time and Apache's
+     * native ETag answers 304/200 cheaply. Wrapped in IfModule so a box
+     * without mod_headers serves files rather than 500ing (heuristic caching
+     * on a file rewritten every ~10s still revalidates almost immediately).
+     */
+    private static function ensure_htaccess($dir)
+    {
+        $file = $dir . '/.htaccess';
+        if (is_file($file)) {
+            return;
+        }
+        $rules = "# Written by HS\\LiveState\\StateWriter — do not edit; delete to regenerate.\n"
+            . "<IfModule mod_headers.c>\n"
+            . "Header set Cache-Control \"no-cache\"\n"
+            . "</IfModule>\n";
+        @file_put_contents($file, $rules);
     }
 }
