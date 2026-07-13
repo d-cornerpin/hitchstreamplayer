@@ -46,6 +46,12 @@
         form.querySelectorAll('button small.display').forEach(function (s) {
             if (s.textContent.trim() === 'USD') s.textContent = '';
         });
+
+        // ── 4. Amount placeholder: match prod's wording (4.5.1 appends the
+        //       min-max range, e.g. "Enter your amount 1 - 10000") ──
+        form.querySelectorAll('input[placeholder^="Enter your amount"]').forEach(function (i) {
+            i.placeholder = 'Enter your amount';
+        });
     }
 
     if (document.readyState === 'loading') {
