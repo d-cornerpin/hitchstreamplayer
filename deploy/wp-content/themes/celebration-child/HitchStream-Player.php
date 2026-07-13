@@ -24,7 +24,10 @@ header("Content-Security-Policy: "
 
 // Generate a short-lived nonce and endpoint URL for the client.
 $hs_player_nonce  = wp_create_nonce('hs_player_action');
-$live_state_url   = esc_url(get_stylesheet_directory_uri() . '/endpoints/live-state.php');
+// Point pollers at the REST route directly. The old URL here was the legacy
+// endpoints/live-state.php shim, which bootstraps WordPress just to 301 to
+// this same REST route — doubling the PHP cost of every viewer poll.
+$live_state_url   = esc_url(rest_url('hitchstream/v1/live-state'));
 
 // Read player defaults from admin settings. NO silent fallback to a hardcoded
 // customer code — if HSCF_customer_id is unset, the player will fatal loudly,
