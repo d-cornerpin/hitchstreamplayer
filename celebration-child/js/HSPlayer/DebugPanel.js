@@ -35,6 +35,7 @@ const SOURCE_PLAIN = {
   webhook: 'Webhook (instant)',
   probe: 'Cloudflare check (~10s)',
   coalesced: 'Cloudflare check (recent)',
+  'file-missing': 'No state yet (stream has never started)',
 };
 
 export class DebugPanel {

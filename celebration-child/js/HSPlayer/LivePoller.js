@@ -25,13 +25,19 @@ const RECOVERED = 'recovered';
  * Create a LivePoller instance.
  * @param {object} opts
  * @param {string} opts.inputId - Cloudflare input ID
- * @param {string} opts.endpoint - WordPress live-state endpoint URL
+ * @param {string} opts.endpoint - WordPress live-state REST endpoint URL
+ * @param {string} [opts.fileEndpoint] - Base URL (trailing slash) of the static
+ *   hs-state directory. When set, polls fetch `${fileEndpoint}${inputId}.json` —
+ *   a flat file Apache serves with ZERO PHP — instead of the REST route. The
+ *   file carries the same JSON contract (state/videoUID/hlsUrl/errorCode/
+ *   source/ts) and is kept fresh by webhook writes + the droplet refresher, so
+ *   viewer count no longer scales WordPress load. Omit to poll REST (legacy).
  * @param {function} opts.onEvent - Callback for events: { type, payload }
  * @param {function} [opts.debugLog] - Debug logger
  * @param {function} [opts.debugError] - Debug error logger
  */
 export function createLivePoller(opts) {
-  const { inputId, endpoint, onEvent, debugLog = () => {}, debugError = () => {} } = opts;
+  const { inputId, endpoint, fileEndpoint, onEvent, debugLog = () => {}, debugError = () => {} } = opts;
 
   let _nextTimeoutId = null;
   let _pollTimeoutId = null;
@@ -76,7 +82,9 @@ export function createLivePoller(opts) {
     if (_pollTimeoutId) clearTimeout(_pollTimeoutId);
     _pollTimeoutId = setTimeout(() => controller.abort(), POLL_TIMEOUT_MS);
 
-    const lifecycleUrl = `${endpoint}?inputId=${encodeURIComponent(inputId)}`;
+    const lifecycleUrl = fileEndpoint
+      ? `${fileEndpoint}${encodeURIComponent(inputId)}.json`
+      : `${endpoint}?inputId=${encodeURIComponent(inputId)}`;
     const headers = {};
     if (_lastETag) headers['If-None-Match'] = _lastETag;
 
@@ -106,6 +114,25 @@ export function createLivePoller(opts) {
 
       const etag = res.headers.get('etag');
       if (etag) _lastETag = etag;
+
+      // Static-file mode: 404 just means the flat file hasn't been written yet
+      // (a brand-new input that has never streamed / been polled). That is
+      // "idle", NOT an error — it must not trip the exponential backoff, or a
+      // pre-event page would slow its polling right before the stream starts.
+      if (fileEndpoint && res.status === 404) {
+        _inFlight = false;
+        _lastETag = null; // any cached ETag is for a file that no longer exists
+        if (_consecutivePollErrors > 0) {
+          _consecutivePollErrors = 0;
+          _nextPollDelayMs = POLL_INTERVAL_MS;
+          onEvent({ type: RECOVERED, payload: {} });
+        }
+        onEvent({
+          type: POLL,
+          payload: { state: 'idle', isLive: false, videoUID: null, hlsUrl: null, errorCode: null, source: 'file-missing', pollCount: _pollCount },
+        });
+        return;
+      }
 
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
