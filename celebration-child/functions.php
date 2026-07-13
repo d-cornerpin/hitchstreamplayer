@@ -98,6 +98,16 @@ function enqueue_scripts() {
     // js/hs-countdown.js). filemtime version auto-busts the browser cache.
     $hs_cd = get_stylesheet_directory() . '/js/hs-countdown.js';
     wp_enqueue_script('hs-countdown', get_stylesheet_directory_uri() . '/js/hs-countdown.js', array('jquery'), file_exists($hs_cd) ? filemtime($hs_cd) : '1.0', true);
+
+    // WP Easy Pay customizations, child-owned (brand buttons, headings, the
+    // hidden acct field, custom-amount layout). Used to be direct edits to the
+    // plugin's files, which every plugin update wiped — these survive updates
+    // and are inert on pages without a .singlepage payment form. Archived
+    // originals + rationale: wp-easy-pay-customizations/ in the repo.
+    $wpep_css = get_stylesheet_directory() . '/css/wpep-overrides.css';
+    wp_enqueue_style('hs-wpep-overrides', get_stylesheet_directory_uri() . '/css/wpep-overrides.css', array(), file_exists($wpep_css) ? filemtime($wpep_css) : '1.0');
+    $wpep_js = get_stylesheet_directory() . '/js/wpep-overrides.js';
+    wp_enqueue_script('hs-wpep-overrides', get_stylesheet_directory_uri() . '/js/wpep-overrides.js', array(), file_exists($wpep_js) ? filemtime($wpep_js) : '1.0', true);
 }
 
 add_action('wp_enqueue_scripts', 'enqueue_scripts');

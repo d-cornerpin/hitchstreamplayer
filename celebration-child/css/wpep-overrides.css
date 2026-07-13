@@ -1,0 +1,71 @@
+/*
+ * WP Easy Pay — HitchStream customizations, child-theme edition.
+ *
+ * Replaces the direct edits we used to keep inside the plugin's own files
+ * (views/frontend/*.php + assets/frontend/css/single_page.css on 4.0.4, see
+ * wp-easy-pay-customizations/ in the repo). Living here means the plugin can
+ * be updated freely and stays checksum-pristine — these overrides survive.
+ *
+ * Everything is scoped under .singlepage (wp-easy-pay's own form wrapper), so
+ * this sheet is inert on pages without a payment form.
+ */
+
+/* ── Section headings: match the site's type (was 20px/400/#333) ── */
+.singlepage .s_ft h2 {
+    font-size: 18px !important;
+    font-weight: 500 !important;
+    color: #4d6069 !important;
+}
+
+/* ── Buttons: the site's outlined brand style (was solid theme-color pill) ── */
+.singlepage .form-wizard .form-wizard-next-btn,
+.singlepage .form-wizard .form-wizard-previous-btn,
+.singlepage .form-wizard .form-wizard-submit,
+.singlepage .wpep-single-form-submit-btn {
+    color: #c34d5f !important;
+    background-color: transparent !important;
+    border: 2px solid #c34d5f !important;
+    border-radius: 0 !important;
+    display: block !important;
+    float: none !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: .8em 2em !important;
+    font-size: 16px !important;
+    font-weight: 700 !important;
+    line-height: 1 !important;
+    text-transform: uppercase !important;
+    text-align: center !important;
+    -webkit-appearance: none !important;
+    transition: all 300ms ease !important;
+    cursor: pointer;
+}
+
+.singlepage .form-wizard .form-wizard-next-btn:hover,   .singlepage .form-wizard .form-wizard-next-btn:focus,   .singlepage .form-wizard .form-wizard-next-btn:active,
+.singlepage .form-wizard .form-wizard-previous-btn:hover, .singlepage .form-wizard .form-wizard-previous-btn:focus, .singlepage .form-wizard .form-wizard-previous-btn:active,
+.singlepage .form-wizard .form-wizard-submit:hover,      .singlepage .form-wizard .form-wizard-submit:focus,      .singlepage .form-wizard .form-wizard-submit:active,
+.singlepage .wpep-single-form-submit-btn:hover,
+.singlepage .wpep-single-form-submit-btn:focus,
+.singlepage .wpep-single-form-submit-btn:active {
+    color: #ffffff !important;
+    background-color: #c34d5f !important;
+    border: 2px solid #c34d5f !important;
+    opacity: 1 !important;
+}
+
+/* ── No washed-out hover/disabled states (plugin dims to 0.7/0.8) ── */
+.singlepage .orderCompleted .form-wizard-submit { opacity: 1 !important; }
+.singlepage .btn-wpep-primary:hover,   .singlepage .btn-wpep-primary:focus,   .singlepage .btn-wpep-primary:active,
+.singlepage .btn-wpep-secondary:hover, .singlepage .btn-wpep-secondary:focus, .singlepage .btn-wpep-secondary:active { opacity: 1 !important; }
+.singlepage .file-upload-wrapper:hover:before { opacity: 1 !important; }
+
+/* ── Custom-amount layout: hide the "*Select Amount" label and the preset
+      amount picker; always show the custom amount box (was inline-style
+      surgery in amount_custom.php) ── */
+.singlepage label.selectAmount { display: none !important; }
+.singlepage .amountsMain .selection,
+.singlepage .selection { display: none !important; }
+.singlepage .selection.showPayment { display: block !important; }
+
+/* ── Pay-button row spans the full form width (was an inline-style edit) ── */
+.singlepage .btnGroup.ifSingle > div { width: 100%; }
