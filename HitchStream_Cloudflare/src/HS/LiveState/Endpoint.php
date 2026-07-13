@@ -152,10 +152,12 @@ class Endpoint
      *
      * Critical: the flat-file has NO TTL, so without this it served a stale state
      * (e.g. "idle") forever, and the probe never re-ran to notice the input went
-     * live. Webhooks were supposed to push updates, but live-input webhooks come
-     * from Cloudflare Notifications (cf-webhook-auth) which isn't wired up — so
-     * the probe must keep itself current. ~12s refreshes state on the player's
-     * normal poll cadence; the single-flight lock keeps /lifecycle calls cheap.
+     * live. Live-input webhooks (Cloudflare Notifications, cf-webhook-auth) ARE
+     * wired up in production and push transitions instantly — but delivery is
+     * not guaranteed, so the probe remains the freshness backstop. ~12s refreshes
+     * state on the droplet refresher's ~10s cadence (viewers poll the static
+     * hs-state file, not this endpoint); the single-flight lock keeps
+     * /lifecycle calls cheap.
      */
     private static function is_fresh($data)
     {
