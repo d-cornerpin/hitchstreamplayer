@@ -13,3 +13,4 @@ live-test-logo.svg
 
 # Local-only Docker WordPress mirror (matches prod: WP 6.1.1 / PHP 8.2 / MySQL 5.7)
 local-wp/
+local-wp-upgrade/

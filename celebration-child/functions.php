@@ -40,6 +40,14 @@ if (is_readable($hs_block_mappings)) {
 
 // Email alerts (shared with the webhook receiver). Loaded here on every request
 // so the wp-cron 'hs_error_recheck' handler is always registered (debounced
+// Modern-WordPress compatibility shims for the parent theme (fixes the
+// wp_default_scripts infinite recursion that 500'd the whole site on WP 6.4+ —
+// the original "update broke everything" incident). Safe on old WP too.
+$hs_wp_compat = get_stylesheet_directory() . '/inc/wp-compat.php';
+if (is_readable($hs_wp_compat)) {
+    require_once $hs_wp_compat;
+}
+
 // error + recovery emails). See inc/hs-alerts.php.
 $hs_alerts = get_stylesheet_directory() . '/inc/hs-alerts.php';
 if (is_readable($hs_alerts)) {
