@@ -93,6 +93,13 @@ export function createLivePoller(opts) {
         method: 'GET',
         mode: 'cors',
         credentials: 'omit',
+        // no-store: never let the browser cache answer a poll. Without this,
+        // static-file polling is at the mercy of server Cache-Control config —
+        // if the hs-state .htaccess is ignored (AllowOverride None), browsers
+        // heuristically cache the JSON and a guest could see stale "idle" long
+        // after the stream went live. Our manually-managed If-None-Match above
+        // still gets cheap 304s from Apache, so this costs nothing.
+        cache: 'no-store',
         signal: controller.signal,
         headers,
       });

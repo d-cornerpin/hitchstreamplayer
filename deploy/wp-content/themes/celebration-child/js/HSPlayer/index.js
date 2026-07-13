@@ -582,17 +582,59 @@ export class HSVideoElement extends HTMLElement {
     });
   }
 
-  // Ground-truth "is this input still live right now?" — used by the stall
-  // watchdog to confirm a stall is recoverable (vs the stream having stopped)
-  // before it rebuilds. DELIBERATELY hits the REST endpoint, not the static
-  // hs-state file the poller reads: this check must be fresher than the file
-  // (REST re-probes Cloudflare when its cache is stale), and it only fires on
-  // the rare drained-buffer recovery path, so the PHP cost is negligible.
-  // Resolves false on any failure (the safe direction: don't rebuild → at
-  // worst a brief freeze, never a replay).
-  _isStreamStillLive() {
+  // "Is this input still live right now?" — used by the stall watchdog to
+  // confirm a stall is recoverable (vs the stream having stopped) before it
+  // rebuilds. Resolves false on any failure (the safe direction: don't
+  // rebuild → at worst a brief freeze, never a replay).
+  //
+  // HERD-SAFE, two tiers. A common-mode feed death (encoder drop) funnels the
+  // whole audience toward this check within a few seconds of each other
+  // (everyone converges on liveSyncDuration latency, so everyone drains to the
+  // 5s floor near-simultaneously). Hundreds of simultaneous WP bootstraps
+  // against a 5-worker php-cgi cap mid-incident is the exact thundering herd
+  // the static-polling work exists to prevent. So:
+  //   1. Read the static hs-state file first (Apache, zero PHP — safe for any
+  //      number of clients at once). If it's FRESH (actively maintained by the
+  //      webhook/refresher), trust its verdict outright.
+  //   2. Only if the file is missing/stale/unreadable (refresher dead AND no
+  //      recent webhook — the rare compound failure) escalate to the REST
+  //      ground truth, after 0–8s of random jitter so even that worst case
+  //      trickles instead of stampeding.
+  async _isStreamStillLive() {
+    if (!this.inputId) return false;
+
+    // Tier 1: static file (no PHP).
+    const base = window?.HSPlayerConfig?.endpoints?.liveStateFileBase;
+    if (base) {
+      try {
+        const r = await fetch(`${base}${encodeURIComponent(this.inputId)}.json`, { method: 'GET', mode: 'cors', credentials: 'omit', cache: 'no-store' });
+        if (r.status === 404) return false; // no state ever written → not live
+        if (r.ok) {
+          const j = await r.json();
+          // ts is epoch seconds, stamped on every state write. Trust is
+          // VERDICT-ASYMMETRIC because the two mistakes are not symmetric:
+          //  - Trusting a stale "not live" → we skip a rebuild → brief freeze,
+          //    self-corrects. Safe. Trust it up to 45s (healthy files oscillate
+          //    0–~22s old between refresher writes).
+          //  - Trusting a stale "live" → we rebuild into a stopped stream →
+          //    the tail REPLAYS (the wedding bug). Destructive. Only trust a
+          //    "live" verdict written within REST's own 12s freshness window
+          //    (i.e. a probe/webhook vouched for it in the last 12s); anything
+          //    older escalates to REST ground truth below.
+          if (j && typeof j.ts === 'number') {
+            const age = Date.now() / 1000 - j.ts;
+            if (j.state !== 'live' && age <= 45) return false;
+            if (j.state === 'live' && age <= 12) return true;
+          }
+        }
+      } catch (e) { /* fall through to REST */ }
+    }
+
+    // Tier 2: REST ground truth, jittered.
     const ep = window?.HSPlayerConfig?.endpoints?.liveState;
-    if (!ep || !this.inputId) return Promise.resolve(false);
+    if (!ep) return false;
+    await new Promise(res => this.timers.setTimeout(res, Math.random() * 8000));
+    if (this._destroyed || this.playerState !== STATE.PLAYING) return false;
     return fetch(`${ep}?inputId=${encodeURIComponent(this.inputId)}`, { method: 'GET', mode: 'cors', credentials: 'omit', cache: 'no-store' })
       .then(r => r.ok ? r.json() : null)
       .then(j => !!j && j.state === 'live')
