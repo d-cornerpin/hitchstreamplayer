@@ -41,7 +41,7 @@ export class HSVideoElement extends HTMLElement {
     this.videoEl = null; this.overlayEl = null; this.debugPanelEl = null;
     this.statusMessageEl = null;
     this.pendingPlayRequest = false; this.prebufferStartTs = 0; this._gateTimer = null; this._drainMonitorTimer = null; this._revealMonitorTimer = null; this._fastRecovery = false;
-    this._stallWatchdogTimer = null; this._lastBufferEnd = 0; this._lastBufferEndTs = 0; this._recovering = false; this._offlinePollStreak = 0; this._viewerCountTimer = null;
+    this._stallWatchdogTimer = null; this._lastBufferEnd = 0; this._lastBufferEndTs = 0; this._recovering = false; this._offlinePollStreak = 0; this._viewerCountTimer = null; this._verifyingRecovery = false;
     this._currentMsgKey = null; this._currentMsgText = '';
     this.throughputSamples = []; this.probeAttempts = 0;
     this.currentStreamUrl = null; this.ingestFalseCount = 0; this.hasPlayedOnce = false;
@@ -263,15 +263,12 @@ export class HSVideoElement extends HTMLElement {
           this._offlinePollStreak = (this._offlinePollStreak || 0) + 1;
           const canCoast = this.playerState === STATE.PLAYING && ctx.hasBufferedContent && ctx.bufferAhead > 2;
           if (canCoast && this._offlinePollStreak < OFFLINE_POLL_CONFIRM) {
-            // We're optimistically treating the stream as still live during the
-            // hold — so KEEP the stall watchdog armed (it's gated on
-            // streamCurrentlyLive). That way, if the feed actually does stall
-            // while we're coasting on a thin buffer, the watchdog still recovers
-            // at the buffer floor (~5s) instead of letting it freeze until the
-            // next poll. The debounce only suppresses the cosmetic poll-driven
-            // poster cover; real playback stalls remain covered.
-            this.streamCurrentlyLive = true;
-            this.debugLog('Transient not-live poll held (streak ' + this._offlinePollStreak + '/' + OFFLINE_POLL_CONFIRM + ') — keep playing, watchdog armed');
+            // Hold: ignore this single transient not-live poll and keep playing
+            // the buffer. We deliberately do NOT force streamCurrentlyLive here —
+            // the stall watchdog confirms liveness on its own (see
+            // _startStallWatchdog) before it ever rebuilds, so it can't mistake a
+            // genuine stop for a stall and replay the tail.
+            this.debugLog('Transient not-live poll held (streak ' + this._offlinePollStreak + '/' + OFFLINE_POLL_CONFIRM + ') — keep playing');
           } else {
             const ev = errorCode ? { type:'poll', payload:{ state:'error', errorCode, source } }
               : { type:'poll', payload:{ state:'idle', videoUID:null, hlsUrl:null } };
@@ -550,12 +547,26 @@ export class HSVideoElement extends HTMLElement {
         const ahead = Math.max(0, bEnd - v.currentTime);
         if (ahead <= RECOVERY_BUFFER_FLOOR_SECONDS
             && (Date.now() - this._lastBufferEndTs) >= STALL_RECOVERY_MS
-            && this.streamCurrentlyLive && this.latestLiveHlsUrl) {
-          this.debugLog('Stall watchdog: buffer nearly drained on a dead feed — recovering');
-          this._recovering = true;
-          this.ui.fadePoster(1, FAST_RECOVERY_FADE_MS);
-          this._rebuildLiveStream(this.latestLiveHlsUrl);
-          this._updatePosterMessage();
+            && this.latestLiveHlsUrl && !this._verifyingRecovery) {
+          // Buffer nearly drained on a dead edge. This looks IDENTICAL whether the
+          // feed stalled mid-stream (recover) or the stream was stopped (must NOT
+          // rebuild — that replays the tail). Confirm it's actually still live
+          // before doing anything destructive, instead of trusting a cached flag.
+          this._verifyingRecovery = true;
+          this._isStreamStillLive().then((live) => {
+            this._verifyingRecovery = false;
+            if (live && this.playerState === STATE.PLAYING) {
+              this.debugLog('Stall watchdog: confirmed live — recovering on the live edge');
+              this._recovering = true;
+              this.ui.fadePoster(1, FAST_RECOVERY_FADE_MS);
+              this._rebuildLiveStream(this.latestLiveHlsUrl); // also stops this watchdog
+              this._updatePosterMessage();
+            } else {
+              // Stream actually stopped (or we already left PLAYING) — no rebuild,
+              // no replay. Let the normal not-live poll drain the buffer to the logo.
+              this._stopStallWatchdog();
+            }
+          });
         }
       }, 1000);
     });
@@ -565,6 +576,20 @@ export class HSVideoElement extends HTMLElement {
     safe('stopStallWatchdog', () => {
       if (this._stallWatchdogTimer) { this.timers.clearInterval(this._stallWatchdogTimer); this._stallWatchdogTimer = null; }
     });
+  }
+
+  // Ground-truth "is this input still live right now?" — used by the stall
+  // watchdog to confirm a stall is recoverable (vs the stream having stopped)
+  // before it rebuilds. Reuses the same WP live-state endpoint the poller hits
+  // (same-origin, no CORS). Resolves false on any failure (the safe direction:
+  // don't rebuild → at worst a brief freeze, never a replay).
+  _isStreamStillLive() {
+    const ep = window?.HSPlayerConfig?.endpoints?.liveState;
+    if (!ep || !this.inputId) return Promise.resolve(false);
+    return fetch(`${ep}?inputId=${encodeURIComponent(this.inputId)}`, { method: 'GET', mode: 'cors', credentials: 'omit', cache: 'no-store' })
+      .then(r => r.ok ? r.json() : null)
+      .then(j => !!j && j.state === 'live')
+      .catch(() => false);
   }
 
   // Under-logo poster message. Shown only after the play button is pressed and
