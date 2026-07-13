@@ -1,0 +1,18 @@
+[Unit]
+Description=HitchStream live-state refresher (flat-file freshness + alert tick + wp-cron liveness)
+Documentation=file:///home/admin_hitchstream/RUNBOOK-live-state.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/hs-live-state-refresher.sh
+Restart=always
+RestartSec=5
+# Low priority: this must never compete with Apache/php-cgi for CPU.
+Nice=10
+# Only needs to list hs-state/ filenames and make outbound HTTPS.
+User=hs_deploymaster
+
+[Install]
+WantedBy=multi-user.target
