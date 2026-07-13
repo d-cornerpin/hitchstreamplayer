@@ -62,8 +62,15 @@ is a hard requirement; it's also commented at the top of the script.
 
 ## Event-day checklist (before guests arrive)
 
-For **every** Live Input that will stream today — especially newly created
-ones:
+**Easiest way: WP Admin → HS CloudFlare → Checklist tab → "Run Event-Day
+Checklist".** One button runs everything below automatically — including
+priming EVERY input Cloudflare knows about (so brand-new inputs are enrolled
+in the refresher without the manual curl) — and shows pass/warn/fail with
+plain-English fixes. Run it the morning of every event and after creating any
+new Live Input.
+
+The manual commands below are the fallback (e.g. wp-admin unreachable), for
+**every** Live Input that will stream today — especially newly created ones:
 
 - [ ] **Prime the input's state file (MANDATORY for new inputs):**
   ```bash

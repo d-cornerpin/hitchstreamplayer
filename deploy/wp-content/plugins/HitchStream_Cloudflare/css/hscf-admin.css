@@ -232,3 +232,18 @@ input:checked + .slider:before { transform: translateX(16px); }
 .hscf-sv-modal-close:hover { color: #1d2327; }
 .hscf-sv-modal-title { margin: 0 28px 12px 0; font-size: 15px; word-break: break-all; }
 .hscf-sv-video { width: 100%; max-height: 60vh; border-radius: 4px; background: #000; display: block; }
+
+/* ── Event-day checklist tab ── */
+.hscf-checklist { max-width: 860px; background: #fff; border: 1px solid #dcdcde; border-radius: 6px; padding: 18px 20px; margin-top: 16px; }
+.hscf-checklist__summary { margin: 6px 0 14px; padding: 10px 14px; border-radius: 6px; font-size: 14px; font-weight: 600; }
+.hscf-checklist__summary.is-pass { background: #edfaef; color: #008a20; }
+.hscf-checklist__summary.is-warn { background: #fcf9e8; color: #996800; }
+.hscf-checklist__summary.is-fail { background: #fcf0f1; color: #d63638; }
+.hscf-check { display: grid; grid-template-columns: 24px 170px 1fr; gap: 8px; align-items: baseline; padding: 8px 4px; border-bottom: 1px solid #f0f0f1; font-size: 13px; }
+.hscf-check__icon { font-weight: 700; text-align: center; }
+.hscf-check--pass .hscf-check__icon { color: #008a20; }
+.hscf-check--warn .hscf-check__icon { color: #996800; }
+.hscf-check--fail .hscf-check__icon { color: #d63638; }
+.hscf-check__label { font-weight: 600; }
+.hscf-check__detail { color: #50575e; }
+@media (max-width: 640px) { .hscf-check { grid-template-columns: 20px 1fr; } .hscf-check__detail { grid-column: 2; } }

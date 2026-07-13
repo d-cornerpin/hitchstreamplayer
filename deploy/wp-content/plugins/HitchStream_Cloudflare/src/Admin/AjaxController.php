@@ -25,6 +25,7 @@ class AjaxController {
         'hscf_rotate_webhook'           => 'handleRotateWebhook',
         'hscf_test_connection'          => 'handleTestConnection',
         'hscf_test_alert_email'         => 'handleTestAlertEmail',
+        'hscf_run_checklist'            => 'handleRunChecklist',
         'hscf_test_streamer'            => 'handleTestStreamer',
         'hscf_streamer_list_videos'     => 'handleStreamerListVideos',
         'hscf_streamer_upload_video'    => 'handleStreamerUploadVideo',
@@ -256,6 +257,16 @@ class AjaxController {
             return;
         }
         wp_send_json_success(['message' => 'Secret rotated — Cloudflare and WordPress are back in sync.']);
+    }
+
+    /** Run the event-day checklist (see ChecklistService). */
+    private function handleRunChecklist(): void {
+        try {
+            $result = (new \HS\Services\ChecklistService())->run();
+            wp_send_json_success($result);
+        } catch (\Throwable $e) {
+            wp_send_json_error('Checklist crashed: ' . $e->getMessage());
+        }
     }
 
     private function handleTestConnection(): void {

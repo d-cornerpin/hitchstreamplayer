@@ -41,6 +41,46 @@ jQuery(document).ready(function ($) {
         });
     }
 
+    // ── Event-day checklist: one button, server runs the checks, render rows ──
+    $(document).on('click', '#hscf-checklist-run', function () {
+        var $btn = $(this).prop('disabled', true);
+        var label = $btn.html();
+        $btn.html('<span class="dashicons dashicons-update hscf-spin"></span> Running checks…');
+        $('#hscf-checklist-results').hide();
+        $.post(hscf_ajax.ajax_url, { action: 'hscf_run_checklist', _wpnonce: hscf_ajax.nonce })
+            .done(function (resp) {
+                if (!resp || !resp.success || !resp.data || !resp.data.rows) {
+                    renderChecklist([{ label: 'Checklist', status: 'fail', detail: (resp && resp.data) ? String(resp.data) : 'Unexpected response.' }], false);
+                    return;
+                }
+                renderChecklist(resp.data.rows, resp.data.ok);
+            })
+            .fail(function (xhr) {
+                renderChecklist([{ label: 'Checklist', status: 'fail', detail: 'Request failed: ' + (xhr.statusText || 'unknown error') + '. The server may be overloaded.' }], false);
+            })
+            .always(function () { $btn.prop('disabled', false).html(label); });
+
+        function renderChecklist(rows, ok) {
+            var ICON = { pass: '✓', warn: '⚠', fail: '✗' };
+            var html = '';
+            rows.forEach(function (r) {
+                var s = (r.status === 'pass' || r.status === 'warn' || r.status === 'fail') ? r.status : 'warn';
+                html += '<div class="hscf-check hscf-check--' + s + '">'
+                    + '<span class="hscf-check__icon">' + ICON[s] + '</span>'
+                    + '<span class="hscf-check__label">' + escHtml(r.label) + '</span>'
+                    + '<span class="hscf-check__detail">' + escHtml(r.detail) + '</span>'
+                    + '</div>';
+            });
+            $('#hscf-checklist-rows').html(html);
+            var anyWarn = rows.some(function (r) { return r.status === 'warn'; });
+            $('#hscf-checklist-summary')
+                .attr('class', 'hscf-checklist__summary ' + (ok ? (anyWarn ? 'is-warn' : 'is-pass') : 'is-fail'))
+                .text(ok ? (anyWarn ? 'Ready, with warnings — the stream will work; review the ⚠ items.' : 'All checks passed — you are ready for the event. 🎉')
+                         : 'NOT ready — fix the ✗ items before the event.');
+            $('#hscf-checklist-results').show();
+        }
+    });
+
     function initVideoUploader() {
         $('#video-upload-form').off('submit').on('submit', function (e) {
             e.preventDefault();
