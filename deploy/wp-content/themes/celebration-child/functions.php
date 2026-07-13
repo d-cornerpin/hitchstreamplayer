@@ -108,6 +108,13 @@ function enqueue_scripts() {
     wp_enqueue_style('hs-wpep-overrides', get_stylesheet_directory_uri() . '/css/wpep-overrides.css', array(), file_exists($wpep_css) ? filemtime($wpep_css) : '1.0');
     $wpep_js = get_stylesheet_directory() . '/js/wpep-overrides.js';
     wp_enqueue_script('hs-wpep-overrides', get_stylesheet_directory_uri() . '/js/wpep-overrides.js', array(), file_exists($wpep_js) ? filemtime($wpep_js) : '1.0', true);
+
+    // Neutralizes the parent misc.js forced-16:9 video resize (the last
+    // customization that used to require re-editing the parent file after
+    // every theme update). Depends on 'celebration-misc' so our handlers bind
+    // (and therefore run) after the parent's. See js/misc-video-resize-fix.js.
+    $hs_vrf = get_stylesheet_directory() . '/js/misc-video-resize-fix.js';
+    wp_enqueue_script('hs-video-resize-fix', get_stylesheet_directory_uri() . '/js/misc-video-resize-fix.js', array('jquery', 'celebration-misc'), file_exists($hs_vrf) ? filemtime($hs_vrf) : '1.0', false);
 }
 
 add_action('wp_enqueue_scripts', 'enqueue_scripts');
