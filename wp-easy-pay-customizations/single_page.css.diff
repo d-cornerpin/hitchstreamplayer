@@ -1,0 +1,125 @@
+--- wp-easy-pay/assets/frontend/css/single_page.css	2022-02-16 13:01:32
++++ live/assets/frontend/css/single_page.css	2026-07-13 15:24:48
+@@ -119,13 +119,13 @@
+ }
+ 
+ .singlepage .s_ft h2 {
+-  font-size: 20px;
+-  font-weight: 400;
++  font-size: 18px;
++  font-weight: 500;
+   margin: 0px 0px 20px 0px;
+   padding: 0px;
+   letter-spacing: normal;
+   text-transform: none;
+-  color: #333 !important;
++  color: #4d6069 !important;
+ }
+ 
+ .singlepage .s_ft h2::before {
+@@ -246,20 +246,24 @@
+ .singlepage .form-wizard .form-wizard-previous-btn,
+ .singlepage .form-wizard .form-wizard-submit,
+ .singlepage .wpep-single-form-submit-btn {
+-  background-color: var(--wpep-theme-color);
+-  color: #ffffff;
+-  display: inline-block;
+-  min-width: 100px;
+-  min-width: 120px;
+-  padding: 10px 20px;
+-  text-align: center;
+-  font-size: 16px;
+-  font-weight: bold;
+-  border-radius: 4px;
+-  transition: all 0.2s ease-in-out;
+-  text-decoration: none !important;
+-  cursor: pointer;
+-  border: 1px solid var(--wpep-theme-color);
++color: #c34d5f;
++border: 2px solid #c34d5f;
++cursor: pointer;
++display: block;
++margin: 0;
++padding: .8em 2em;
++font-size: 16px;
++line-height: 1;
++width: 100%;
++font-weight: 700;
++text-transform: uppercase;
++background-color: transparent;
++-webkit-transition: all 300ms ease;
++-moz-transition: all 300ms ease;
++transition: all 300ms ease;
++-webkit-appearance: none;
++border-radius: 0;
++width:100%
+ }
+ 
+ .singlepage .form-wizard .form-wizard-next-btn:hover, .singlepage .form-wizard .form-wizard-next-btn:focus, .singlepage .form-wizard .form-wizard-next-btn:active,
+@@ -272,13 +276,24 @@
+ .singlepage .wpep-single-form-submit-btn:hover,
+ .singlepage .wpep-single-form-submit-btn:focus,
+ .singlepage .wpep-single-form-submit-btn:active {
+-  background-color: var(--wpep-theme-color);
+   color: #ffffff;
+-  opacity: 0.8;
+-  text-decoration: none;
+-  box-shadow: none;
+-  outline: none;
+-  border: 1px solid var(--wpep-theme-color);
++border: 2px solid #c34d5f;
++    background-color: #c34d5f;
++cursor: pointer;
++display: block;
++margin: 0;
++padding: .8em 2em;
++font-size: 16px;
++line-height: 1;
++width: 100%;
++font-weight: 700;
++text-transform: uppercase;
++-webkit-transition: all 300ms ease;
++-moz-transition: all 300ms ease;
++transition: all 300ms ease;
++-webkit-appearance: none;
++border-radius: 0;
++width:100%
+ }
+ 
+ .singlepage .form-wizard-next-btn small {
+@@ -1268,7 +1283,7 @@
+ }
+ 
+ .singlepage .orderCompleted .form-wizard-submit {
+-  opacity: 0.7;
++  opacity: 1;
+ }
+ 
+ .singlepage ul.wpep_tabs {
+@@ -1431,7 +1446,7 @@
+ .singlepage .btn-wpep-primary:hover,
+ .singlepage .btn-wpep-primary:focus,
+ .singlepage .btn-wpep-primary:active {
+-  opacity: 0.8;
++  opacity: 1;
+ }
+ 
+ .singlepage .btn-wpep-secondary {
+@@ -1448,7 +1463,7 @@
+ .singlepage .btn-wpep-secondary:hover,
+ .singlepage .btn-wpep-secondary:focus,
+ .singlepage .btn-wpep-secondary:active {
+-  opacity: 0.8;
++  opacity: 1;
+ }
+ 
+ .singlepage #stickyBar .btn-wpep {
+@@ -2381,7 +2396,7 @@
+ 
+ .singlepage .file-upload-wrapper:hover:before {
+   background: var(--wpep-theme-color);
+-  opacity: 0.8;
++  opacity: 1;
+ }
+ 
+ .singlepage .file-upload-wrapper input {
