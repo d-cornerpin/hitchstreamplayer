@@ -491,7 +491,7 @@ class SettingsPage {
         }
 
         $tab = isset($_GET['tab']) ? sanitize_key($_GET['tab']) : 'streams';
-        if (!in_array($tab, ['streams', 'videos', 'settings'], true)) { $tab = 'streams'; }
+        if (!in_array($tab, ['streams', 'videos', 'checklist', 'settings'], true)) { $tab = 'streams'; }
         $base       = admin_url('admin.php?page=HitchStream_Cloudflare');
         $account_id = get_option('HSCF_cloudflare_account_id', '');
         $cf_dash    = $account_id
@@ -513,6 +513,7 @@ class SettingsPage {
     <nav class="nav-tab-wrapper hscf-tabs">
         <a href="<?= esc_url($base . '&tab=streams') ?>" class="nav-tab <?= $tab === 'streams' ? 'nav-tab-active' : '' ?>"><span class="dashicons dashicons-video-alt2"></span> Live Streams</a>
         <a href="<?= esc_url($base . '&tab=videos') ?>" class="nav-tab <?= $tab === 'videos' ? 'nav-tab-active' : '' ?>"><span class="dashicons dashicons-format-video"></span> Video Library</a>
+        <a href="<?= esc_url($base . '&tab=checklist') ?>" class="nav-tab <?= $tab === 'checklist' ? 'nav-tab-active' : '' ?>"><span class="dashicons dashicons-yes-alt"></span> Checklist</a>
         <a href="<?= esc_url($base . '&tab=settings') ?>" class="nav-tab <?= $tab === 'settings' ? 'nav-tab-active' : '' ?>"><span class="dashicons dashicons-admin-generic"></span> Settings</a>
     </nav>
 
@@ -651,6 +652,27 @@ class SettingsPage {
     <?php endforeach; else: ?>
         <div class="hscf-empty"><span class="dashicons dashicons-format-video"></span><p><?= is_string($videos) && $videos ? esc_html($videos) : 'No uploaded videos yet.' ?></p></div>
     <?php endif; ?>
+    </div>
+
+    <?php elseif ($tab === 'checklist'): ?>
+    <?php // ── EVENT-DAY CHECKLIST TAB ── one button that runs the pre-event
+          //    checks from RUNBOOK-live-state.md (prime all inputs, verify the
+          //    static files viewers poll, refresher heartbeat, webhook, alerts). ?>
+    <div class="hscf-checklist">
+        <p>Run this <strong>the morning of every event</strong> — and always after creating a <strong>new</strong> Live Input
+           (priming is what enrolls a new input in the state refresher). It checks everything guests depend on:
+           state files, freshness, the refresher, webhooks, and alerts. Takes a few seconds.</p>
+        <p>
+            <button type="button" class="button button-primary button-hero" id="hscf-checklist-run">
+                <span class="dashicons dashicons-yes-alt"></span> Run Event-Day Checklist
+            </button>
+        </p>
+        <div id="hscf-checklist-results" style="display:none;">
+            <div class="hscf-checklist__summary" id="hscf-checklist-summary"></div>
+            <div class="hscf-checklist__rows" id="hscf-checklist-rows"></div>
+            <p class="description">Fail = will affect viewers, fix before the event. Warn = degraded but safe — the stream will still work.
+               Manual fallback commands live in <code>RUNBOOK-live-state.md</code>.</p>
+        </div>
     </div>
 
     <?php else: ?>
