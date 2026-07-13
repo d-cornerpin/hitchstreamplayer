@@ -69,3 +69,11 @@
 
 /* ── Pay-button row spans the full form width (was an inline-style edit) ── */
 .singlepage .btnGroup.ifSingle > div { width: 100%; }
+
+/* ── Compact PREVIOUS/PAY buttons. The plugin's multiline button template gets
+      <br> tags injected by wpautop, inflating the pay button (and its flex
+      sibling stretches to match). The old 4.0.4 in-plugin hack dodged this by
+      collapsing the markup to one line; neutralize the breaks instead. ── */
+.singlepage .btnGroup button br { display: none !important; }
+.singlepage .btnGroup button span { display: inline !important; }
+.singlepage .btnGroup .form-wizard-previous-btn { line-height: 1 !important; }
