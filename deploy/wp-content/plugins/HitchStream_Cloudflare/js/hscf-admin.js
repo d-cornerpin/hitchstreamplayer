@@ -1051,6 +1051,36 @@ jQuery(function ($) {
         }
     }
 
+    // ── "Starting…" spinner that persists until the stream is really live ─────
+    // While a Start is pending, updateStreamButton is held off by the busy flag,
+    // so the spinner stays. A watchdog polls faster to catch "streaming" sooner,
+    // and gives up after 3 min so it can never spin forever.
+    function startPendingWatch($panel) {
+        clearPendingWatch($panel);
+        var poll = setInterval(function () {
+            if (!$panel.data('pendingStart')) { clearPendingWatch($panel); return; }
+            refreshStatus($panel);
+        }, 5000);
+        var timeout = setTimeout(function () {
+            if ($panel.data('pendingStart')) {
+                clearPendingStart($panel, 'The LiveU hasn’t reported the stream as live within 3 minutes — it may still come up. Use Refresh to check.');
+            }
+        }, 180000);
+        $panel.data('pendingWatch', { poll: poll, timeout: timeout });
+    }
+    function clearPendingWatch($panel) {
+        var w = $panel.data('pendingWatch');
+        if (w) { clearInterval(w.poll); clearTimeout(w.timeout); $panel.removeData('pendingWatch'); }
+    }
+    // Release the pending-start spinner (it went live, failed, or timed out).
+    function clearPendingStart($panel, errorMsg) {
+        $panel.removeData('pendingStart');
+        clearPendingWatch($panel);
+        $panel.find('.hscf-liveu-toggle-stream').data('busy', false);
+        if (errorMsg) { sendToModal(errorMsg); }
+        updateStreamButton($panel);
+    }
+
     function renderStatus($panel, s) {
         var $bat = $panel.find('.hscf-liveu-battery');
         var $ss  = $panel.find('.hscf-liveu-streamstate');
@@ -1102,7 +1132,11 @@ jQuery(function ($) {
         else { $ss.addClass('hscf-liveu-streamstate--off').text(state); }
         // drive the single Start/Stop button off the live streaming state
         $panel.data('streaming', !!s.streaming);
-        updateStreamButton($panel);
+        if ($panel.data('pendingStart') && s.streaming) {
+            clearPendingStart($panel);   // it's live now → release spinner, show Stop
+        } else {
+            updateStreamButton($panel);  // busy guard keeps the spinner up while still pending
+        }
 
         // networks
         if (s.networks && s.networks.length) {
@@ -1213,10 +1247,14 @@ jQuery(function ($) {
             var streamName = $panel.attr('data-input-name') || 'this stream';
             if (!window.confirm('Start streaming ' + unitName + ' to "' + streamName + '"?\n\nThis goes LIVE to the configured destination.')) { return; }
             $btn.data('busy', true).prop('disabled', true).html('<span class="dashicons dashicons-update hscf-spin"></span> Starting…');
+            // Request success only means START was accepted; the Solo takes ~a
+            // minute to actually go live. Keep the spinner up (pendingStart) until
+            // a status poll reports it streaming, then the button flips to Stop.
+            $panel.data('pendingStart', true);
+            startPendingWatch($panel);
             post('hscf_liveu_start', { unit_uid: unit, input_uid: inputId($panel) })
-                .done(function (resp) { if (!resp || !resp.success) { sendToModal((resp && resp.data) ? resp.data : 'Start failed.'); } })
-                .fail(function () { sendToModal('Request failed while starting the stream.'); })
-                .always(function () { $btn.data('busy', false); setTimeout(function () { refreshStatus($panel); refreshVerify($panel); }, 1500); });
+                .done(function (resp) { if (!resp || !resp.success) { clearPendingStart($panel, (resp && resp.data) ? resp.data : 'Start failed.'); } })
+                .fail(function () { clearPendingStart($panel, 'Request failed while starting the stream.'); });
         }
     });
 

@@ -43,7 +43,7 @@ add_action('init', function () {
 // ── Admin script enqueuing ────────────────────────────────────────
 
 add_action('admin_enqueue_scripts', function ($hook) {
-    wp_enqueue_script('hscf-admin-script', plugin_dir_url(__FILE__) . 'js/hscf-admin.js', ['jquery'], '2.46', true);
+    wp_enqueue_script('hscf-admin-script', plugin_dir_url(__FILE__) . 'js/hscf-admin.js', ['jquery'], '2.47', true);
     wp_localize_script('hscf-admin-script', 'hscf_ajax', [
         'ajax_url'   => admin_url('admin-ajax.php'),
         'nonce'      => wp_create_nonce('hscf_admin'),
@@ -57,7 +57,7 @@ add_action('admin_enqueue_scripts', function ($hook) {
 
 add_action('wp_enqueue_scripts', function () {
     if (current_user_can('manage_options')) {
-        wp_enqueue_script('hscf-admin-script-frontend', plugin_dir_url(__FILE__) . 'js/hscf-admin.js', ['jquery'], '2.46', true);
+        wp_enqueue_script('hscf-admin-script-frontend', plugin_dir_url(__FILE__) . 'js/hscf-admin.js', ['jquery'], '2.47', true);
         wp_localize_script('hscf-admin-script-frontend', 'hscf_ajax', [
             'ajax_url'   => admin_url('admin-ajax.php'),
             'nonce'      => wp_create_nonce('hscf_admin'),
