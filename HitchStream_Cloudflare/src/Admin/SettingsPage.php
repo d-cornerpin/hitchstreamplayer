@@ -35,6 +35,7 @@ class SettingsPage {
         add_action('admin_init', [__CLASS__, 'registerPlayerSettings']);
         add_action('admin_init', [__CLASS__, 'registerStreamerSettings']);
         add_action('admin_init', [__CLASS__, 'registerAlertSettings']);
+        add_action('admin_init', [__CLASS__, 'registerLiveUSettings']);
     }
 
     /** Register admin menu. */
@@ -175,6 +176,18 @@ class SettingsPage {
         add_settings_field('HSCF_alert_test_field', 'Test delivery', [__CLASS__, 'alert_test_field'], 'HitchStream_Cloudflare', 'HSCF_alert_settings_section');
     }
 
+    /** LiveU Solo login — unlocks the per-input bonded-encoder control panel. */
+    public static function registerLiveUSettings(): void {
+        register_setting('HSCF_liveu_settings', 'HSCF_liveu_email');
+        register_setting('HSCF_liveu_settings', 'HSCF_liveu_password');
+        add_settings_section('HSCF_liveu_settings_section', 'LiveU Solo', [__CLASS__, 'liveu_section_desc'], 'HitchStream_Cloudflare');
+        add_settings_field('HSCF_liveu_email_field', 'Solo Portal Email', [__CLASS__, 'liveu_email_field'], 'HitchStream_Cloudflare', 'HSCF_liveu_settings_section');
+        add_settings_field('HSCF_liveu_password_field', 'Solo Portal Password', [__CLASS__, 'liveu_password_field'], 'HitchStream_Cloudflare', 'HSCF_liveu_settings_section');
+        // Changing the login invalidates the cached bearer token.
+        add_action('update_option_HSCF_liveu_email', [\HS\LiveU\Client::class, 'forgetToken']);
+        add_action('update_option_HSCF_liveu_password', [\HS\LiveU\Client::class, 'forgetToken']);
+    }
+
     /** Tidy the alert-email list on save (trim + normalize separators to ", ")
      *  without dropping entries, so a typo is visible rather than silently lost. */
     public static function sanitizeAlertEmail($value): string {
@@ -191,6 +204,21 @@ class SettingsPage {
     }
 
     // ── Field callbacks ────────────────────────────────────────────
+
+    public static function liveu_section_desc(): void {
+        echo '<p>Your <a href="https://solo.liveu.tv" target="_blank" rel="noopener">solo.liveu.tv</a> portal login. Enter it to unlock the <strong>LiveU Solo</strong> control panel on each live input — arm a bonded Solo encoder at your Cloudflare input, toggle LRT, and start/stop the stream from here. Leave blank to hide the panel entirely.</p>';
+    }
+
+    public static function liveu_email_field(): void {
+        $val = get_option('HSCF_liveu_email', '');
+        echo "<input type='email' name='HSCF_liveu_email' value='" . esc_attr($val) . "' class='regular-text' autocomplete='off' placeholder='you@example.com' />";
+    }
+
+    public static function liveu_password_field(): void {
+        $val = get_option('HSCF_liveu_password', '');
+        echo "<input type='password' name='HSCF_liveu_password' value='" . esc_attr($val) . "' class='regular-text' autocomplete='new-password' />";
+        echo '<p class="description">Stored as a WordPress option (same as the Cloudflare key) and only ever used server-side — the password never reaches the browser.</p>';
+    }
 
     public static function cf_email_field(): void {
         $val = get_option('HSCF_cloudflare_email', '');
@@ -588,6 +616,18 @@ class SettingsPage {
                     <?php self::alert_section_desc(); ?>
                     <table class="form-table" role="presentation"><?php do_settings_fields('HitchStream_Cloudflare', 'HSCF_alert_settings_section'); ?></table>
                     <?php submit_button('Save Alerts'); ?>
+                </form>
+            </div>
+        </details>
+
+        <details class="hscf-card">
+            <summary class="hscf-card__head"><span class="dashicons dashicons-video-alt3"></span> LiveU Solo <span class="hscf-card__hint"><?= \HS\Config::liveuConfigured() ? '<span class="hscf-ok">Login set</span>' : '<span class="hscf-warn">Not configured</span>' ?></span></summary>
+            <div class="hscf-card__body">
+                <form method="post" action="options.php">
+                    <?php settings_fields('HSCF_liveu_settings'); ?>
+                    <?php self::liveu_section_desc(); ?>
+                    <table class="form-table" role="presentation"><?php do_settings_fields('HitchStream_Cloudflare', 'HSCF_liveu_settings_section'); ?></table>
+                    <?php submit_button('Save LiveU Login'); ?>
                 </form>
             </div>
         </details>
