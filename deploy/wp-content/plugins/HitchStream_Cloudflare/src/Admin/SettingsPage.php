@@ -183,6 +183,7 @@ class SettingsPage {
         add_settings_section('HSCF_liveu_settings_section', 'LiveU Solo', [__CLASS__, 'liveu_section_desc'], 'HitchStream_Cloudflare');
         add_settings_field('HSCF_liveu_email_field', 'Solo Portal Email', [__CLASS__, 'liveu_email_field'], 'HitchStream_Cloudflare', 'HSCF_liveu_settings_section');
         add_settings_field('HSCF_liveu_password_field', 'Solo Portal Password', [__CLASS__, 'liveu_password_field'], 'HitchStream_Cloudflare', 'HSCF_liveu_settings_section');
+        add_settings_field('hscf_liveu_test_field', 'Verify login', [__CLASS__, 'liveu_test_field'], 'HitchStream_Cloudflare', 'HSCF_liveu_settings_section');
         // Changing the login invalidates the cached bearer token.
         add_action('update_option_HSCF_liveu_email', [\HS\LiveU\Client::class, 'forgetToken']);
         add_action('update_option_HSCF_liveu_password', [\HS\LiveU\Client::class, 'forgetToken']);
@@ -218,6 +219,15 @@ class SettingsPage {
         $val = get_option('HSCF_liveu_password', '');
         echo "<input type='password' name='HSCF_liveu_password' value='" . esc_attr($val) . "' class='regular-text' autocomplete='new-password' />";
         echo '<p class="description">Stored as a WordPress option (same as the Cloudflare key) and only ever used server-side — the password never reaches the browser.</p>';
+    }
+
+    public static function liveu_test_field(): void {
+        echo '<p><button type="button" class="button" id="hscf-liveu-test-btn">Test LiveU Login</button> <span id="hscf-liveu-test-result" class="hscf-test-result"></span></p>';
+        echo '<p class="description">Checks the email &amp; password typed above against the Solo portal — <strong>before</strong> you save.</p>';
+        echo self::testButtonScript(
+            'hscf-liveu-test-btn', 'hscf-liveu-test-result', 'hscf_test_liveu', 'Test LiveU Login',
+            '_data.email = $("input[name=HSCF_liveu_email]").val(); _data.password = $("input[name=HSCF_liveu_password]").val();'
+        );
     }
 
     public static function cf_email_field(): void {

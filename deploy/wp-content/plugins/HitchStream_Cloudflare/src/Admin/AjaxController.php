@@ -51,6 +51,7 @@ class AjaxController {
         'hscf_liveu_start'              => 'handleLiveUStart',
         'hscf_liveu_stop'               => 'handleLiveUStop',
         'hscf_liveu_lrt'                => 'handleLiveULrt',
+        'hscf_test_liveu'               => 'handleTestLiveU',
     ];
 
     // All actions require manage_options.
@@ -516,6 +517,22 @@ class AjaxController {
     }
 
     // ── LiveU Solo control panel ──────────────────────────────────────────────
+
+    /** Verify a Solo login (the values typed into the settings form, so it can
+     *  validate BEFORE they're saved). Does not require existing config. */
+    private function handleTestLiveU(): void {
+        $email    = sanitize_text_field(wp_unslash($_POST['email'] ?? ''));
+        $password = (string) wp_unslash($_POST['password'] ?? '');
+        if ($email === '' || $password === '') {
+            wp_send_json_error('Enter both the Solo email and password first.');
+        }
+        try {
+            (new \HS\LiveU\Client($email, $password))->verifyLogin();
+        } catch (\Throwable $e) {
+            wp_send_json_error('Login failed — ' . $e->getMessage());
+        }
+        wp_send_json_success('Login verified — the Solo portal accepted these credentials.');
+    }
 
     /** Guard: every LiveU handler needs credentials configured. */
     private function requireLiveU(): void {
