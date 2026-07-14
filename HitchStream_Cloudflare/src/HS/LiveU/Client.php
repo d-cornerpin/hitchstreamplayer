@@ -47,10 +47,12 @@ class Client {
         return $this->login();
     }
 
-    /** Portal login: Basic auth + x-user-name → bearer token. */
-    private function login(): string {
+    /** Portal login: Basic auth + x-user-name → bearer token. Pass $cache=false
+     *  to verify credentials WITHOUT caching the token, so a settings "Test
+     *  Login" can't overwrite the live cache with a different account's token. */
+    private function login(bool $cache = true): string {
         if ($this->email === '' || $this->password === '') {
-            throw new \RuntimeException('LiveU credentials are not configured.');
+            throw new \RuntimeException('no email/password provided.');
         }
         $resp = wp_remote_post(self::LOGIN_URL, [
             'headers' => [
@@ -65,24 +67,37 @@ class Client {
             'timeout' => 15,
         ]);
         if (is_wp_error($resp)) {
-            throw new \RuntimeException('LiveU login failed: ' . $resp->get_error_message());
+            throw new \RuntimeException('could not reach the LiveU portal — ' . $resp->get_error_message());
         }
-        $code = wp_remote_retrieve_response_code($resp);
-        $data = json_decode(wp_remote_retrieve_body($resp), true);
+        $body = wp_remote_retrieve_body($resp);
+        $data = json_decode($body, true);
         $token   = $data['data']['response']['access_token'] ?? '';
         $expires = (int) ($data['data']['response']['expires_in'] ?? 3600);
         if ($token === '') {
-            $msg = $data['errors'][0]['message'] ?? ('HTTP ' . $code);
-            throw new \RuntimeException('LiveU login rejected (' . $msg . ').');
+            // The portal answers 400 + 'invalid user/password' for bad creds.
+            if (stripos($body, 'invalid user/password') !== false || stripos($body, 'invalid_grant') !== false) {
+                throw new \RuntimeException('the email or password is incorrect.');
+            }
+            $msg = $data['errors'][0]['message'] ?? ('HTTP ' . wp_remote_retrieve_response_code($resp));
+            throw new \RuntimeException('the portal rejected the login (' . $msg . ').');
         }
-        // Cache slightly short of expiry so we never present a stale token.
-        set_transient(self::TOKEN_TRANSIENT, $token, max(60, $expires - 120));
+        if ($cache) {
+            // Cache slightly short of expiry so we never present a stale token.
+            set_transient(self::TOKEN_TRANSIENT, $token, max(60, $expires - 120));
+        }
         return $token;
     }
 
     /** Drop the cached token (e.g. after a credential change). */
     public static function forgetToken(): void {
         delete_transient(self::TOKEN_TRANSIENT);
+    }
+
+    /** Verify these credentials against the portal WITHOUT caching the token.
+     *  Throws \RuntimeException on failure (bad creds / unreachable). Used by
+     *  the settings "Test Login" button. */
+    public function verifyLogin(): void {
+        $this->login(false);
     }
 
     // ── transport ──────────────────────────────────────────────────────────
