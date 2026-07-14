@@ -165,6 +165,15 @@ Logs on failure only (silent when healthy).
   `watch 'ps -C php-cgi --no-headers | wc -l'` on the droplet — should stay
   flat regardless of viewers. Static-file polls appear in Apache's access log
   as `/wp-content/hs-state/*.json` with no php-cgi spawn.
+- **Apache worker headroom (found 2026-07-13, now a Checklist row):** viewers
+  poll every 10s and each poll holds a prefork worker for KeepAliveTimeout
+  afterwards → supportable viewers ≈ MaxRequestWorkers × 10 ÷ (KeepAlive + 0.2)
+  × 0.7. The box was capped at 20 workers (≈27 viewers!) from the old
+  PHP-crisis tuning; correct sizing on the 4GB droplet: `MaxRequestWorkers 100`,
+  `ServerLimit 100`, `KeepAliveTimeout 2` (≈318 viewers, ~1.3GB worst-case
+  Apache RSS — PHP is separately capped by Fcgid). Prefork workers serving
+  static files are cheap; don't confuse them with php-cgi workers. **Size this
+  on the new hosting too.**
 - **After the hosting migration:** update `STATE_DIR`/`ENDPOINT` paths in
   `/usr/local/bin/hs-live-state-refresher.sh` if the docroot or domain
   changes, and reinstall the unit on the new box.
