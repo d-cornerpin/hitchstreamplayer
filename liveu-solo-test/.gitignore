@@ -1,0 +1,9 @@
+# Never commit real credentials
+.env
+
+# Discovery samples can contain unit ids / account details — keep them local.
+# Comment this out if you want to check saved shapes into the repo.
+samples/*.json
+
+__pycache__/
+*.pyc
