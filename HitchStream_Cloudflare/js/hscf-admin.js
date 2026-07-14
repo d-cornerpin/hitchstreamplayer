@@ -41,6 +41,21 @@ jQuery(document).ready(function ($) {
         });
     }
 
+    // ── Stream preview: click-to-load so merely opening a card doesn't count
+    //    as a live viewer (the embedded player pre-buffers immediately). ──
+    $(document).on('click', '.hscf-preview-load', function () {
+        var $slot = $(this).closest('.hscf-preview-slot');
+        var src = $slot.attr('data-src');
+        if (!src) return;
+        var $frame = $('<iframe>', {
+            src: src,
+            loading: 'lazy',
+            allow: 'fullscreen; accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture',
+            allowfullscreen: ''
+        }).css({ border: 'none', width: '100%', 'aspect-ratio': '16/9' });
+        $slot.replaceWith($frame);
+    });
+
     // ── Event-day checklist: one button, server runs the checks, render rows ──
     $(document).on('click', '#hscf-checklist-run', function () {
         var $btn = $(this).prop('disabled', true);
