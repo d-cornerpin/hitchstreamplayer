@@ -11,6 +11,7 @@ use HS\Services\LiveInputService;
 use HS\Services\WebhookService;
 use HS\Services\StreamerService;
 use HS\Services\RecordingsService;
+use HS\Services\LiveUService;
 use HS\Config;
 use HS\ConfigError;
 
@@ -43,6 +44,13 @@ class AjaxController {
         'start_placeholderstream'       => 'handleStartStream',
         'stop_placeholderstream'        => 'handleStopStream',
         'check_stream_state'            => 'handleCheckStreamState',
+        'hscf_liveu_units'              => 'handleLiveUUnits',
+        'hscf_liveu_set_destination'    => 'handleLiveUSetDestination',
+        'hscf_liveu_verify'             => 'handleLiveUVerify',
+        'hscf_liveu_status'             => 'handleLiveUStatus',
+        'hscf_liveu_start'              => 'handleLiveUStart',
+        'hscf_liveu_stop'               => 'handleLiveUStop',
+        'hscf_liveu_lrt'                => 'handleLiveULrt',
     ];
 
     // All actions require manage_options.
@@ -53,17 +61,22 @@ class AjaxController {
     private WebhookService $webhook;
     private StreamerService $streamer;
     private RecordingsService $recordings;
+    private LiveUService $liveu;
 
     public function __construct(
         ?LiveInputService $liveInput = null,
         ?WebhookService $webhook = null,
         ?StreamerService $streamer = null,
-        ?RecordingsService $recordings = null
+        ?RecordingsService $recordings = null,
+        ?LiveUService $liveu = null
     ) {
         $this->liveInput  = $liveInput  ?? new LiveInputService();
         $this->webhook    = $webhook    ?? new WebhookService();
         $this->streamer   = $streamer   ?? new StreamerService();
         $this->recordings = $recordings ?? new RecordingsService();
+        // LiveUService construction is cheap (no API call) and safe when LiveU
+        // is unconfigured — handlers gate on Config::liveuConfigured().
+        $this->liveu      = $liveu      ?? new LiveUService();
     }
 
     /** Register all wp_ajax_* hooks. */
@@ -453,11 +466,14 @@ class AjaxController {
         $webhook_configured = (string) get_option('HSCF_webhook_secret', '') !== '';
         if ($ids && $webhook_configured) {
             foreach ($this->webhook->latestStatesByInput($ids) as $uid => $state) {
-                // A webhook 'error' is sticky: Cloudflare sends no recovery event
-                // when a transient error clears, so the log stays 'error' while the
-                // stream is actually live again. Verify against the live lifecycle
-                // (the same ground truth the player uses) so the badge self-heals.
-                if ($state === 'error') {
+                // Verify any NOT-live webhook state against the live lifecycle (the
+                // same ground truth the player uses) so the badge self-heals when:
+                //   • a 'connected' webhook was missed (delivery isn't 100%), or
+                //   • an 'error' cleared with no recovery event (sticky error), or
+                //   • we're on the local mirror, where Cloudflare can't deliver
+                //     webhooks to localhost at all, so the log is always stale.
+                // This is an admin-only poll, so the extra lifecycle probe is cheap.
+                if ($state !== 'live') {
                     $real = $this->liveInput->probeLiveStatus($uid);
                     if ($real !== '') { $state = $real; }
                 }
@@ -497,6 +513,138 @@ class AjaxController {
         unset($st);
 
         wp_send_json_success($statuses);
+    }
+
+    // ── LiveU Solo control panel ──────────────────────────────────────────────
+
+    /** Guard: every LiveU handler needs credentials configured. */
+    private function requireLiveU(): void {
+        if (!Config::liveuConfigured()) {
+            wp_send_json_error('LiveU is not configured — add the Solo portal email and password in settings.');
+        }
+    }
+
+    /** List Solo units for the unit picker. */
+    private function handleLiveUUnits(): void {
+        $this->requireLiveU();
+        try {
+            wp_send_json_success(['units' => $this->liveu->units()]);
+        } catch (\Throwable $e) {
+            wp_send_json_error('Could not reach LiveU: ' . $e->getMessage());
+        }
+    }
+
+    /** Arm a unit for a Cloudflare input (find/create dest → select → zone → verify). */
+    private function handleLiveUSetDestination(): void {
+        $this->requireLiveU();
+        $unit  = sanitize_text_field($_POST['unit_uid'] ?? '');
+        $input = sanitize_text_field($_POST['input_uid'] ?? '');
+        if ($unit === '' || $input === '') {
+            wp_send_json_error('Missing unit or live input.');
+        }
+        $rtmp = $this->liveInput->rtmpIngest($input);
+        if (!$rtmp) {
+            wp_send_json_error('Could not read this live input’s RTMP key from Cloudflare.');
+        }
+        try {
+            $res = $this->liveu->setInputAsDestination($unit, $rtmp['name'], $rtmp['url'], $rtmp['key']);
+        } catch (\Throwable $e) {
+            wp_send_json_error('LiveU error: ' . $e->getMessage());
+        }
+        if (!empty($res['success'])) {
+            wp_send_json_success($res);
+        }
+        wp_send_json_error($res['message'] ?? 'Could not arm the destination.');
+    }
+
+    /** Re-check that a unit is armed for exactly this input (the safety check). */
+    private function handleLiveUVerify(): void {
+        $this->requireLiveU();
+        $unit  = sanitize_text_field($_POST['unit_uid'] ?? '');
+        $input = sanitize_text_field($_POST['input_uid'] ?? '');
+        if ($unit === '' || $input === '') {
+            wp_send_json_error('Missing unit or live input.');
+        }
+        $rtmp = $this->liveInput->rtmpIngest($input);
+        if (!$rtmp) {
+            wp_send_json_error('Could not read this live input’s RTMP key from Cloudflare.');
+        }
+        try {
+            wp_send_json_success($this->liveu->verifySelected($unit, $rtmp['key']));
+        } catch (\Throwable $e) {
+            wp_send_json_error('LiveU error: ' . $e->getMessage());
+        }
+    }
+
+    /** Battery / networks / stream-state telemetry for a unit. */
+    private function handleLiveUStatus(): void {
+        $this->requireLiveU();
+        $unit = sanitize_text_field($_POST['unit_uid'] ?? '');
+        if ($unit === '') {
+            wp_send_json_error('Missing unit.');
+        }
+        try {
+            wp_send_json_success($this->liveu->statusFor($unit));
+        } catch (\Throwable $e) {
+            wp_send_json_error('LiveU error: ' . $e->getMessage());
+        }
+    }
+
+    /** Start streaming — gated in the UI behind a passing verification. */
+    private function handleLiveUStart(): void {
+        $this->requireLiveU();
+        $unit  = sanitize_text_field($_POST['unit_uid'] ?? '');
+        $input = sanitize_text_field($_POST['input_uid'] ?? '');
+        if ($unit === '' || $input === '') {
+            wp_send_json_error('Missing unit or live input.');
+        }
+        // Server-side safety net: refuse to start unless the unit is verifiably
+        // armed for THIS input — never take the browser's word for it.
+        $rtmp = $this->liveInput->rtmpIngest($input);
+        if (!$rtmp) {
+            wp_send_json_error('Could not confirm the live input’s RTMP key.');
+        }
+        try {
+            $verify = $this->liveu->verifySelected($unit, $rtmp['key']);
+            if (empty($verify['verified'])) {
+                wp_send_json_error('Refused to start: the unit is not armed for this stream. ' . ($verify['reason'] ?? ''));
+            }
+            $res = $this->liveu->start($unit);
+        } catch (\Throwable $e) {
+            wp_send_json_error('LiveU error: ' . $e->getMessage());
+        }
+        $res['success'] ? wp_send_json_success($res) : wp_send_json_error($res['message']);
+    }
+
+    /** Turn LRT on/off for a unit (independent of arming a destination). */
+    private function handleLiveULrt(): void {
+        $this->requireLiveU();
+        $unit = sanitize_text_field($_POST['unit_uid'] ?? '');
+        $on   = ($_POST['on'] ?? '') === '1';
+        if ($unit === '') {
+            wp_send_json_error('Missing unit.');
+        }
+        try {
+            $res = $this->liveu->setLrt($unit, $on);
+        } catch (\Throwable $e) {
+            wp_send_json_error('LiveU error: ' . $e->getMessage());
+        }
+        $res['success'] ? wp_send_json_success($res) : wp_send_json_error($res['message']);
+    }
+
+    /** Stop streaming. */
+    private function handleLiveUStop(): void {
+        $this->requireLiveU();
+        $unit = sanitize_text_field($_POST['unit_uid'] ?? '');
+        if ($unit === '') {
+            wp_send_json_error('Missing unit.');
+        }
+        try {
+            $res = $this->liveu->stop($unit);
+        } catch (\Throwable $e) {
+            wp_send_json_error('LiveU error: ' . $e->getMessage());
+        }
+        $res['success'] ? wp_send_json_success($res) : wp_send_json_error($res['message']);
     }
 
     /** Map a normalized webhook state to the badge vocabulary the JS expects. */

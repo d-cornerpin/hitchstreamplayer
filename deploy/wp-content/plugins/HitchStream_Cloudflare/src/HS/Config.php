@@ -83,6 +83,31 @@ class Config {
         return self::optional('HSCF_streamer_api_url', 'https://streamer1.hitchstream.com');
     }
 
+    // ── LiveU Solo (unofficial portal API) ─────────────────────────
+    // The Solo web-portal login (same email/password as solo.liveu.tv). Kept
+    // optional so a site without a LiveU unit isn't forced to configure it —
+    // the LiveU panel simply reports "not configured" instead of throwing.
+
+    public static function liveuEmail(): string {
+        return self::optional('HSCF_liveu_email', '');
+    }
+
+    public static function liveuPassword(): string {
+        return self::optional('HSCF_liveu_password', '');
+    }
+
+    public static function liveuConfigured(): bool {
+        return self::liveuEmail() !== '' && self::liveuPassword() !== '';
+    }
+
+    /** The Solo bonding-server region every HitchStream destination uses.
+     *  optional()'s default doesn't apply to a missing option (it caches ''),
+     *  so fall back explicitly. */
+    public static function liveuZone(): string {
+        $z = self::optional('HSCF_liveu_zone', '');
+        return $z !== '' ? $z : 'USA_San_Jose';
+    }
+
     public static function streamerApiKey(): string {
         return self::optional('HSCF_streamer_api_key', '');
     }
