@@ -250,3 +250,7 @@ input:checked + .slider:before { transform: translateX(16px); }
 .hscf-check__label { font-weight: 600; }
 .hscf-check__detail { color: #50575e; }
 @media (max-width: 640px) { .hscf-check { grid-template-columns: 20px 1fr; } .hscf-check__detail { grid-column: 2; } }
+
+/* ── Click-to-load preview slot (loading the player counts as a viewer) ── */
+.hscf-preview-slot { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; width: 100%; aspect-ratio: 16/9; background: #1d2327; border-radius: 4px; }
+.hscf-preview-note { color: #a7aaad; font-size: 11px; text-align: center; padding: 0 10px; }

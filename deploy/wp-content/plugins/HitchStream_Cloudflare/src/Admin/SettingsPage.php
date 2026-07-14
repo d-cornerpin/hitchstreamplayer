@@ -722,7 +722,7 @@ class SettingsPage {
             <span class="hscf-badge <?= $is_connected ? 'hscf-badge--live' : 'hscf-badge--off' ?>" id="badge-<?= esc_attr($input->uid) ?>">
                 <span class="dashicons <?= $is_connected ? 'dashicons-controls-play' : 'dashicons-controls-pause' ?>"></span><span class="hscf-badge__text"><?= esc_html($status_label) ?></span>
             </span>
-            <span class="hscf-viewers" id="viewers-<?= esc_attr($input->uid) ?>" style="display:none;" title="People watching right now"><span class="dashicons dashicons-visibility"></span><span class="hscf-viewers__n"></span></span>
+            <span class="hscf-viewers" id="viewers-<?= esc_attr($input->uid) ?>" style="display:none;" title="Connections watching right now — includes any open previews/tabs that are buffering the stream; Cloudflare updates this on a ~1 minute rolling window"><span class="dashicons dashicons-visibility"></span><span class="hscf-viewers__n"></span></span>
             <a href="<?= esc_url($delete_link) ?>" class="hscf-stream__delete" title="Delete stream" onclick="return confirm('Delete <?= esc_js($input_name) ?>? This cannot be undone.')"><span class="dashicons dashicons-trash"></span></a>
         </div>
         <div class="hscf-stream__grid">
@@ -808,7 +808,14 @@ class SettingsPage {
                 // embedded iframe above stays clean (no overlay in the small embed).
                 $playerDebugUrl = $playerUrl . '&debug=1';
                 ?>
-                <iframe src="<?= esc_url($playerUrl) ?>" loading="lazy" style="border:none;width:100%;aspect-ratio:16/9;" allow="fullscreen; accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
+                <?php // Click-to-load: the embedded player PRE-BUFFERS the stream the
+                      // moment it loads (instant-start behavior), which Cloudflare
+                      // counts as a live viewer — so an auto-loading preview inflated
+                      // the viewer chip by +1 whenever this card was open. ?>
+                <div class="hscf-preview-slot" data-src="<?= esc_url($playerUrl) ?>">
+                    <button type="button" class="button hscf-preview-load"><span class="dashicons dashicons-visibility"></span> Load preview</button>
+                    <span class="hscf-preview-note">Loading the preview connects to the stream (counts as a viewer)</span>
+                </div>
                 <a href="<?= esc_url($playerDebugUrl) ?>" target="_blank" rel="noopener" class="hscf-preview-pop" title="Open player in a new window (with debug panel)"><span class="dashicons dashicons-external"></span></a>
             </div>
         </div>
