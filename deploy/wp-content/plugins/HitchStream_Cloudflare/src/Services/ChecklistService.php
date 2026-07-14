@@ -66,6 +66,7 @@ class ChecklistService {
 
         // 9-12. Box health: load, disk, SSL, wp-cron.
         $rows[] = $this->checkServerLoad();
+        $rows[] = $this->checkApacheHeadroom();
         $rows[] = $this->checkDiskSpace();
         $rows[] = $this->checkSslCertificate();
         $rows[] = $this->checkWpCron();
@@ -251,6 +252,65 @@ class ChecklistService {
         if ($ratio >= 1.5) return ['label' => 'Server load', 'status' => 'fail', 'detail' => $detail . ' The box is overloaded — find what is eating CPU before the event (top / Virtualmin).'];
         if ($ratio >= 0.8) return ['label' => 'Server load', 'status' => 'warn', 'detail' => $detail . ' Busier than comfortable; keep an eye on it.'];
         return ['label' => 'Server load', 'status' => 'pass', 'detail' => $detail];
+    }
+
+    /**
+     * Apache worker headroom — can the web server hold a wedding audience?
+     *
+     * Viewers poll the static hs-state JSON every 10s; each poll is served in
+     * milliseconds but the worker stays bound to the idle connection for
+     * KeepAliveTimeout afterwards. Under mpm_prefork that's a whole process, so
+     * supportable viewers ≈ MaxRequestWorkers × 10s ÷ (KeepAliveTimeout + 0.2)
+     * × 0.7 safety margin (leaves room for page/asset traffic). A 20-worker cap
+     * chokes a 200-guest audience with the box otherwise idle — this check
+     * exists so that can never silently regress (found 2026-07-13).
+     */
+    private function checkApacheHeadroom(): array {
+        $label = 'Web server capacity';
+
+        // Which MPM, and what's its MaxRequestWorkers?
+        $mpm = null; $conf = '';
+        foreach (['prefork', 'event', 'worker'] as $m) {
+            $f = "/etc/apache2/mods-enabled/mpm_{$m}.conf";
+            if (is_readable($f)) { $mpm = $m; $conf = (string) @file_get_contents($f); break; }
+        }
+        if ($mpm === null || $conf === '') {
+            return ['label' => $label, 'status' => 'warn', 'detail' => 'Could not read the Apache MPM config on this host (fine after a hosting migration — re-point the check, see ChecklistService).'];
+        }
+        $workers = preg_match('/^\s*MaxRequestWorkers\s+(\d+)/mi', $conf, $m1) ? (int) $m1[1] : null;
+        if (!$workers) {
+            return ['label' => $label, 'status' => 'warn', 'detail' => "Read mpm_{$mpm}.conf but found no MaxRequestWorkers value."];
+        }
+
+        // KeepAliveTimeout (Apache default 5 if not set).
+        $ka = 5;
+        $main = @file_get_contents('/etc/apache2/apache2.conf');
+        if (is_string($main) && preg_match('/^\s*KeepAliveTimeout\s+(\d+)/mi', $main, $m2)) { $ka = (int) $m2[1]; }
+
+        // Busy workers right now (prefork: one process per worker).
+        $running = 0;
+        foreach (glob('/proc/[0-9]*/comm') ?: [] as $f) {
+            if (trim((string) @file_get_contents($f)) === 'apache2') { $running++; }
+        }
+
+        if ($mpm === 'prefork') {
+            $capacity = (int) floor($workers * 10 / ($ka + 0.2) * 0.7);
+            $detail = sprintf('mpm_prefork: %d max workers, KeepAliveTimeout %ds, %d running now → roughly %d simultaneous viewers.', $workers, $ka, $running, $capacity);
+            if ($capacity < 100) {
+                return ['label' => $label, 'status' => 'fail', 'detail' => $detail . ' Too low for a wedding audience — raise MaxRequestWorkers/ServerLimit (and consider KeepAliveTimeout 2). See RUNBOOK-live-state.md.'];
+            }
+            if ($capacity < 200) {
+                return ['label' => $label, 'status' => 'warn', 'detail' => $detail . ' OK for smaller events; tight for 200+ guests.'];
+            }
+            return ['label' => $label, 'status' => 'pass', 'detail' => $detail];
+        }
+
+        // event/worker MPMs handle idle keepalive connections asynchronously —
+        // MaxRequestWorkers is about in-flight requests, which static polls barely dent.
+        $detail = sprintf('mpm_%s: %d max workers (async keepalive), %d apache processes running.', $mpm, $workers, $running);
+        return $workers >= 150
+            ? ['label' => $label, 'status' => 'pass', 'detail' => $detail]
+            : ['label' => $label, 'status' => 'warn', 'detail' => $detail . ' Low-ish; verify sizing for a full audience.'];
     }
 
     private function checkDiskSpace(): array {
