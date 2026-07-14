@@ -102,9 +102,26 @@
 .hscf-ph-btn.is-busy { background: #f0f0f1; border-color: #c3c4c7; color: #646970; cursor: default; }
 .hscf-ph-btn.is-busy:disabled { opacity: 1; }
 .hscf-stop-sq { display: inline-block; width: 11px; height: 11px; background: #fff; border-radius: 1px; }
-.hscf-spin { animation: hscf-spin .9s linear infinite; }
+/* Spin in place. WordPress 7's `.wp-core-ui .button .dashicons{line-height:1.9}`
+   pushes the glyph below its 20px box centre, so a plain rotate makes the icon
+   ORBIT that offset pivot. Flex-centring the glyph puts it back on the box
+   centre (the transform-origin) — and it does so without touching line-height,
+   so it doesn't have to out-specify WP's rule. Fixes every hscf-spin icon. */
+.hscf-spin {
+    animation: hscf-spin .9s linear infinite;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transform-origin: 50% 50%;
+}
 @keyframes hscf-spin { 100% { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .hscf-spin { animation: none; } }
+/* A spinning icon switches to inline-flex (so it rotates in place), which
+   changes its baseline and knocks it off-centre within the button. Flex-centre
+   the button ONLY while it hosts a spinner, so the icon (and any label) stays
+   put. :has() re-matches live as the JS adds/removes .hscf-spin, and reverts
+   the instant spinning stops — one rule covers every spinner button. */
+.hscf-admin .button:has(.hscf-spin) { display: inline-flex; align-items: center; justify-content: center; }
 .hscf-delete-link { display: inline-flex; align-items: center; gap: 3px; margin-top: 14px; color: #b32d2e; text-decoration: none; font-size: 13px; }
 .hscf-delete-link:hover { color: #d63638; }
 .hscf-delete-link .dashicons { font-size: 15px; width: 15px; height: 15px; }
@@ -256,3 +273,119 @@ input:checked + .slider:before { transform: translateX(16px); }
 /* ── Click-to-load preview slot (loading the player counts as a viewer) ── */
 .hscf-preview-slot { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; width: 100%; aspect-ratio: 16/9; background: #1d2327; border-radius: 4px; }
 .hscf-preview-note { color: #a7aaad; font-size: 11px; text-align: center; padding: 0 10px; }
+
+/* ── LiveU Solo control panel (per live-input) ─────────────────────────────── */
+/* Structured 3-column, 2-row grid so nothing floats. Stats sit in the top
+   centre cell (not spanning), so they line up with the top row rather than
+   floating to the vertical middle.
+     ┌ id ──────┬ stats ─┬ ctl ┐
+     └ arm ─────┴  ····  ┴ go  ┘  */
+.hscf-liveu {
+    border-top: 1px solid #dcdcde; padding: 14px 16px; background: #fbfbfc;
+    display: grid;
+    grid-template-columns: minmax(auto, max-content) 1fr minmax(auto, max-content);
+    grid-template-areas:
+        "id    stats  ctl"
+        "arm   .      go";
+    align-items: center;
+    gap: 12px 18px;
+}
+.hscf-stream.is-collapsed .hscf-liveu { display: none; }
+.hscf-liveu__id    { grid-area: id;   display: flex; align-items: center; gap: 8px; }
+.hscf-liveu__id > .dashicons { color: #2271b1; }
+.hscf-liveu__id strong { font-size: 13px; white-space: nowrap; }
+.hscf-liveu__stats { grid-area: stats; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px 14px; }
+.hscf-liveu__ctl   { grid-area: ctl;  display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.hscf-liveu__arm   { grid-area: arm;  display: flex; align-items: center; gap: 10px; }
+.hscf-liveu__go    { grid-area: go;   display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+.hscf-liveu-unit { max-width: 170px; height: 30px; }
+.hscf-liveu__zone { color: #646970; font-size: 12px; background: #f0f0f1; padding: 3px 9px; border-radius: 10px; }
+.hscf-liveu-refresh.button { min-height: 30px; padding: 0 7px; }
+.hscf-liveu-refresh.button .dashicons { margin: 0; }
+/* single Start/Stop control colouring */
+.hscf-liveu-toggle--start:not([disabled]) { border-color: #008a20; color: #008a20; }
+.hscf-liveu-toggle--stop { border-color: #d63638; color: #d63638; }
+@media (max-width: 900px) {
+    .hscf-liveu { grid-template-columns: 1fr 1fr; grid-template-areas: "id ctl" "stats stats" "arm go"; }
+}
+
+/* verification chip — the safety signal */
+.hscf-liveu-verify { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 11px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.hscf-liveu-verify .dashicons { font-size: 16px; width: 16px; height: 16px; }
+.hscf-liveu-verify--ok      { background: #edfaef; color: #008a20; }
+.hscf-liveu-verify--bad     { background: #fcf0f1; color: #b32d2e; }
+.hscf-liveu-verify--unknown { background: #f0f0f1; color: #646970; }
+
+/* start gated on verification: dim + not-allowed while disabled */
+.hscf-liveu-start[disabled] { opacity: .55; cursor: not-allowed; }
+.hscf-liveu-start:not([disabled]) { border-color: #008a20; color: #008a20; }
+
+/* stream state pill */
+.hscf-liveu-streamstate { font-size: 12px; font-weight: 700; padding: 2px 9px; border-radius: 11px; letter-spacing: .02em; }
+.hscf-liveu-streamstate--live    { background: #fcebec; color: #d63638; animation: hscf-pulse 1.6s ease-in-out infinite; }
+.hscf-liveu-streamstate--ready   { background: #edfaef; color: #008a20; }
+.hscf-liveu-streamstate--off,
+.hscf-liveu-streamstate--unknown { background: #f0f0f1; color: #646970; }
+@keyframes hscf-pulse { 50% { opacity: .5; } }
+@media (prefers-reduced-motion: reduce) { .hscf-liveu-streamstate--live { animation: none; } }
+
+/* battery + network chips */
+.hscf-liveu-battery { font-size: 12px; color: #3c434a; display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
+.hscf-liveu-battery .dashicons { font-size: 16px; width: 16px; height: 16px; color: #646970; }
+.hscf-liveu-networks { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+.hscf-net { font-size: 11px; padding: 2px 8px; border-radius: 9px; font-weight: 600; white-space: nowrap; }
+.hscf-net.is-up   { background: #edfaef; color: #008a20; }
+.hscf-net.is-down { background: #f0f0f1; color: #8c8f94; }
+@media (max-width: 782px) { .hscf-liveu__stats { margin-left: 0; width: 100%; } }
+
+/* video-source chip (camera detected on the encoder input) */
+.hscf-liveu-video { font-size: 12px; display: inline-flex; align-items: center; gap: 3px; padding: 2px 8px; border-radius: 9px; font-weight: 600; white-space: nowrap; }
+.hscf-liveu-video .dashicons { font-size: 15px; width: 15px; height: 15px; }
+.hscf-liveu-video--on  { background: #eef4fb; color: #2271b1; }
+.hscf-liveu-video--off { background: #f0f0f1; color: #8c8f94; }
+
+/* LRT off = direct RTMP, no bonding — flag it amber so it stands out */
+.hscf-liveu__zone--off { background: #fcf3e6; color: #bd6a12; }
+
+/* LRT on/off toggle switch (iOS-style) */
+.hscf-liveu-lrtgroup { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; }
+.hscf-liveu-lrtgroup .hscf-liveu__zone { margin-left: 0; }
+.hscf-toggle { position: relative; display: inline-flex; align-items: center; cursor: pointer; }
+.hscf-toggle input { position: absolute; opacity: 0; width: 0; height: 0; }
+.hscf-toggle__track { width: 34px; height: 18px; background: #c3c4c7; border-radius: 9px; transition: background .15s ease; display: inline-block; position: relative; }
+.hscf-toggle__thumb { position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; background: #fff; border-radius: 50%; transition: transform .15s ease; box-shadow: 0 1px 2px rgba(0,0,0,.3); }
+.hscf-toggle input:checked + .hscf-toggle__track { background: #2271b1; }
+.hscf-toggle input:checked + .hscf-toggle__track .hscf-toggle__thumb { transform: translateX(16px); }
+.hscf-toggle input:disabled + .hscf-toggle__track { opacity: .55; }
+.hscf-toggle input:focus-visible + .hscf-toggle__track { outline: 2px solid #2271b1; outline-offset: 1px; }
+
+/* ── Unit offline: grey out the controls (they do nothing while it's off) ──── */
+.hscf-liveu-offline { display: none; }
+.hscf-liveu--offline .hscf-liveu-offline {
+    display: inline-flex; align-items: center; gap: 3px;
+    font-size: 12px; font-weight: 600; color: #8c8f94;
+    background: #f0f0f1; padding: 2px 9px; border-radius: 10px;
+}
+.hscf-liveu-offline .dashicons { font-size: 15px; width: 15px; height: 15px; }
+/* Grey + disable the controls (Set / Start-Stop / stats) and the LRT toggle.
+   The unit picker and refresh stay live so you can switch units / re-check. */
+.hscf-liveu--offline .hscf-liveu__arm,
+.hscf-liveu--offline .hscf-liveu__go,
+.hscf-liveu--offline .hscf-liveu__stats,
+.hscf-liveu--offline .hscf-liveu-lrtgroup .hscf-toggle {
+    opacity: .45; pointer-events: none;
+}
+
+/* ── "On air" glow: unmistakable red halo around a live stream card ────────── */
+.hscf-stream--live {
+    border-color: #d63638;
+    animation: hscf-live-glow 1.8s ease-in-out infinite;
+}
+.hscf-stream--live .hscf-stream__head { border-bottom-color: #f3b7b8; }
+@keyframes hscf-live-glow {
+    0%, 100% { box-shadow: 0 0 0 2px rgba(214,54,56,.45), 0 0 10px 2px rgba(214,54,56,.40); }
+    50%      { box-shadow: 0 0 0 3px rgba(214,54,56,.80), 0 0 22px 6px rgba(214,54,56,.70); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .hscf-stream--live { animation: none; box-shadow: 0 0 0 3px rgba(214,54,56,.7); }
+}

@@ -26,6 +26,9 @@ jQuery(document).ready(function ($) {
                           .addClass(connected ? 'hscf-badge--live' : (disconnected ? 'hscf-badge--off' : 'hscf-badge--unknown'));
                     $badge.find('.dashicons').attr('class', 'dashicons ' + (connected ? 'dashicons-controls-play' : 'dashicons-controls-pause'));
                     $badge.find('.hscf-badge__text').text(status);
+                    // Unmistakable "on air" glow around the whole card while the
+                    // input is live (works for any source — LiveU, OBS, etc.).
+                    $badge.closest('.hscf-stream').toggleClass('hscf-stream--live', connected);
                     // Live viewer count (only present when the input is live).
                     var $viewers = $('#viewers-' + uid);
                     if ($viewers.length) {
@@ -959,3 +962,288 @@ function srtOutField(label, cls) {
             '<button type="button" class="button button-small srt-copy" data-src="' + cls + '">Copy</button>' +
         '</div></div>';
 }
+/* ──────────────────────────────────────────────────────────────────────────
+ * LiveU Solo control panel (per live-input section)
+ *
+ * Lazy: units load once; per-unit status polls only while a stream card is
+ * expanded. Start is gated behind a passing verification so the operator can
+ * never accidentally push to the wrong Cloudflare input.
+ * ────────────────────────────────────────────────────────────────────────── */
+jQuery(function ($) {
+    var UNIT_LS = 'hscf_liveu_unit';
+    var unitsCache = null;          // [{uid,alias,availability}]
+    var unitsPromise = null;        // in-flight units request (shared)
+
+    function post(action, data) {
+        return $.post(hscf_ajax.ajax_url, $.extend({
+            action: action, _wpnonce: hscf_ajax.nonce
+        }, data || {}));
+    }
+
+    // ── unit picker ─────────────────────────────────────────────────────────
+    // Returns a promise that resolves once units are loaded + selects populated.
+    // Cached after the first load; concurrent callers share one request.
+    function ensureUnits() {
+        if (unitsCache) { return $.Deferred().resolve().promise(); }
+        if (unitsPromise) { return unitsPromise; }
+        unitsPromise = post('hscf_liveu_units')
+            .done(function (resp) {
+                unitsCache = (resp && resp.success && resp.data && resp.data.units) ? resp.data.units : [];
+                populateUnitSelects();
+            })
+            .fail(function () {
+                $('.hscf-liveu-unit').html('<option value="">LiveU unreachable</option>');
+            });
+        return unitsPromise;
+    }
+
+    function populateUnitSelects() {
+        var saved = localStorage.getItem(UNIT_LS) || '';
+        $('.hscf-liveu-unit').each(function () {
+            var $sel = $(this);
+            if (!unitsCache.length) { $sel.html('<option value="">No units found</option>'); return; }
+            var html = unitsCache.map(function (u) {
+                return '<option value="' + u.uid + '">' + escHtml(u.alias) + '</option>';
+            }).join('');
+            $sel.html(html);
+            if (saved && unitsCache.some(function (u) { return u.uid === saved; })) { $sel.val(saved); }
+        });
+    }
+
+    function panelUnit($panel) { return $panel.find('.hscf-liveu-unit').val() || ''; }
+    function inputId($panel)   { return $panel.attr('data-input-id') || ''; }
+
+    // ── rendering ───────────────────────────────────────────────────────────
+    function renderVerify($panel, v) {
+        var $chip = $panel.find('.hscf-liveu-verify');
+        $chip.removeClass('hscf-liveu-verify--ok hscf-liveu-verify--bad hscf-liveu-verify--unknown');
+        var icon = $chip.find('.dashicons'), txt = $chip.find('.hscf-liveu-verify__text');
+        if (v && v.verified) {
+            $chip.addClass('hscf-liveu-verify--ok');
+            icon.attr('class', 'dashicons dashicons-yes-alt');
+            txt.text('Armed for this stream');
+        } else {
+            $chip.addClass('hscf-liveu-verify--bad');
+            icon.attr('class', 'dashicons dashicons-warning');
+            txt.text(v && v.selected_name ? ('Armed for "' + v.selected_name + '" — not this stream') : 'Not armed for this stream');
+        }
+        $panel.data('verified', !!(v && v.verified));
+        updateStreamButton($panel);
+    }
+
+    // One state-aware Start/Stop control. Streaming → "Stop" (always enabled);
+    // idle → "Start" (enabled only once the destination is verified). Skipped
+    // while a start/stop request is in flight so it doesn't clobber the spinner.
+    function updateStreamButton($panel) {
+        var $btn = $panel.find('.hscf-liveu-toggle-stream');
+        if (!$btn.length || $btn.data('busy')) { return; }
+        if ($panel.data('streaming')) {
+            $btn.attr('data-mode', 'stop').prop('disabled', false)
+                .removeClass('hscf-liveu-toggle--start').addClass('hscf-liveu-toggle--stop')
+                .attr('title', 'Stop the LiveU stream')
+                .html('<span class="dashicons dashicons-controls-pause"></span> Stop');
+        } else {
+            var verified = !!$panel.data('verified');
+            $btn.attr('data-mode', 'start').prop('disabled', !verified)
+                .removeClass('hscf-liveu-toggle--stop').addClass('hscf-liveu-toggle--start')
+                .attr('title', verified ? 'Start streaming to this stream' : 'Arm & verify this stream first')
+                .html('<span class="dashicons dashicons-controls-play"></span> Start');
+        }
+    }
+
+    function renderStatus($panel, s) {
+        var $bat = $panel.find('.hscf-liveu-battery');
+        var $ss  = $panel.find('.hscf-liveu-streamstate');
+        var $net = $panel.find('.hscf-liveu-networks');
+        if (!s) { $bat.text('—'); $ss.text('—'); $net.empty(); return; }
+
+        // Unit off → none of the controls work; grey them out (CSS handles it).
+        $panel.toggleClass('hscf-liveu--offline', !s.online);
+
+        // LRT status = the bonding zone/channel. A null channel means LRT is
+        // off (direct RTMP, no bonding) — flag that amber.
+        var $zoneWrap = $panel.find('.hscf-liveu__zone');
+        if (s.zone) {
+            $panel.find('.hscf-liveu-zone-val').text(s.zone);
+            $zoneWrap.removeClass('hscf-liveu__zone--off');
+        } else {
+            $panel.find('.hscf-liveu-zone-val').text('Off (direct)');
+            $zoneWrap.addClass('hscf-liveu__zone--off');
+        }
+        // reflect actual LRT state on the toggle — but never yank it mid-request
+        var $lrt = $panel.find('.hscf-liveu-lrt');
+        if (!$lrt.prop('disabled')) { $lrt.prop('checked', !!s.zone); }
+
+        // battery
+        if (s.battery && s.battery.percentage !== null && s.battery.percentage !== undefined) {
+            var mins = s.battery.runtime_min, rt = '';
+            if (mins) { rt = ' · ' + Math.floor(mins / 60) + 'h ' + (mins % 60) + 'm'; }
+            var chg = s.battery.charging ? ' ⚡' : '';
+            $bat.html('<span class="dashicons dashicons-battery"></span> ' + s.battery.percentage + '%' + rt + chg);
+        } else { $bat.text('No battery data'); }
+
+        // video source (camera detected on the encoder input)
+        var $vid = $panel.find('.hscf-liveu-video');
+        $vid.removeClass('hscf-liveu-video--on hscf-liveu-video--off');
+        if (s.resolution) {
+            var br = (s.streaming && s.bitrate) ? (' · ' + (s.bitrate / 1000).toFixed(1) + ' Mbps') : '';
+            $vid.addClass('hscf-liveu-video--on')
+                .html('<span class="dashicons dashicons-video-alt2"></span> ' + escHtml(s.resolution) + br);
+        } else {
+            $vid.addClass('hscf-liveu-video--off')
+                .html('<span class="dashicons dashicons-video-alt2"></span> No source');
+        }
+
+        // stream state
+        $ss.removeClass('hscf-liveu-streamstate--live hscf-liveu-streamstate--ready hscf-liveu-streamstate--off hscf-liveu-streamstate--unknown');
+        var state = s.stream_state || 'unknown';
+        if (s.streaming) { $ss.addClass('hscf-liveu-streamstate--live').text('● STREAMING'); }
+        else if (s.online) { $ss.addClass('hscf-liveu-streamstate--ready').text('Ready'); }
+        else { $ss.addClass('hscf-liveu-streamstate--off').text(state); }
+        // drive the single Start/Stop button off the live streaming state
+        $panel.data('streaming', !!s.streaming);
+        updateStreamButton($panel);
+
+        // networks
+        if (s.networks && s.networks.length) {
+            $net.html(s.networks.map(function (n) {
+                var cls = n.connected ? 'is-up' : 'is-down';
+                var kbps = n.connected && n.kbps ? (' ' + Math.round(n.kbps / 100) / 10 + 'M') : '';
+                return '<span class="hscf-net ' + cls + '" title="signal ' + n.quality + '/5' +
+                       (n.tech ? ', ' + n.tech : '') + '">' + escHtml(n.name) + kbps + '</span>';
+            }).join(''));
+        } else { $net.html('<span class="description">No active networks</span>'); }
+    }
+
+    // ── data refresh ────────────────────────────────────────────────────────
+    function refreshStatus($panel) {
+        var unit = panelUnit($panel);
+        if (!unit) { return $.Deferred().resolve().promise(); }
+        return post('hscf_liveu_status', { unit_uid: unit })
+            .done(function (resp) { if (resp && resp.success) { renderStatus($panel, resp.data); } });
+    }
+
+    function refreshVerify($panel) {
+        var unit = panelUnit($panel);
+        if (!unit) { return $.Deferred().resolve().promise(); }
+        return post('hscf_liveu_verify', { unit_uid: unit, input_uid: inputId($panel) })
+            .done(function (resp) { renderVerify($panel, resp && resp.success ? resp.data : null); });
+    }
+
+    // Load a panel's data with visible feedback: spin the refresh icon for the
+    // WHOLE operation — waiting on units (first time) AND the status/verify calls
+    // — so the panel never looks dead during LiveU's multi-second responses.
+    function activatePanel($panel) {
+        var $icon = $panel.find('.hscf-liveu-refresh .dashicons').addClass('hscf-spin');
+        return ensureUnits()
+            .then(function () { return $.when(refreshVerify($panel), refreshStatus($panel)); })
+            .always(function () { $icon.removeClass('hscf-spin'); });
+    }
+
+    // ── polling tied to card expansion ──────────────────────────────────────
+    // activatePanel() does the first (visible) load; this just keeps status
+    // fresh in the background while the card stays open.
+    function startPolling($panel) {
+        stopPolling($panel);
+        var id = setInterval(function () {
+            if ($panel.closest('.hscf-stream').hasClass('is-collapsed')) { stopPolling($panel); return; }
+            refreshStatus($panel);
+        }, 10000);
+        $panel.data('pollId', id);
+    }
+    function stopPolling($panel) {
+        var id = $panel.data('pollId');
+        if (id) { clearInterval(id); $panel.removeData('pollId'); }
+    }
+
+    // Expanding a card kicks off its LiveU panel (first check runs immediately,
+    // with the refresh icon spinning); collapsing stops the poll. Runs after the
+    // existing chevron handler, so is-collapsed is already toggled.
+    $(document).on('click', '.hscf-stream__chevron', function () {
+        var $stream = $(this).closest('.hscf-stream');
+        var $panel = $stream.find('.hscf-liveu');
+        if (!$panel.length) { return; }
+        if ($stream.hasClass('is-collapsed')) { stopPolling($panel); }
+        else { activatePanel($panel); startPolling($panel); }
+    });
+
+    // ── actions ─────────────────────────────────────────────────────────────
+    $(document).on('change', '.hscf-liveu-unit', function () {
+        var $panel = $(this).closest('.hscf-liveu');
+        localStorage.setItem(UNIT_LS, $(this).val());
+        // reflect the choice on every panel, then re-check this one
+        $('.hscf-liveu-unit').val($(this).val());
+        renderVerify($panel, null);
+        refreshVerify($panel);
+        refreshStatus($panel);
+    });
+
+    $(document).on('click', '.hscf-liveu-set', function () {
+        var $btn = $(this), $panel = $btn.closest('.hscf-liveu'), unit = panelUnit($panel);
+        if (!unit) { sendToModal('Pick a Solo unit first.'); return; }
+        var label = $btn.html();
+        $btn.prop('disabled', true).html('<span class="dashicons dashicons-update hscf-spin"></span> Arming…');
+        post('hscf_liveu_set_destination', { unit_uid: unit, input_uid: inputId($panel) })
+            .done(function (resp) {
+                if (resp && resp.success) {
+                    renderVerify($panel, resp.data.verify || { verified: resp.data.verified });
+                    refreshStatus($panel);
+                } else {
+                    renderVerify($panel, null);
+                    sendToModal((resp && resp.data) ? resp.data : 'Could not arm the destination.');
+                }
+            })
+            .fail(function () { sendToModal('Request failed while arming the destination.'); })
+            .always(function () { $btn.prop('disabled', false).html(label); });
+    });
+
+    // Single Start/Stop control — action depends on the button's current mode.
+    $(document).on('click', '.hscf-liveu-toggle-stream', function () {
+        var $btn = $(this), $panel = $btn.closest('.hscf-liveu'), unit = panelUnit($panel);
+        if (!unit) { sendToModal('Pick a Solo unit first.'); return; }
+        if ($btn.attr('data-mode') === 'stop') {
+            if (!window.confirm('Stop the LiveU stream?')) { return; }
+            $btn.data('busy', true).prop('disabled', true).html('<span class="dashicons dashicons-update hscf-spin"></span> Stopping…');
+            post('hscf_liveu_stop', { unit_uid: unit })
+                .done(function (resp) { if (!resp || !resp.success) { sendToModal((resp && resp.data) ? resp.data : 'Stop failed.'); } })
+                .fail(function () { sendToModal('Request failed while stopping the stream.'); })
+                .always(function () { $btn.data('busy', false); setTimeout(function () { refreshStatus($panel); }, 1500); });
+        } else {
+            var unitName = $panel.find('.hscf-liveu-unit option:selected').text();
+            var streamName = $panel.attr('data-input-name') || 'this stream';
+            if (!window.confirm('Start streaming ' + unitName + ' to "' + streamName + '"?\n\nThis goes LIVE to the configured destination.')) { return; }
+            $btn.data('busy', true).prop('disabled', true).html('<span class="dashicons dashicons-update hscf-spin"></span> Starting…');
+            post('hscf_liveu_start', { unit_uid: unit, input_uid: inputId($panel) })
+                .done(function (resp) { if (!resp || !resp.success) { sendToModal((resp && resp.data) ? resp.data : 'Start failed.'); } })
+                .fail(function () { sendToModal('Request failed while starting the stream.'); })
+                .always(function () { $btn.data('busy', false); setTimeout(function () { refreshStatus($panel); refreshVerify($panel); }, 1500); });
+        }
+    });
+
+    $(document).on('click', '.hscf-liveu-refresh', function () {
+        activatePanel($(this).closest('.hscf-liveu'));
+    });
+
+    // LRT on/off — independent of arming a destination. On pins San Jose.
+    $(document).on('change', '.hscf-liveu-lrt', function () {
+        var $cb = $(this), $panel = $cb.closest('.hscf-liveu'), unit = panelUnit($panel);
+        var on = $cb.prop('checked');
+        if (!unit) { sendToModal('Pick a Solo unit first.'); $cb.prop('checked', !on); return; }
+        $cb.prop('disabled', true);
+        post('hscf_liveu_lrt', { unit_uid: unit, on: on ? '1' : '0' })
+            .done(function (resp) {
+                if (!resp || !resp.success) {
+                    sendToModal((resp && resp.data) ? resp.data : 'LRT change failed.');
+                    $cb.prop('checked', !on);   // revert the switch on failure
+                }
+            })
+            .fail(function () { sendToModal('Request failed changing LRT.'); $cb.prop('checked', !on); })
+            .always(function () { $cb.prop('disabled', false); setTimeout(function () { refreshStatus($panel); }, 800); });
+    });
+
+    function escHtml(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
+    }
+});

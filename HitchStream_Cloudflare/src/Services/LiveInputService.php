@@ -138,6 +138,24 @@ class LiveInputService {
         delete_transient("hs_webhook_update_ts_{$input_id}");
     }
 
+    /**
+     * The RTMPS ingest URL + stream key + name for a live input, resolved
+     * server-side. Used by the LiveU panel so the stream key never round-trips
+     * through the browser. Uses the vanity ingest host (CNAME → Cloudflare) to
+     * match what streamers are handed elsewhere. Null if the key is unavailable.
+     */
+    public function rtmpIngest(string $input_id): ?array {
+        $result = $this->client->getLiveInput($input_id);
+        $data   = json_decode($result['body']);
+        $key    = $data->result->rtmps->streamKey ?? '';
+        if ($key === '') return null;
+        return [
+            'url'  => 'rtmps://live.hitchstream.com:443/live/',
+            'key'  => (string) $key,
+            'name' => $data->result->meta->name ?? '',
+        ];
+    }
+
     /** Get outputs for a live input. */
     public function getOutputs(string $input_id): array {
         $result = $this->client->get("stream/live_inputs/{$input_id}/outputs");

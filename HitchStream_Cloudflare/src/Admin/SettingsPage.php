@@ -819,6 +819,49 @@ class SettingsPage {
                 <a href="<?= esc_url($playerDebugUrl) ?>" target="_blank" rel="noopener" class="hscf-preview-pop" title="Open player in a new window (with debug panel)"><span class="dashicons dashicons-external"></span></a>
             </div>
         </div>
+        <?php if (\HS\Config::liveuConfigured()): ?>
+        <div class="hscf-liveu" data-input-id="<?= esc_attr($input->uid) ?>" data-input-name="<?= esc_attr($input_name) ?>">
+            <?php // 3-column grid: identity + arm on the left, stats centred up
+                  // top, LRT/refresh + the single Start-or-Stop control on the
+                  // right. Kept deliberately structured (grid areas) so items
+                  // sit in fixed slots rather than floating. ?>
+            <div class="hscf-liveu__id">
+                <span class="dashicons dashicons-video-alt3"></span>
+                <strong>LiveU&nbsp;Solo</strong>
+                <select class="hscf-liveu-unit" aria-label="Solo unit"><option value="">Loading units…</option></select>
+                <span class="hscf-liveu-offline" title="This Solo unit is powered off or disconnected — turn it on to use the controls."><span class="dashicons dashicons-warning"></span> Unit offline</span>
+            </div>
+            <div class="hscf-liveu__stats">
+                <span class="hscf-liveu-video hscf-liveu-video--off" title="Camera / video source feeding the encoder">—</span>
+                <span class="hscf-liveu-battery" title="Battery">—</span>
+                <div class="hscf-liveu-networks"></div>
+            </div>
+            <div class="hscf-liveu__ctl">
+                <span class="hscf-liveu-lrtgroup">
+                    <label class="hscf-toggle" title="LiveU Reliable Transport — bonded via <?= esc_attr(\HS\Config::liveuZone()) ?> when on, direct RTMP (no bonding) when off. Independent of arming a stream.">
+                        <input type="checkbox" class="hscf-liveu-lrt" aria-label="LRT on/off">
+                        <span class="hscf-toggle__track"><span class="hscf-toggle__thumb"></span></span>
+                    </label>
+                    <span class="hscf-liveu__zone" title="Current LRT state reported by the unit">LRT: <span class="hscf-liveu-zone-val">…</span></span>
+                </span>
+                <button type="button" class="button hscf-liveu-refresh" title="Refresh unit status"><span class="dashicons dashicons-update"></span></button>
+            </div>
+            <div class="hscf-liveu__arm">
+                <button type="button" class="button button-primary hscf-liveu-set"><span class="dashicons dashicons-migrate"></span> Set as destination</button>
+                <span class="hscf-liveu-verify hscf-liveu-verify--unknown">
+                    <span class="dashicons dashicons-marker"></span><span class="hscf-liveu-verify__text">Not checked</span>
+                </span>
+            </div>
+            <div class="hscf-liveu__go">
+                <span class="hscf-liveu-streamstate hscf-liveu-streamstate--unknown">—</span>
+                <?php // One state-aware control: "Start" when idle (gated on a
+                      // passing verification), flips to "Stop" while streaming. ?>
+                <button type="button" class="button hscf-liveu-toggle-stream hscf-liveu-toggle--start" data-mode="start" disabled title="Arm &amp; verify this stream first">
+                    <span class="dashicons dashicons-controls-play"></span> Start
+                </button>
+            </div>
+        </div>
+        <?php endif; ?>
     </div>
     <?php endforeach; endif; ?>
     <?php endif; ?>
