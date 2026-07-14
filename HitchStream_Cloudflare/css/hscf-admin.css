@@ -34,7 +34,10 @@
 @media (prefers-reduced-motion: reduce) { .hscf-card__head::before { transition: none; } }
 
 /* ── Buttons / rows ── */
-.hscf-admin .button .dashicons { font-size: 16px; width: 16px; height: 16px; vertical-align: text-top; margin-right: 2px; }
+ /* WP 7.0 centers .button .dashicons natively (buttons.css line-height rules,
+   incl. button-hero). Only add spacing — size/vertical tuning here fought the
+   new 40px-tall buttons and pushed icons off-center. */
+.hscf-admin .button .dashicons { margin-right: 4px; }
 .hscf-btn-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .hscf-btn-row .button-link-delete { margin-left: auto; }
 .hscf-status-box { margin-top: 12px; padding: 10px 12px; background: #f6f7f7; border: 1px solid #dcdcde; border-left: 4px solid #2271b1; border-radius: 3px; }
@@ -87,8 +90,8 @@
 .hscf-ph-row select { flex: 1 1 auto; min-width: 0; max-width: 190px; }
 .hscf-ph-status { flex: 0 0 auto; font-size: 12px; font-weight: 600; white-space: nowrap; }
 /* One button that cycles: green play → spinner → red stop → spinner → play.
-   Nudged down 1px so its center lines up with the select. */
-.hscf-ph-btn.button { position: relative; top: 2px; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; min-width: 36px; min-height: 30px; padding: 0 9px; box-shadow: none; }
+   Sized to WP 7's 40px controls; the flex row (align-items:center) centers it. */
+.hscf-ph-btn.button { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; min-width: 40px; min-height: 40px; padding: 0 9px; box-shadow: none; }
 .hscf-ph-btn .dashicons { width: 18px; height: 18px; font-size: 18px; }
 .hscf-ph-btn.is-idle { background: #008a20; border-color: #00761b; color: #fff; }
 .hscf-ph-btn.is-idle:hover { background: #0a7d22; border-color: #00761b; color: #fff; }
