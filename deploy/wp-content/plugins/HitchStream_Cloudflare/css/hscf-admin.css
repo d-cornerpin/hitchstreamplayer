@@ -92,7 +92,9 @@
 /* One button that cycles: green play → spinner → red stop → spinner → play.
    Sized to WP 7's 40px controls; the flex row (align-items:center) centers it. */
 .hscf-ph-btn.button { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; min-width: 40px; min-height: 40px; padding: 0 9px; box-shadow: none; }
-.hscf-ph-btn .dashicons { width: 18px; height: 18px; font-size: 18px; }
+/* Icon-only button: kill the icon-next-to-text margin AND WP 7 core's 38px
+   glyph line-height (both meant for text buttons) so flex centering is exact. */
+.hscf-admin .button.hscf-ph-btn .dashicons { width: 18px; height: 18px; font-size: 18px; line-height: 1; margin: 0; }
 .hscf-ph-btn.is-idle { background: #008a20; border-color: #00761b; color: #fff; }
 .hscf-ph-btn.is-idle:hover { background: #0a7d22; border-color: #00761b; color: #fff; }
 .hscf-ph-btn.is-running { background: #d63638; border-color: #b32d2e; color: #fff; }
