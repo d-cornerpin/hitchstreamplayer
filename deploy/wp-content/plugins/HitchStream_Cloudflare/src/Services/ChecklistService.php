@@ -48,6 +48,12 @@ class ChecklistService {
             // 3. Low-latency mode audit (known LiveU breaker).
             $rows[] = $lowLatencyRow;
 
+            // 3b. Housekeeping: retire state files for inputs that no longer
+            //     exist in Cloudflare (e.g. deleted via the CF dashboard, which
+            //     bypasses the plugin's own cleanup). The refresher loops over
+            //     every file forever, so orphans are pure wasted PHP.
+            $rows[] = $this->sweepOrphanStateFiles($inputs);
+
             // 4. Prime every input via the real REST route (same path the
             //    refresher uses — also creates files for brand-new inputs).
             $rows[] = $this->primeInputs($inputs);
@@ -137,6 +143,30 @@ class ChecklistService {
             : ['label' => 'Latency mode', 'status' => 'pass',
                'detail' => 'All inputs use standard latency (the reliable choice for LiveU).'];
         return [$row, $inputs, $llRow];
+    }
+
+    /**
+     * Delete hs-state files whose input no longer exists in Cloudflare, so the
+     * refresher stops tending ghosts. Only runs when the CF input list was
+     * fetched successfully and non-empty (a CF hiccup must never mass-delete).
+     */
+    private function sweepOrphanStateFiles(array $inputs): array {
+        $dir = WP_CONTENT_DIR . '/hs-state';
+        $removed = [];
+        foreach (glob($dir . '/*.json') ?: [] as $file) {
+            $id = basename($file, '.json');
+            if (!preg_match('/^[A-Za-z0-9_-]+$/', $id)) continue;
+            if (!isset($inputs[$id])) {
+                LiveInputService::retireStateFile($id);
+                $removed[] = substr($id, 0, 8) . '…';
+            }
+        }
+        if ($removed) {
+            return ['label' => 'State housekeeping', 'status' => 'pass',
+                'detail' => 'Retired ' . count($removed) . ' state file(s) for inputs deleted from Cloudflare (' . implode(', ', $removed) . ') — the refresher was still tending them.'];
+        }
+        return ['label' => 'State housekeeping', 'status' => 'pass',
+            'detail' => 'Every state file matches a real Cloudflare input — no wasted refresher work.'];
     }
 
     /** Prime each input through the real REST route (loopback). */

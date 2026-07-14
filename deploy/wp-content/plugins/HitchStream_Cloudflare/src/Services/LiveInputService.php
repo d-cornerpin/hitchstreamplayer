@@ -78,6 +78,11 @@ class LiveInputService {
         $data   = json_decode($result['body'], true);
 
         if ($result['success'] && ($data['success'] ?? false)) {
+            // Retire the input's state artifacts too. The droplet refresher
+            // loops over hs-state/*.json forever — a leftover file means it
+            // keeps polling a stream that no longer exists (found 2026-07-14:
+            // 4 ghost inputs = 57% of the refresher's PHP load was waste).
+            self::retireStateFile($input_id);
             return 'Live input deleted successfully.';
         }
         return 'Failed to delete live input: ' . json_encode($data['errors'] ?? []);
@@ -118,6 +123,19 @@ class LiveInputService {
         if (is_wp_error($vr)) return null;
         $vd = json_decode(wp_remote_retrieve_body($vr), true);
         return (is_array($vd) && isset($vd['liveViewers'])) ? (int) $vd['liveViewers'] : null;
+    }
+
+    /**
+     * Remove a deleted input's state artifacts: the hs-state flat file (so the
+     * refresher stops tending it) and the live-state transients. Safe to call
+     * for ids that have no file.
+     */
+    public static function retireStateFile(string $input_id): void {
+        if (!preg_match('/^[A-Za-z0-9_-]+$/', $input_id)) return;
+        $file = WP_CONTENT_DIR . '/hs-state/' . $input_id . '.json';
+        if (is_file($file)) @unlink($file);
+        delete_transient("hs_live_state_{$input_id}");
+        delete_transient("hs_webhook_update_ts_{$input_id}");
     }
 
     /** Get outputs for a live input. */
