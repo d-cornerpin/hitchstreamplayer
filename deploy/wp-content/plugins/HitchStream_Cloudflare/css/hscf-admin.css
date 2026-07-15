@@ -302,6 +302,12 @@ input:checked + .slider:before { transform: translateX(16px); }
 .hscf-liveu__zone { color: #646970; font-size: 12px; background: #f0f0f1; padding: 3px 9px; border-radius: 10px; }
 .hscf-liveu-refresh.button { min-height: 30px; padding: 0 7px; }
 .hscf-liveu-refresh.button .dashicons { margin: 0; }
+/* Flex-centre every LiveU button so the dashicon glyph sits on the text's
+   vertical centre. WP7's `.wp-core-ui .button .dashicons{line-height:1.9}` pushes
+   inline glyphs low; align-items:center + line-height:1 on the icon fixes it for
+   the static-icon buttons (Start/Stop, Set), same trick as the spinner rule. */
+.hscf-liveu .button { display: inline-flex; align-items: center; justify-content: center; }
+.hscf-liveu .button .dashicons { line-height: 1; }
 /* single Start/Stop control colouring */
 .hscf-liveu-toggle--start:not([disabled]) { border-color: #008a20; color: #008a20; }
 .hscf-liveu-toggle--stop { border-color: #d63638; color: #d63638; }
@@ -309,32 +315,56 @@ input:checked + .slider:before { transform: translateX(16px); }
 @media (max-width: 900px) {
     .hscf-liveu { grid-template-columns: 1fr 1fr; grid-template-areas: "id ctl" "stats stats" "arm go"; }
 }
-/* Phone: drop the grid entirely and stack as a flex column, so nothing can be
-   sized by a grid track's max-content (which was pushing the panel off-screen).
-   Each group stretches to the panel width and wraps its own contents. */
+/* Phone: exactly three rows.
+     row 1 — title + unit picker
+     row 2 — stats
+     row 3 — Set-as-destination + Start/Stop + LRT toggle (shrunk to one line)
+   Achieved with flex-wrap + order: rows 1 & 2 are flex-basis:100% so they own
+   their line; the three action groups (arm/go/ctl) share the last line. Controls
+   are shrunk and the redundant "Ready" pill + manual refresh are hidden so row 3
+   stays a single tidy line. Selectors are prefixed with .hscf-liveu (specificity
+   0,2,0) so they beat the single-class base rules that appear LATER in the file. */
 @media (max-width: 640px) {
     .hscf-liveu {
         display: flex;
-        flex-direction: column;
-        align-items: stretch;
-        gap: 10px;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px 4px;
+        padding: 12px 10px;
         max-width: 100%;
     }
-    /* Nothing may impose an intrinsic min-width (that's what propagated up and
-       pushed the whole panel past the card edge). */
     .hscf-liveu * { min-width: 0; }
-    /* each stacked row is exactly the panel width and wraps its own contents. */
-    .hscf-liveu > * {
-        width: 100%; max-width: 100%; box-sizing: border-box;
-        justify-content: flex-start; flex-wrap: wrap;
-    }
-    .hscf-liveu-set { justify-content: center; }
-    .hscf-liveu-unit { flex: 1 1 100%; width: 100%; }
-    /* the network chips lived in an inline-flex box (sizes to content, won't
-       shrink) — make it a full-width wrapping flex row. */
-    .hscf-liveu-networks { display: flex; flex-wrap: wrap; width: 100%; }
-    .hscf-liveu-lrtgroup { flex-wrap: wrap; width: 100%; }
-    .hscf-liveu-verify, .hscf-liveu__zone { overflow-wrap: anywhere; white-space: normal; }
+
+    /* row 1 — picker sits at its natural width, capped at the line so a long
+       unit name can never push past the card edge */
+    .hscf-liveu__id { order: 1; flex: 1 1 100%; display: flex; align-items: center; gap: 6px; }
+    .hscf-liveu .hscf-liveu-unit { flex: 0 1 auto; max-width: 100%; }
+
+    /* row 2 */
+    .hscf-liveu__stats { order: 2; flex: 1 1 100%; justify-content: flex-start; gap: 6px 8px; }
+
+    /* row 3 — three action groups on one shrunk line */
+    .hscf-liveu__arm { order: 3; flex: 0 1 auto; display: flex; align-items: center; gap: 5px; }
+    .hscf-liveu__go  { order: 4; flex: 0 1 auto; display: flex; align-items: center; gap: 5px; }
+    .hscf-liveu__ctl { order: 5; flex: 0 0 auto; display: flex; align-items: center; gap: 5px; margin-left: 0; }
+    .hscf-liveu .hscf-liveu-lrtgroup { margin-left: 0; gap: 5px; flex-wrap: nowrap; }
+
+    /* shrink the controls so row 3 fits one line (phones only) */
+    .hscf-liveu .button { font-size: 10px; min-height: 30px; padding: 0 6px; }
+    /* drop the Set button's decorative leading icon (label is self-explanatory)
+       to reclaim width — but keep the spinner shown while it's arming */
+    .hscf-liveu .hscf-liveu-set .dashicons:not(.hscf-spin) { display: none; }
+    /* verify collapses to its state icon (green ✓ / red ⚠ / grey 📍) — the icon
+       and colour carry the safety signal; the full sentence stays on desktop */
+    .hscf-liveu .hscf-liveu-verify { padding: 4px; }
+    .hscf-liveu .hscf-liveu-verify__text { display: none; }
+    .hscf-liveu .hscf-liveu-verify .dashicons { margin: 0; }
+    /* drop the static "LRT: " prefix on phones (the toggle already means LRT) and
+       show just the zone value — font-size:0 collapses the prefix text node */
+    .hscf-liveu .hscf-liveu__zone     { font-size: 0; padding: 2px 5px; white-space: nowrap; }
+    .hscf-liveu .hscf-liveu-zone-val  { font-size: 9px; letter-spacing: .01em; }
+    .hscf-liveu .hscf-liveu-streamstate { display: none; }  /* Start/Stop button + on-air glow convey this */
+    .hscf-liveu .hscf-liveu-refresh     { display: none; }  /* declutter; status refreshes on actions */
 }
 
 /* verification chip — the safety signal */
