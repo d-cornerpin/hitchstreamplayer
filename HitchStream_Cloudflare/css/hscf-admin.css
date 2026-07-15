@@ -305,8 +305,36 @@ input:checked + .slider:before { transform: translateX(16px); }
 /* single Start/Stop control colouring */
 .hscf-liveu-toggle--start:not([disabled]) { border-color: #008a20; color: #008a20; }
 .hscf-liveu-toggle--stop { border-color: #d63638; color: #d63638; }
+/* Tablet: 2 columns. */
 @media (max-width: 900px) {
     .hscf-liveu { grid-template-columns: 1fr 1fr; grid-template-areas: "id ctl" "stats stats" "arm go"; }
+}
+/* Phone: drop the grid entirely and stack as a flex column, so nothing can be
+   sized by a grid track's max-content (which was pushing the panel off-screen).
+   Each group stretches to the panel width and wraps its own contents. */
+@media (max-width: 640px) {
+    .hscf-liveu {
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+        max-width: 100%;
+    }
+    /* Nothing may impose an intrinsic min-width (that's what propagated up and
+       pushed the whole panel past the card edge). */
+    .hscf-liveu * { min-width: 0; }
+    /* each stacked row is exactly the panel width and wraps its own contents. */
+    .hscf-liveu > * {
+        width: 100%; max-width: 100%; box-sizing: border-box;
+        justify-content: flex-start; flex-wrap: wrap;
+    }
+    .hscf-liveu-set { justify-content: center; }
+    .hscf-liveu-unit { flex: 1 1 100%; width: 100%; }
+    /* the network chips lived in an inline-flex box (sizes to content, won't
+       shrink) — make it a full-width wrapping flex row. */
+    .hscf-liveu-networks { display: flex; flex-wrap: wrap; width: 100%; }
+    .hscf-liveu-lrtgroup { flex-wrap: wrap; width: 100%; }
+    .hscf-liveu-verify, .hscf-liveu__zone { overflow-wrap: anywhere; white-space: normal; }
 }
 
 /* verification chip — the safety signal */
