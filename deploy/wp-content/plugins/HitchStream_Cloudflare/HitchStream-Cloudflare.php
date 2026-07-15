@@ -14,7 +14,7 @@ if (defined('ABSPATH') === false) {
 
 // Cache-buster for js/hscf-admin.js + css/hscf-admin.css. One constant so the
 // wp-admin page and the standalone /control page can never drift apart.
-define('HSCF_ASSET_VER', '2.50');
+define('HSCF_ASSET_VER', '2.51');
 
 // ── Boot new architecture ───────────────────────────────────────
 

@@ -7,7 +7,8 @@
  * new-input gap — a brand-new Live Input gets its hs-state file created and is
  * thereby enrolled in the droplet refresher), verifies the static files viewers
  * poll, the guest-facing player page, response times, server load, disk, SSL
- * expiry, wp-cron, the placeholder streamer, webhook wiring, and alert config.
+ * expiry, wp-cron, the placeholder streamer, the LiveU Solo portal (unofficial
+ * API — fresh login + real call), webhook wiring, and alert config.
  *
  * Each check returns a row: ['label','status' (pass|warn|fail),'detail'].
  * Fail = will break the viewer experience; warn = degraded-but-safe.
@@ -80,10 +81,13 @@ class ChecklistService {
         // 13. Placeholder streamer service.
         $rows[] = $this->checkStreamerService();
 
-        // 14. Live webhook wiring (instant transitions).
+        // 14. LiveU Solo portal (unofficial API — fresh login + real API call).
+        $rows[] = $this->checkLiveU();
+
+        // 15. Live webhook wiring (instant transitions).
         $rows[] = $this->checkWebhook();
 
-        // 15. Alert emails.
+        // 16. Alert emails.
         $rows[] = $this->checkAlerts();
 
         $rows = array_values(array_filter($rows));
@@ -411,6 +415,39 @@ class ChecklistService {
                 'detail' => 'Streamer service unreachable (' . $r['error'] . '). Only matters if you plan to run a placeholder stream today.'];
         }
         return ['label' => 'Placeholder streamer', 'status' => 'pass', 'detail' => 'streamer1 is reachable and authenticated.'];
+    }
+
+    /**
+     * LiveU Solo portal: fresh login + a real API round-trip. This rides an
+     * UNOFFICIAL API, so prove it end-to-end before every event — a cached
+     * bearer token can mask a changed password, so verifyLogin() forces a
+     * from-scratch login (without touching the cached token), then units()
+     * exercises the lu-central API host + response parsing.
+     */
+    private function checkLiveU(): array {
+        $label = 'LiveU Solo portal';
+        if (!\HS\Config::liveuConfigured()) {
+            return ['label' => $label, 'status' => 'warn',
+                'detail' => 'Not configured — no Solo email/password saved. Only matters if a LiveU is streaming today (Settings → LiveU Solo).'];
+        }
+        try {
+            $t0 = microtime(true);
+            (new \HS\LiveU\Client())->verifyLogin();          // fresh auth, no cache
+            $units = (new LiveUService())->units();            // authenticated API call
+            $ms = (int) round((microtime(true) - $t0) * 1000);
+        } catch (\Throwable $e) {
+            return ['label' => $label, 'status' => 'fail',
+                'detail' => 'LiveU check failed — ' . $e->getMessage()
+                    . ' Fix the Solo email/password (Settings → LiveU Solo); if the credentials are right, the unofficial API may have changed.'
+                    . ' Until resolved, control the encoder from solo.liveu.tv — streams themselves still work.'];
+        }
+        if (!$units) {
+            return ['label' => $label, 'status' => 'warn',
+                'detail' => 'Login and API are working (' . $ms . 'ms) but no Solo units are visible in the account. If a unit should be here, check it is registered to this Solo account.'];
+        }
+        $names = implode(', ', array_map(fn($u) => $u['alias'], $units));
+        return ['label' => $label, 'status' => 'pass',
+            'detail' => 'Fresh login + unit list OK in ' . $ms . 'ms — ' . count($units) . ' unit(s): ' . $names . '.'];
     }
 
     private function checkWebhook(): array {

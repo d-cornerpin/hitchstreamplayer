@@ -38,12 +38,42 @@ class LiveUService {
         return $id;
     }
 
-    /** Units as a flat list for the picker: [{uid, alias, availability}]. */
+    /**
+     * Throw a descriptive error when a portal response is a transport failure
+     * (status 0 = never reached the host) or an HTTP error. The Client parsers
+     * are deliberately loose and turn any of those into empty lists — fine for
+     * telemetry, but for the units/inventory calls "empty" must mean genuinely
+     * empty, not "the unofficial API is down", or the UI lies ("No units found")
+     * exactly when the operator most needs to know the connection is broken.
+     */
+    private function ensureOk(array $r, string $what): array {
+        $status = (int) ($r['status'] ?? 0);
+        if ($status === 0) {
+            $why = trim((string) ($r['raw'] ?? '')) ?: 'network error';
+            throw new \RuntimeException("could not reach the LiveU portal while {$what} — " . mb_substr($why, 0, 160));
+        }
+        if ($status >= 400) {
+            throw new \RuntimeException("the LiveU portal answered HTTP {$status} while {$what} — the credentials may be wrong, or the (unofficial) API may have changed.");
+        }
+        return $r;
+    }
+
+    /**
+     * Units as a flat list for the picker: [{uid, alias, availability}].
+     * Throws (via ensureOk / Client::login) when the portal is unreachable or
+     * rejects us, so callers can tell "no units" apart from "no connection".
+     */
     public function units(): array {
         $inv = $this->inventoryDbId();
-        if (!$inv) return [];
+        if (!$inv) {
+            // Distinguish "portal unreachable / API error" from "empty account":
+            // re-probe the inventory call and classify the failure.
+            $this->ensureOk($this->client->listInventories(), 'listing inventories');
+            return []; // portal answered fine — the account really has no inventory
+        }
         $out = [];
-        foreach (Client::parseUnits($this->client->listUnits($inv)) as $u) {
+        $r = $this->ensureOk($this->client->listUnits($inv), 'listing units');
+        foreach (Client::parseUnits($r) as $u) {
             $uid = Client::unitUid($u);
             if (!$uid) continue;
             $out[] = [
@@ -214,7 +244,16 @@ class LiveUService {
 
     /** Aggregate battery + networks + stream state for the status panel. */
     public function statusFor(string $unitUid): array {
-        $status = Client::unwrapObj($this->client->getUnitStatus($unitUid)['json']);
+        $statusResp = $this->client->getUnitStatus($unitUid);
+        // Transport failure (status 0) = the portal itself is unreachable — throw
+        // so the UI can alert, instead of rendering it as a powered-off unit.
+        // HTTP error codes stay tolerated: telemetry endpoints legitimately
+        // error for offline units, and the loose parsers render that as "off".
+        if ((int) ($statusResp['status'] ?? 0) === 0) {
+            $why = trim((string) ($statusResp['raw'] ?? '')) ?: 'network error';
+            throw new \RuntimeException('could not reach the LiveU portal for unit status — ' . mb_substr($why, 0, 160));
+        }
+        $status = Client::unwrapObj($statusResp['json']);
         $battery = $status['battery'] ?? Client::unwrapObj($this->client->getBattery($unitUid)['json']);
         $video   = Client::unwrapObj($this->client->getVideo($unitUid)['json']);
         $ifaces  = Client::unwrapList($this->client->getInterfaces($unitUid)['json'] ?? null, 'interfaces');

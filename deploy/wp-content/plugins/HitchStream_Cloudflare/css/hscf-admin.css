@@ -367,6 +367,22 @@ input:checked + .slider:before { transform: translateX(16px); }
     .hscf-liveu .hscf-liveu-refresh     { display: none; }  /* declutter; status refreshes on actions */
 }
 
+/* ── LiveU connection alert (auth failed / portal unreachable — never silent) ── */
+.hscf-liveu-alert {
+    display: flex; align-items: flex-start; gap: 10px;
+    margin: 12px 0; padding: 12px 14px;
+    background: #fcf0f1; border: 1px solid #d63638; border-left-width: 4px; border-radius: 4px;
+    color: #3c434a; font-size: 13px; line-height: 1.5;
+}
+.hscf-liveu-alert > .dashicons { color: #d63638; font-size: 22px; width: 22px; height: 22px; flex: 0 0 auto; margin-top: 1px; }
+.hscf-liveu-alert__body { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.hscf-liveu-alert__body strong { color: #b32d2e; }
+.hscf-liveu-alert__actions { display: flex; gap: 8px; flex: 0 0 auto; align-self: center; }
+@media (max-width: 640px) {
+    .hscf-liveu-alert { flex-wrap: wrap; }
+    .hscf-liveu-alert__actions { flex-basis: 100%; align-self: auto; }
+}
+
 /* verification chip — the safety signal */
 .hscf-liveu-verify { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 11px; font-size: 12px; font-weight: 600; white-space: nowrap; }
 .hscf-liveu-verify .dashicons { font-size: 16px; width: 16px; height: 16px; }

@@ -980,20 +980,61 @@ jQuery(function ($) {
         }, data || {}));
     }
 
+    // ── connection alert ────────────────────────────────────────────────────
+    // The LiveU integration rides an UNOFFICIAL portal API, so connection/auth
+    // failures must be loud, not silent: one banner at the top of the streams
+    // list with the server's reason and both ways out (fix credentials in
+    // Settings, or drive the encoder from the LiveU dashboard until resolved).
+    // Any successful LiveU call clears it.
+    function showLiveUAlert(message) {
+        var $box = $('#hscf-liveu-alert');
+        if (!$box.length) {
+            var settingsHref = $('.hscf-tabs a[href*="tab=settings"]').attr('href') || '#';
+            $box = $(
+                '<div id="hscf-liveu-alert" class="hscf-liveu-alert" role="alert">' +
+                    '<span class="dashicons dashicons-warning"></span>' +
+                    '<div class="hscf-liveu-alert__body">' +
+                        '<strong>LiveU connection problem</strong> — <span class="hscf-liveu-alert__msg"></span><br>' +
+                        'Check the Solo email &amp; password in Settings, or control the encoder from the LiveU dashboard until this is fixed. Streams themselves still work.' +
+                    '</div>' +
+                    '<span class="hscf-liveu-alert__actions">' +
+                        '<a href="' + settingsHref + '" class="button">Open Settings</a>' +
+                        '<a href="https://solo.liveu.tv/dashboard" target="_blank" rel="noopener" class="button">LiveU Dashboard</a>' +
+                    '</span>' +
+                '</div>'
+            );
+            var $tabs = $('.hscf-tabs').first();
+            if ($tabs.length) { $box.insertAfter($tabs); } else { $('.hscf-admin').prepend($box); }
+        }
+        $box.find('.hscf-liveu-alert__msg').text(message || 'LiveU did not respond.');
+    }
+    function clearLiveUAlert() { $('#hscf-liveu-alert').remove(); }
+
     // ── unit picker ─────────────────────────────────────────────────────────
     // Returns a promise that resolves once units are loaded + selects populated.
-    // Cached after the first load; concurrent callers share one request.
+    // Cached after the first load; concurrent callers share one request. On
+    // failure NOTHING is cached (so re-expanding a card retries) and the alert
+    // banner shows the server's reason — an error reply must never render as
+    // the (false) "No units found".
     function ensureUnits() {
         if (unitsCache) { return $.Deferred().resolve().promise(); }
         if (unitsPromise) { return unitsPromise; }
         unitsPromise = post('hscf_liveu_units')
             .done(function (resp) {
-                unitsCache = (resp && resp.success && resp.data && resp.data.units) ? resp.data.units : [];
-                populateUnitSelects();
+                if (resp && resp.success && resp.data && resp.data.units) {
+                    unitsCache = resp.data.units;
+                    populateUnitSelects();
+                    clearLiveUAlert();
+                } else {
+                    $('.hscf-liveu-unit').html('<option value="">LiveU unreachable</option>');
+                    showLiveUAlert((resp && resp.data) ? resp.data : 'LiveU did not answer the units request.');
+                }
             })
             .fail(function () {
                 $('.hscf-liveu-unit').html('<option value="">LiveU unreachable</option>');
-            });
+                showLiveUAlert('The request failed before reaching LiveU — check the site/connection and reload.');
+            })
+            .always(function () { unitsPromise = null; }); // retry allowed once settled
         return unitsPromise;
     }
 
@@ -1150,18 +1191,27 @@ jQuery(function ($) {
     }
 
     // ── data refresh ────────────────────────────────────────────────────────
+    // Error replies raise the connection banner (a success later clears it) —
+    // a powered-off unit is NOT an error (statusFor reports it as offline data);
+    // an error here means auth failed or the portal itself was unreachable.
     function refreshStatus($panel) {
         var unit = panelUnit($panel);
         if (!unit) { return $.Deferred().resolve().promise(); }
         return post('hscf_liveu_status', { unit_uid: unit })
-            .done(function (resp) { if (resp && resp.success) { renderStatus($panel, resp.data); } });
+            .done(function (resp) {
+                if (resp && resp.success) { renderStatus($panel, resp.data); clearLiveUAlert(); }
+                else { showLiveUAlert((resp && resp.data) ? resp.data : 'LiveU did not answer the status request.'); }
+            });
     }
 
     function refreshVerify($panel) {
         var unit = panelUnit($panel);
         if (!unit) { return $.Deferred().resolve().promise(); }
         return post('hscf_liveu_verify', { unit_uid: unit, input_uid: inputId($panel) })
-            .done(function (resp) { renderVerify($panel, resp && resp.success ? resp.data : null); });
+            .done(function (resp) {
+                renderVerify($panel, resp && resp.success ? resp.data : null);
+                if (resp && !resp.success && resp.data) { showLiveUAlert(resp.data); }
+            });
     }
 
     // Load a panel's data with visible feedback: spin the refresh icon for the
