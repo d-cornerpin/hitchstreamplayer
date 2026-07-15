@@ -518,7 +518,14 @@ class SettingsPage {
     // ── Admin page HTML ──────────────────────────────────────────
 
     /** Render the full admin page. Extracted from old HSCF_Admin(). */
-    public static function renderAdminUI(): void {
+    /**
+     * Render the whole console. Serves two surfaces from one markup:
+     *   - the wp-admin menu page (default), and
+     *   - the standalone /control page (ControlPage passes $standalone=true),
+     * which differ only in what URL the page itself lives at — so $base (tab
+     * links, self-links) flips, and forms always post to admin URLs absolutely.
+     */
+    public static function renderAdminUI(bool $standalone = false): void {
         // ── Process operations (hardened — a Cloudflare/config failure must
         //    never fatal the admin page) ──
         if (isset($_GET['delete_input'], $_GET['confirm_delete']) && $_GET['confirm_delete'] === 'yes') {
@@ -530,7 +537,10 @@ class SettingsPage {
 
         $tab = isset($_GET['tab']) ? sanitize_key($_GET['tab']) : 'streams';
         if (!in_array($tab, ['streams', 'videos', 'checklist', 'settings'], true)) { $tab = 'streams'; }
-        $base       = admin_url('admin.php?page=HitchStream_Cloudflare');
+        // Self-links (tabs, delete) point at whichever surface is rendering.
+        $base       = $standalone
+            ? home_url('/' . \HS\Admin\ControlPage::PATH)
+            : admin_url('admin.php?page=HitchStream_Cloudflare');
         $account_id = get_option('HSCF_cloudflare_account_id', '');
         $cf_dash    = $account_id
             ? 'https://dash.cloudflare.com/' . rawurlencode($account_id) . '/stream/videos'
@@ -549,10 +559,12 @@ class SettingsPage {
     <hr class="wp-header-end">
 
     <nav class="nav-tab-wrapper hscf-tabs">
-        <a href="<?= esc_url($base . '&tab=streams') ?>" class="nav-tab <?= $tab === 'streams' ? 'nav-tab-active' : '' ?>"><span class="dashicons dashicons-video-alt2"></span> Live Streams</a>
-        <a href="<?= esc_url($base . '&tab=videos') ?>" class="nav-tab <?= $tab === 'videos' ? 'nav-tab-active' : '' ?>"><span class="dashicons dashicons-format-video"></span> Video Library</a>
-        <a href="<?= esc_url($base . '&tab=checklist') ?>" class="nav-tab <?= $tab === 'checklist' ? 'nav-tab-active' : '' ?>"><span class="dashicons dashicons-yes-alt"></span> Checklist</a>
-        <a href="<?= esc_url($base . '&tab=settings') ?>" class="nav-tab <?= $tab === 'settings' ? 'nav-tab-active' : '' ?>"><span class="dashicons dashicons-admin-generic"></span> Settings</a>
+        <?php // add_query_arg: $base may or may not already carry a query string
+              // (admin.php?page=... vs /control), so don't hand-append &tab=. ?>
+        <a href="<?= esc_url(add_query_arg('tab', 'streams', $base)) ?>" class="nav-tab <?= $tab === 'streams' ? 'nav-tab-active' : '' ?>"><span class="dashicons dashicons-video-alt2"></span> Live Streams</a>
+        <a href="<?= esc_url(add_query_arg('tab', 'videos', $base)) ?>" class="nav-tab <?= $tab === 'videos' ? 'nav-tab-active' : '' ?>"><span class="dashicons dashicons-format-video"></span> Video Library</a>
+        <a href="<?= esc_url(add_query_arg('tab', 'checklist', $base)) ?>" class="nav-tab <?= $tab === 'checklist' ? 'nav-tab-active' : '' ?>"><span class="dashicons dashicons-yes-alt"></span> Checklist</a>
+        <a href="<?= esc_url(add_query_arg('tab', 'settings', $base)) ?>" class="nav-tab <?= $tab === 'settings' ? 'nav-tab-active' : '' ?>"><span class="dashicons dashicons-admin-generic"></span> Settings</a>
     </nav>
 
     <?php if ($tab === 'settings'): ?>
@@ -569,7 +581,7 @@ class SettingsPage {
         <details class="hscf-card" open>
             <summary class="hscf-card__head"><span class="dashicons dashicons-cloud"></span> Cloudflare API <span class="hscf-card__hint"><?= $account_id ? '<span class="hscf-ok">Account ID set</span>' : '<span class="hscf-warn">Account ID missing</span>' ?></span></summary>
             <div class="hscf-card__body">
-                <form method="post" action="options.php">
+                <form method="post" action="<?= esc_url(admin_url('options.php')) ?>">
                     <?php settings_fields('HSCF_settings'); ?>
                     <table class="form-table" role="presentation"><?php do_settings_fields('HitchStream_Cloudflare', 'HSCF_cloudflare_settings_section'); ?></table>
                     <?php submit_button('Save Cloudflare API'); ?>
@@ -580,7 +592,7 @@ class SettingsPage {
         <details class="hscf-card">
             <summary class="hscf-card__head"><span class="dashicons dashicons-rss"></span> Live Webhook <span class="hscf-card__hint"><?= get_option('HSCF_webhook_policy_id', '') ? '<span class="hscf-ok">Configured</span>' : '<span class="hscf-warn">Not set up</span>' ?></span></summary>
             <div class="hscf-card__body">
-                <form method="post" action="options.php" id="webhook-settings-form">
+                <form method="post" action="<?= esc_url(admin_url('options.php')) ?>" id="webhook-settings-form">
                     <?php settings_fields('HSCF_webhook_settings'); ?>
                     <?php self::webhook_section_desc(); ?>
                     <table class="form-table" role="presentation"><?php do_settings_fields('HitchStream_Cloudflare', 'HSCF_webhook_settings_section'); ?></table>
@@ -597,7 +609,7 @@ class SettingsPage {
         <details class="hscf-card">
             <summary class="hscf-card__head"><span class="dashicons dashicons-format-video"></span> Player <span class="hscf-card__hint"><?= get_option('HSCF_customer_id', '') ? '<span class="hscf-ok">Customer ID set</span>' : '<span class="hscf-warn">Customer ID missing</span>' ?></span></summary>
             <div class="hscf-card__body">
-                <form method="post" action="options.php">
+                <form method="post" action="<?= esc_url(admin_url('options.php')) ?>">
                     <?php settings_fields('HSCF_player_settings'); ?>
                     <?php self::player_section_desc(); ?>
                     <table class="form-table" role="presentation"><?php do_settings_fields('HitchStream_Cloudflare', 'HSCF_player_settings_section'); ?></table>
@@ -609,7 +621,7 @@ class SettingsPage {
         <details class="hscf-card">
             <summary class="hscf-card__head"><span class="dashicons dashicons-controls-play"></span> Streamer Service</summary>
             <div class="hscf-card__body">
-                <form method="post" action="options.php">
+                <form method="post" action="<?= esc_url(admin_url('options.php')) ?>">
                     <?php settings_fields('HSCF_streamer_settings'); ?>
                     <?php self::streamer_section_desc(); ?>
                     <table class="form-table" role="presentation"><?php do_settings_fields('HitchStream_Cloudflare', 'HSCF_streamer_settings_section'); ?></table>
@@ -621,7 +633,7 @@ class SettingsPage {
         <details class="hscf-card">
             <summary class="hscf-card__head"><span class="dashicons dashicons-email-alt"></span> Alerts</summary>
             <div class="hscf-card__body">
-                <form method="post" action="options.php">
+                <form method="post" action="<?= esc_url(admin_url('options.php')) ?>">
                     <?php settings_fields('HSCF_alert_settings'); ?>
                     <?php self::alert_section_desc(); ?>
                     <table class="form-table" role="presentation"><?php do_settings_fields('HitchStream_Cloudflare', 'HSCF_alert_settings_section'); ?></table>
@@ -633,7 +645,7 @@ class SettingsPage {
         <details class="hscf-card">
             <summary class="hscf-card__head"><span class="dashicons dashicons-video-alt3"></span> LiveU Solo <span class="hscf-card__hint"><?= \HS\Config::liveuConfigured() ? '<span class="hscf-ok">Login set</span>' : '<span class="hscf-warn">Not configured</span>' ?></span></summary>
             <div class="hscf-card__body">
-                <form method="post" action="options.php">
+                <form method="post" action="<?= esc_url(admin_url('options.php')) ?>">
                     <?php settings_fields('HSCF_liveu_settings'); ?>
                     <?php self::liveu_section_desc(); ?>
                     <table class="form-table" role="presentation"><?php do_settings_fields('HitchStream_Cloudflare', 'HSCF_liveu_settings_section'); ?></table>
@@ -745,7 +757,7 @@ class SettingsPage {
     <?php if ($live_inputs === 'not_configured'): ?>
         <div class="hscf-empty hscf-empty--warn">
             <span class="dashicons dashicons-warning"></span>
-            <p><strong>Cloudflare isn't configured yet.</strong> Add your Account ID and authentication under the <a href="<?= esc_url($base . '&tab=settings') ?>">Settings</a> tab, then your live streams will appear here.</p>
+            <p><strong>Cloudflare isn't configured yet.</strong> Add your Account ID and authentication under the <a href="<?= esc_url(add_query_arg('tab', 'settings', $base)) ?>">Settings</a> tab, then your live streams will appear here.</p>
         </div>
     <?php elseif (is_string($live_inputs)): ?>
         <div class="hscf-empty hscf-empty--warn">
@@ -760,7 +772,10 @@ class SettingsPage {
     <?php else: foreach ($live_inputs as $input):
         if (!is_object($input) || !isset($input->uid)) { continue; }
         $input_name   = $input->meta->name ?? 'Unnamed Input';
-        $delete_link  = admin_url('admin.php?page=HitchStream_Cloudflare&delete_input=' . esc_attr($input->uid) . '&confirm_delete=yes');
+        $delete_link  = add_query_arg(
+            ['delete_input' => rawurlencode($input->uid), 'confirm_delete' => 'yes'],
+            $base
+        );
         $is_connected = isset($input->status_details) && $input->status_details === 'connected';
         $status_label = $input->status_details ?? 'Status unavailable';
         $rtmpKey      = $input->rtmp_details->streamKey ?? '';

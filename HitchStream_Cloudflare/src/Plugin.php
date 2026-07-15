@@ -14,6 +14,7 @@ namespace HS;
 require_once __DIR__ . '/Admin/AjaxController.php';
 require_once __DIR__ . '/Admin/SettingsPage.php';
 require_once __DIR__ . '/Admin/ActivityPage.php';
+require_once __DIR__ . '/Admin/ControlPage.php';
 require_once __DIR__ . '/BackwardCompat.php';
 
 class Plugin {
@@ -28,6 +29,7 @@ class Plugin {
         add_action('admin_menu', [Admin\SettingsPage::class, 'registerMenu']);
         Admin\SettingsPage::register();
         Admin\ActivityPage::register();
+        Admin\ControlPage::register();
         add_action('admin_notices', [Admin\SettingsPage::class, 'showConfigNotices']);
         // Idempotently ensure the webhook log table exists. dbDelta no-ops
         // when the schema already matches. This covers the existing-install

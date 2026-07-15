@@ -81,12 +81,8 @@ function get_status_ajax_callback() {
 add_action('wp_ajax_get_status_ajax_', 'get_status_ajax_callback');
 add_action('wp_ajax_nopriv_get_status_ajax_', 'get_status_ajax_callback'); // For non-logged-in users.
 
-function hide_admin_bar_on_specific_page() {
-    if (is_page_template('hitchstreamcontrols.php')) { // Replace 'hitchstreamcontrols.php' with the correct template file name if different
-        show_admin_bar(false);
-    }
-}
-add_action('template_redirect', 'hide_admin_bar_on_specific_page');
+// (hide_admin_bar_on_specific_page for the old hitchstreamcontrols.php template
+// is gone — /control is now served by the plugin's ControlPage, theme-free.)
 
 function enqueue_scripts() {
     global $post;

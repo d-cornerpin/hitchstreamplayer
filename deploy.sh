@@ -51,6 +51,9 @@ CONFIRM_BEFORE_UPLOAD="${CONFIRM_BEFORE_UPLOAD:-true}"
 SERVER_CLEANUP_PATHS=(
     "${REMOTE_THEME}/js/HSPlayerElement.js"
     "${REMOTE_THEME}/js/old"
+    # Defunct "HitchStream Controls" page template — /control is now served by
+    # the plugin's ControlPage (2026-07-15).
+    "${REMOTE_THEME}/hitchstreamcontrols.php"
 )
 
 # ── Argument parsing ─────────────────────────────────────────────────────────
